@@ -87,18 +87,11 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
       hasStoredWifi_ = true;
       FW_LOG_VERBOSE("[WIFICFG] stored SSID=\"%s\"\n", storedSsid_);
       snprintf(reply, sizeof(reply), "WIFICFG;STORED;%s", storedSsid_);
-      // Hand the car over to the webserver mode immediately — the app asked
-      // for exactly this flow: provision over BT, then the car joins the
-      // router and hosts its page. comm_ still points at BT inside
-      // setMode(), so the STATE;MODE=ESP_SER announcement reaches the app.
+      // v2: WIFICFG stores the pair and rejoins — it NO LONGER switches the
+      // car into ESP_SER (that mode is retired; the web layer is always-on
+      // and handles the join from any mode, drive or not).
       if (modeManager) {
-        // T-34: when the car is ALREADY in ESP_SER, setMode(SERVER) is a no-op
-        // for the loop's edge-triggered beginStation() (lastMode == SERVER), so
-        // new credentials were only applied on the NEXT mode cycle. Force an
-        // immediate disconnect + reconnect to the fresh pair instead.
-        const bool wasAlreadyServer = (modeManager->getMode() == ModeManager::Mode::SERVER);
-        modeManager->setMode(ModeManager::Mode::SERVER);
-        if (wasAlreadyServer) rejoinNetwork();
+        rejoinNetwork();
       }
     }
   } else {
@@ -397,7 +390,8 @@ void WebServerComm::buildNetworksJson(char* buf, size_t bufLen) {
 }
 
 bool WebServerComm::showReservedEntry() const {
-  return modeManager && modeManager->getMode() == ModeManager::Mode::SERVER;
+  // v2: the web layer is always-on — the own-AP reserved entry is permanent.
+  return true;
 }
 
 void WebServerComm::startOwnAP() {
@@ -474,6 +468,19 @@ void WebServerComm::init() {
 }
 
 bool WebServerComm::begin() { return true; }
+
+// v2 (owner plan 2026-09-28, Phase 1): ALWAYS-ON web layer. Own AP + HTTP :80
+// + WS :81 come up at boot and NEVER stop; a stored router is joined ONLY on
+// explicit request (ROUTERS;USE / WIFICFG), so the AP stays the default
+// network exactly as R-16 established for the donor. Replaces the donor's
+// SERVER-mode-entry beginStation() path.
+void WebServerComm::beginAlwaysOn() {
+  beginStation();  // WIFI_AP + startOwnAP() + server.begin() + ws.begin()
+  WiFi.mode(WIFI_AP_STA);  // ready for explicit router joins without a mode dance
+  updateExtraInfo();
+  FW_LOG("[V2] Web layer always-on: AP=%s ip=192.168.245.1 http=:80 ws=:81\n",
+         apName_.c_str());
+}
 
 bool WebServerComm::beginStation() {
   // F-20a: NON-blocking connect — never stall loop() waiting for the AP.
@@ -751,7 +758,16 @@ bool WebServerComm::send(const char* msg) {
 
 void WebServerComm::flush() {}
 
-bool WebServerComm::connected() { return WiFi.status() == WL_CONNECTED; }
+bool WebServerComm::connected() {
+  // v2 transport-honest: WS clients win, then the joined STA network. The
+  // own-AP-only state (broadcasting, nobody linked to the WS) is NOT a
+  // command channel — a safe-stop must still fire on it. (The donor returned
+  // WiFi.status()==WL_CONNECTED, which in AP-only sessions was always false —
+  // correct for its ESP_SER dashboard, wrong as a link-loss signal for an
+  // always-on layer.)
+  if (ws.connectedClients() > 0) return true;
+  return WiFi.status() == WL_CONNECTED;
+}
 
 void WebServerComm::currentIp(char* buf, size_t bufLen) {
   if (!buf || bufLen == 0) return;

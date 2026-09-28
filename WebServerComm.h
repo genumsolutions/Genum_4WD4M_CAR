@@ -52,6 +52,12 @@ public:
   void init();
   bool begin();
   bool beginStation();
+  // v2 (owner plan 2026-09-28, Phase 1): ALWAYS-ON web layer — bring up the
+  // own AP + HTTP/WS servers once at boot and leave them running for the
+  // whole uptime. The donor tied this lifecycle to ESP_SER (SERVER) mode;
+  // v2 has no mode-gated transport at all (stop() remains for shutdown/OTA
+  // style use, never called from loop()).
+  void beginAlwaysOn();
   // T-34: force a disconnect + reconnect to the CURRENT stored credentials
   // (new WIFICFG pair). Fixes re-provisioning while already in ESP_SER: the
   // rejoin previously sat behind the edge-triggered mode-change check + the
@@ -198,11 +204,12 @@ private:
 
   void updateExtraInfo();
 
-  // T-65 (round-9): bring the car's own hotspot (4WDCar_Wifi) up and keep
-  // apRunning_/apName_ consistent. Idempotent while in webserver mode.
+  // T-65 (round-9) + v2: bring the car's own hotspot (4WDCar_Wifi) up and
+  // keep apRunning_/apName_ consistent. Idempotent; retried by handle() on a
+  // softAP failure (FIN-40/D1) — the AP is up for the WHOLE uptime in v2.
   void startOwnAP();
-  // T-66 (round-9): the reserved own-AP entry is only listed while the car is
-  // in webserver (ESP_SER) mode — the routers list is that mode's page.
+  // T-66 (round-9) + v2: the reserved own-AP entry is ALWAYS listed — the
+  // web layer (and its routers list) is always-on, no longer SERVER-scoped.
   bool showReservedEntry() const;
 
   static WebServerComm* instanceForWs;

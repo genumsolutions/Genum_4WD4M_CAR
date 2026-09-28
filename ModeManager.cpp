@@ -19,7 +19,7 @@ static uint32_t defaultNow() { return millis(); }
 // Genum_SELF_BALANCE_CAR reference where it is proven on hardware).
 static TwoWD1M g_2wd1mHandler;
 
-// ---- Mode registry (D-2) ----
+// ---- Mode registry (D-2; v2 fleet reference, owner plan 2026-09-28) ----
 // token = canonical protocol token (MODE_CMDS[] parity with the ESP remote).
 // Adding a future mode = new Mode enum value + one row here + (optional) a
 // drive handler; dispatch, STATE emission and token mapping read from this
@@ -31,11 +31,16 @@ static TwoWD1M g_2wd1mHandler;
 //                   "stub":true AND the CAPS;... map to all controllers, so
 //                   clients mark the mode but still allow toggling to it (the
 //                   car renders its own COMING SOON / IN PROGRESS frame).
+// v2 ARCHITECTURE (owner ruling R-4, plan § Phase 1): the web layer is an
+// ALWAYS-ON connection/setup channel, NOT a mode. ESP_SER (webserver) and
+// ESP_CLI (webclient) are retired as drive modes → CS; 4WD4M is the single
+// live drive mode and accepts drive over BOTH transports (Bluetooth via
+// acceptsBtDrive, WebSocket/HTTP via the WIRE source — see handleCommand()).
 const ModeManager::ModeEntry ModeManager::MODE_REGISTRY[ModeManager::MODE_COUNT] = {
   //                     token     display             sgn   auto  drive avail       btDrive
   { Mode::BT,      "4WD4M",   "4WD4M",            false, false, true,  ModeAvail::LIVE, true  },
-  { Mode::SERVER,  "ESP_SER", "ESP32(WEBSERVER)", false, false, true,  ModeAvail::LIVE, false },
-  { Mode::CLIENT,  "ESP_CLI", "ESP32(WEBCLIENT)", false, false, false, ModeAvail::WIP,  false },
+  { Mode::SERVER,  "ESP_SER", "ESP32(WEBSERVER)", false, false, true,  ModeAvail::CS,   false },
+  { Mode::CLIENT,  "ESP_CLI", "ESP32(WEBCLIENT)", false, false, false, ModeAvail::CS,   false },
   { Mode::PATH,    "PATH",    "PATH",             false, true,  false, ModeAvail::CS,   false },
   { Mode::OBS_US,  "OBS_US",  "OBSTACLE(US)",     false, true,  false, ModeAvail::CS,   false },
   { Mode::OBS_IR,  "OBS_IR",  "OBSTACLE(IR)",     false, true,  false, ModeAvail::CS,   false },
@@ -178,9 +183,10 @@ void ModeManager::setMode(Mode newMode) {
                           registryFor(currentMode_).acceptsDrive);
   }
 
-  if (auxComm_ != nullptr && currentMode_ != Mode::SERVER) {
-    comm_ = auxComm_;
-  }
+  // v2: NO transport swapping on mode change. comm_ stays the always-on web
+  // transport and auxComm_ stays Bluetooth for the whole uptime (wired once
+  // in setup()); both are polled every loop() and STATE fans out to both.
+  // (Donor behaviour — `comm_ = auxComm_` outside SERVER — is retired.)
 
   bool conn = isConnectedNow();
   snprintf(statusText_, STATUS_TEXT_LEN, "mode changed.");
@@ -397,22 +403,15 @@ void ModeManager::handleCommand(const char* cmdC, CmdSource src) {
 }
 
 void ModeManager::sendState() {
-  // T-38 (round-3): broadcast on EVERY connected transport. In SERVER mode
-  // comm_ is WebServerComm whose write() only reaches WiFi (WS/HTTP) clients —
-  // the BT hand-held remote never saw STATE (its ESP_SER dashboard sat at
-  // "(connecting...)/(none)/State: starting..." while the browser had the
-  // car). Mirror the same STATE over the BT channel so the remote gets the
-  // live SSID/AP/IP (pattern proven by the T-35 provisioning reply push).
-  bool sent = false;
+  // v2: fan out to EVERY transport in EVERY mode — comm_ is the always-on
+  // web transport (WS/HTTP) and auxComm_ is Bluetooth. (Donor mirrored BT
+  // only inside SERVER mode; v2 has no mode-gated transport at all.)
   if (comm_ && comm_->connected()) {
     sendStateOn(*comm_);
-    sent = true;
   }
-  if (currentMode_ == Mode::SERVER && auxComm_ && auxComm_->connected()) {
+  if (auxComm_ && auxComm_ != comm_ && auxComm_->connected()) {
     sendStateOn(*auxComm_);
-    sent = true;
   }
-  (void)sent;
 }
 
 void ModeManager::sendStateOn(CommInterface& comm) {
@@ -432,7 +431,10 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // R-13: plus the car's LIVE reachable IP (`;IP=`), so the remote OLED and
   // the app deck show where to point a browser / WS even over pure WiFi.
   char wifiKeys[128] = "";
-  if (currentMode_ == Mode::SERVER) {
+  // v2: WiFi truth (SSID / AP id / reachable IP) rides EVERY STATE line in
+  // EVERY mode — the web layer is always-on and no longer SERVER-scoped.
+  // (instanceForWs may be null pre-setup(); guarded.)
+  {
     WebServerComm* ws = WebServerComm::instance();  // may be null pre-setup
     if (ws && ws->storedSsid()[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";SSID=%s", ws->storedSsid());
     if (ws && ws->apBroadcastId()[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";AP=%s", ws->apBroadcastId());
@@ -575,17 +577,20 @@ void ModeManager::run() {
     if (n > 0) handleCommand(cmdBuf);
   }
 
-  if (comm_ != nullptr && comm_->available()) {
+  if (comm_ != nullptr && comm_ != auxComm_ && comm_->available()) {
     size_t n = readLineFromComm(comm_, cmdBuf, sizeof(cmdBuf), 20);
-    if (n > 0) handleCommand(cmdBuf);
+    // v2: comm_ is the always-on web transport — queued lines are WIRE-sourced
+    // (the WS/HTTP handlers dispatch live; this drain keeps the queue clean
+    // with consistent source truth instead of the donor's default-source echo).
+    if (n > 0) handleCommand(cmdBuf, CmdSource::WIRE);
   }
 
   // F-22: periodic STATE broadcast keeps the remote's mode/speed mirror fresh
   // (prevents the remote's stale-telemetry safe-stop while connected).
-  // T-38 (round-3): the tick fires when EITHER transport is live — in SERVER
-  // mode the browser can be absent while the BT remote is connected.
+  // v2: the tick fires when EITHER transport is live — the app can sit on a
+  // WebSocket to the car's own AP while the BT remote is also connected.
   bool anyConnected = (comm_ != nullptr && comm_->connected()) ||
-                      (currentMode_ == Mode::SERVER && auxComm_ != nullptr && auxComm_->connected());
+                      (auxComm_ != nullptr && auxComm_->connected());
   if (anyConnected) {
     uint32_t now = nowFn_();
     if (now - lastStateMs_ >= STATE_INTERVAL_MS) {
@@ -598,15 +603,10 @@ void ModeManager::run() {
 }
 
 bool ModeManager::isConnectedNow() const {
-  if (currentMode_ == Mode::BT) {
-    return comm_ ? comm_->connected() : false;
-  }
-  if (currentMode_ == Mode::SERVER) {
-    if (extraInfo_[0] == '\0') return false;
-    if (strstr(extraInfo_, "dBm") != nullptr) return true;
-    if (strchr(extraInfo_, '.') != nullptr) return true;
-    return false;
-  }
+  // v2: "connected" = ANY transport link up — Bluetooth (auxComm_) or the
+  // always-on web transport (comm_: joined STA network OR a live WS client).
+  // Mode-independent by design: the web layer is not a mode anymore.
+  if (auxComm_ && auxComm_ != comm_ && auxComm_->connected()) return true;
   return comm_ ? comm_->connected() : false;
 }
 
@@ -643,11 +643,17 @@ void ModeManager::applyBootState() {
   uint8_t bootMode = 0xFF;
   uint16_t bootSpeed = 0xFFFF;
   if (loadBootState(bootMode, bootSpeed)) {
-    if (bootMode < MODE_COUNT) {
+    // v2: only restore modes that are still LIVE. A retired (CS) restored
+    // mode — e.g. ESP_SER from donor-firmware NVS on the refit testbed —
+    // would boot the car into a COMING SOON frame; keep 4WD4M instead.
+    if (bootMode < MODE_COUNT && !registryFor(static_cast<Mode>(bootMode)).isStub()) {
       currentMode_ = static_cast<Mode>(bootMode);
       // T-41 (round-3): level-1 so reboot-restore is visible on the flash
-      // session (pins the ESP_CLI revert: does a [BOOT] line appear?).
+      // session.
       FW_LOG("[BOOT] Restored mode=%s\n", modeToString(currentMode_));
+    } else if (bootMode < MODE_COUNT) {
+      FW_LOG("[BOOT] Restored mode=%s is retired (CS) in v2 - keeping 4WD4M.\n",
+             registryFor(static_cast<Mode>(bootMode)).token);
     }
     if (bootSpeed >= static_cast<uint16_t>(MIN_SPEED) && bootSpeed <= static_cast<uint16_t>(MAX_SPEED)) {
       speed_ = bootSpeed;

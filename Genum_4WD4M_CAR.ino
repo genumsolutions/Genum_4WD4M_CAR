@@ -62,27 +62,25 @@ void setup() {
   // rejoins the user's router, not the default.
   webServerComm.loadStoredWifi();
   // T-13: restore the last mode + speed from NVS (validated + clamped in
-  // applyBootState). Runs AFTER webServerComm.init() so a restored SERVER
-  // session can join WiFi from setup(); a fresh boot with no saved state
-  // keeps the constructor defaults (BT / MIN_SPEED). The previous blanket
-  // setMode(BT) here is gone — restored state is now authoritative.
+  // applyBootState). v2: mode is a DRIVE concept only (4WD4M is the single
+  // live mode); the web layer below is started unconditionally BEFORE this
+  // so the car is always reachable. The donor's restored-SERVER special case
+  // is gone — no mode implies a transport anymore.
   // v1.4.0 provisioning: WIFICFG lines (app → BT) are intercepted before any
   // other command path, in every mode. Replies ride STATE as REPLY=….
   // T-48 (round-5): ROUTERS;… registry commands ride the SAME hook (single
   // system-command entry point — FAILSAFE W-14/F-21).
+  // v2: WIFICFG NO LONGER SWITCHES MODE — the car stays in 4WD4M; the web
+  // layer rejoins the new network while every transport stays live.
   modeManager.setSystemCommandHook([](const char* cmd) -> bool {
     const bool isRouterCmd = webServerComm.handleRouterCommand(cmd);
     const bool isWifiCmd = webServerComm.handleWifiConfigCommand(cmd);
     if (!isRouterCmd && !isWifiCmd) return false;
     if (webServerComm.lastWifiReply().length() > 0) {
       modeManager.queueReply(webServerComm.lastWifiReply().c_str());
-      // T-35: while already in ESP_SER, comm_ is webServerComm whose write()
-      // is a transport no-op — the queued WIFICFG;STORED;… confirmation would
-      // DIE there and the app would keep showing the stale/default SSID.
-      // T-63 (round-9): sendState() fans the reply out over EVERY connected
-      // transport — the Bluetooth channel after a BT provision, and the
-      // website's WebSocket after an in-SERVER router change (the app's
-      // Remote window). Pairs with app optimistic SSID A-15.
+      // T-35/T-63: fan the reply out over EVERY connected transport (STATE
+      // carries REPLY=…). v2: no ESP_SER special case — both transports are
+      // permanent, so the confirmation always reaches the app.
       modeManager.sendState();
       webServerComm.clearLastWifiReply();
     }
@@ -91,8 +89,15 @@ void setup() {
   webServerComm.loadSavedRouters();
   modeManager.applyBootState();
 
-  modeManager.setAuxComm(&btComm);
-  modeManager.setComm(&btComm);
+  // v2 ARCHITECTURE (owner plan 2026-09-28, Phase 1): the web layer is an
+  // ALWAYS-ON connection/setup channel — NEVER a mode. Bring the AP + HTTP/WS
+  // servers up once here and leave them running for the whole uptime; both
+  // transports are wired permanently (comm_ = web, auxComm_ = BT) and polled
+  // every loop(). No mode-based comm swapping exists anymore.
+  webServerComm.beginAlwaysOn();
+  modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
+  modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
+  lastMode = modeManager.getMode();
 }
 
 static bool checkSwitchPressed() {
@@ -153,26 +158,19 @@ void loop() {
 
   ModeManager::Mode current = modeManager.getMode();
   if (current != lastMode) {
-    if (current == ModeManager::Mode::SERVER) {
-      FW_LOG_VERBOSE("Switching to SERVER mode, connecting WiFi...\n");
-      bool ok = webServerComm.beginStation();
-      FW_LOG_VERBOSE("beginStation() returned: %s\n", ok ? "OK" : "FAIL");
-      if (ok) webServerComm.refreshExtraInfo();
-      modeManager.setComm(&webServerComm);
-    } else {
-      if (lastMode == ModeManager::Mode::SERVER) {
-        FW_LOG_VERBOSE("Leaving SERVER mode, stopping WebServer...\n");
-        webServerComm.stop();
-      }
-      modeManager.setComm(&btComm);
-      modeManager.setExtraInfo("");
-    }
+    // v2: drive-mode changes no longer touch transports or the web layer.
+    // ESP_SER/ESP_CLI are CS stubs (the car renders COMING SOON); the Wi-Fi
+    // truth for those tokens rides extraInfo_ so the OLED/STATE stay honest.
     lastMode = current;
+    if (current == ModeManager::Mode::SERVER || current == ModeManager::Mode::CLIENT) {
+      webServerComm.refreshExtraInfo();  // SSID/AP/IP rows for the retired-mode frames
+    }
   }
 
-  if (webServerComm.isRunning()) {
-    webServerComm.handle();
-  }
+  // v2: the web layer is ALWAYS-ON — handle() runs unconditionally every
+  // loop (HTTP + WS + STA/AP resolution + 1 s JSON broadcast). The donor's
+  // `if (webServerComm.isRunning())` mode-gate is retired.
+  webServerComm.handle();
 
   // T-7b/T-7c (2WD1M-car parity): prolonged BT disconnect → hard-restart the
   // BT stack; low battery (when a divider is wired) or critically low heap →
