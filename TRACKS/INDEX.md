@@ -4,9 +4,11 @@
 > this repo). Cross-project ledger: workspace `guide/GUIDE.md`. Master plan:
 > `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md`.
 
-**Status (2026-09-28):** Phase 0 EXECUTED — fresh v1.0.0 baseline created from
-`Genum_WIRELESS_CAR` 1.8.4 (`d0bf8c0`) with renamed identity (BT `4WD CAR` · AP `4WDCar_Wifi` ·
-AP 192.168.245.1/24). Fresh git history; no pushes yet (owner decides remote/origin later).
+**Status (2026-09-28):** Phase 0 EXECUTED + GATE G0 PASSED — fresh v1.0.0 baseline from
+`Genum_WIRELESS_CAR` 1.8.4 (`d0bf8c0`), renamed identity (BT `4WD CAR` · AP `4WDCar_Wifi` ·
+AP 192.168.245.1/24), baseline commit **`ac1a9c8`** (main, 30 files), compile gate green
+**1,742,066 B (55%) / 69,516 B (21%) RAM**. No remote/push yet (owner decides). Phase 1
+(v2 re-architecture) BLOCKED on owner "go Phase 1".
 
 | File | Purpose |
 |---|---|
