@@ -4,11 +4,15 @@
 > this repo). Cross-project ledger: workspace `guide/GUIDE.md`. Master plan:
 > `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md`.
 
-**Status (2026-09-28):** Phase 0 EXECUTED + GATE G0 PASSED — fresh v1.0.0 baseline from
-`Genum_WIRELESS_CAR` 1.8.4 (`d0bf8c0`), renamed identity (BT `4WD CAR` · AP `4WDCar_Wifi` ·
-AP 192.168.245.1/24), baseline commit **`ac1a9c8`** (main, 30 files), compile gate green
-**1,742,066 B (55%) / 69,516 B (21%) RAM**. No remote/push yet (owner decides). Phase 1
-(v2 re-architecture) BLOCKED on owner "go Phase 1".
+**Status (2026-09-28):** Phase 0 EXECUTED + GATE G0 PASSED **AND LIVE ON CI** — fresh v1.0.0
+baseline from `Genum_WIRELESS_CAR` 1.8.4 (`d0bf8c0`), renamed identity (BT `4WD CAR` · AP
+`4WDCar_Wifi` · AP 192.168.245.1/24), commits **`ac1a9c8`** (baseline) + **`a0a06b1`** (TRACKS
+gate record), pushed to `origin/main` (github.com/genumsolutions/Genum_4WD4M_CAR, private).
+CI **GREEN** — run `36376315823`: **1,742,018 B (55%) / 69,516 B (21%) RAM** (local G0 run:
+1,742,066 B — 48 B toolchain variance). NOTE: the first CI run (`36376298563`) failed on the
+**root commit** — `compile-sketches` `enable-deltas-report` needs a parent commit; one-time
+fresh-repo artifact, not a code failure. Phase 1 (v2 re-architecture) BLOCKED on owner
+"go Phase 1".
 
 | File | Purpose |
 |---|---|

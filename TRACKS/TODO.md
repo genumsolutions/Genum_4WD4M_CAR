@@ -10,9 +10,12 @@
 - [x] **P0-4** `TRACKS/` skeleton (this folder)
 - [x] **P0-5** rename sweep CLEAN (grep: zero `Genum_WIRELESS_CAR`/`WirelessCar_Wifi`/
       `WIRELESS CAR`/`192.168.244` outside storyboard history notes)
-- [ ] **P0-6** git init + baseline commit (next step in this session)
-- [ ] **P0-7** Gate G0: local arduino-cli compile (huge_app) — owner runs or CI runs after
-      GitHub remote is added
+- [x] **P0-6** git init + baseline commit **`ac1a9c8`** (main, root commit; 30 files; secrets.h
+      NOT tracked — verified)
+- [x] **P0-7** Gate G0: **PASSED twice** — local `arduino-cli` (huge_app) **1,742,066 B (55%) /
+      69,516 B (21%) RAM** + CI run `36376315823` **GREEN: 1,742,018 B (55%)** (run
+      `36376298563` failed on the root commit — deltas-report needs a parent; one-time
+      fresh-repo artifact, recorded here so it never reads as a regression)
 
 ## Phase 1 — v2 re-architecture (BLOCKED on owner "go Phase 1")
 - [ ] **P1-1** `acceptsDrive` for 4WD4M true over BOTH comm paths (retire transport scoping)
