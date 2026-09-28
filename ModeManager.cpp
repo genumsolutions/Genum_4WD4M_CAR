@@ -1,0 +1,750 @@
+// =====================================================================
+// Genum_4WD4M_CAR — multimode 4WD4M car firmware (ESP32 + L298N)
+// File: ModeManager.cpp — mode engine: handleCommand() single path (T-1),
+//       registry gating, failsafe, STATE/CAP/NACK broadcast
+// Property of GENUM SOLUTIONS PVT. LTD.
+// =====================================================================
+#include "ModeManager.h"
+#include "WebServerComm.h"
+#include "ParamsStore.h"
+#include <Arduino.h>
+#include <string.h>
+#include <ctype.h>
+#include "WebServerComm.h"
+#include "TwoWD1M.h"
+
+static uint32_t defaultNow() { return millis(); }
+
+// 2WD1M-compat drive handler (D-2 approved; ported from the
+// Genum_SELF_BALANCE_CAR reference where it is proven on hardware).
+static TwoWD1M g_2wd1mHandler;
+
+// ---- Mode registry (D-2) ----
+// token = canonical protocol token (MODE_CMDS[] parity with the ESP remote).
+// Adding a future mode = new Mode enum value + one row here + (optional) a
+// drive handler; dispatch, STATE emission and token mapping read from this
+// table (kills the F-21/F-23 token-drift class structurally).
+// Capability flags (T-17/T-19, W-13/W-10, owner matrix 2026-09-15):
+//   acceptsDrive  = mode accepts F/B/L/R/S direction letters (driving mode)
+//   avail         = LIVE (functional now) / WIP (in progress) / CS (coming soon).
+//                   isStub()==true (WIP + CS) is announced via WS JSON
+//                   "stub":true AND the CAPS;... map to all controllers, so
+//                   clients mark the mode but still allow toggling to it (the
+//                   car renders its own COMING SOON / IN PROGRESS frame).
+const ModeManager::ModeEntry ModeManager::MODE_REGISTRY[ModeManager::MODE_COUNT] = {
+  //                     token     display             sgn   auto  drive avail       btDrive
+  { Mode::BT,      "4WD4M",   "4WD4M",            false, false, true,  ModeAvail::LIVE, true  },
+  { Mode::SERVER,  "ESP_SER", "ESP32(WEBSERVER)", false, false, true,  ModeAvail::LIVE, false },
+  { Mode::CLIENT,  "ESP_CLI", "ESP32(WEBCLIENT)", false, false, false, ModeAvail::WIP,  false },
+  { Mode::PATH,    "PATH",    "PATH",             false, true,  false, ModeAvail::CS,   false },
+  { Mode::OBS_US,  "OBS_US",  "OBSTACLE(US)",     false, true,  false, ModeAvail::CS,   false },
+  { Mode::OBS_IR,  "OBS_IR",  "OBSTACLE(IR)",     false, true,  false, ModeAvail::CS,   false },
+  { Mode::MANUAL,  "MAN",     "MANUAL (RF)",      false, false, true,  ModeAvail::CS,   false },
+  { Mode::AUTO,    "AUTO",    "AUTONOMOUS",       false, true,  false, ModeAvail::CS,   true  },
+  { Mode::M2WD1M,  "2WD1M",   "2WD1M",            true,  false, true,  ModeAvail::CS,   true  },
+};
+
+const ModeManager::ModeEntry& ModeManager::registryFor(Mode m) {
+  for (int i = 0; i < MODE_COUNT; ++i) {
+    if (MODE_REGISTRY[i].mode == m) return MODE_REGISTRY[i];
+  }
+  return MODE_REGISTRY[0];
+}
+
+const char* ModeManager::modeToCommandToken(Mode m) {
+  return registryFor(m).token;
+}
+
+const char* ModeManager::getModeToken() const {
+  return registryFor(currentMode_).token;
+}
+
+void ModeManager::buildCapsMap(char* buf, size_t bufLen) const {
+  if (!buf || bufLen == 0) return;
+  buf[0] = '\0';
+  size_t used = 0;
+  for (int i = 0; i < MODE_COUNT; ++i) {
+    const ModeEntry& e = MODE_REGISTRY[i];
+    const char* state = (e.avail == ModeAvail::LIVE) ? "LIVE"
+                      : (e.avail == ModeAvail::WIP)  ? "WIP"
+                                                     : "CS";
+    int n = snprintf(buf + used, bufLen - used, "%s:%s;", e.token, state);
+    if (n < 0 || static_cast<size_t>(n) >= bufLen - used) {
+      buf[used] = '\0';  // truncated; keep the complete prefix
+      return;
+    }
+    used += static_cast<size_t>(n);
+  }
+  if (used > 0) buf[used - 1] = '\0';  // drop trailing ';'
+}
+
+// Map internal status text to a whitelisted protocol status word for STATE
+// lines and WS JSON (guide F-23: protocol consumers must never receive
+// display noise; the app whitelist is carProtocol.ts ALLOWED_DRIVE_STATUSES).
+static void whitelistedStatus(const char* raw, char* out, size_t outLen) {
+  static const char* const kAllowed[] = { "Forward", "Backward", "Left", "Right", "Stopped" };
+  if (raw && raw[0]) {
+    for (const char* a : kAllowed) {
+      if (strncasecmp(raw, a, strlen(a)) == 0) { snprintf(out, outLen, "%s", a); return; }
+    }
+    if (strncasecmp(raw, "Speed", 5) == 0) { snprintf(out, outLen, "Speed set"); return; }
+  }
+  // Failsafe Stop / Ready / Disconnected / mode change / stub screens are all
+  // safe-stop truths on this car today.
+  snprintf(out, outLen, "Stopped");
+}
+
+ModeManager::ModeManager(MotorControl* motor, CommInterface* primaryComm, OledDisplay* oled)
+  : motor_(motor),
+    comm_(primaryComm),
+    auxComm_(nullptr),
+    oled_(oled),
+    currentMode_(Mode::BT),
+    lastCommandTimeMs_(0),
+    speed_(MIN_SPEED),
+    failsafeActive_(false),
+    failsafeStartMs_(0),
+    readyDisplayed_(false),
+    lastConnected_(false),
+    lastOledMs_(0),
+    lastStateMs_(0),
+    systemCmdHook_(nullptr),
+    pendingModeSpeedSave_(false),
+    modeSpeedSaveMs_(0),
+    nowFn_(defaultNow)
+{
+  statusText_[0] = '\0';
+  extraInfo_[0] = '\0';
+  lastOledStatus_[0] = '\0';
+  pendingReply_[0] = '\0';
+  g_2wd1mHandler.reset();
+}
+
+void ModeManager::queueReply(const char* text) {
+  if (!text || !text[0]) return;
+  strncpy(pendingReply_, text, sizeof(pendingReply_) - 1);
+  pendingReply_[sizeof(pendingReply_) - 1] = '\0';
+}
+
+ModeManager::~ModeManager() = default;
+
+const char* ModeManager::modeToString(Mode m) const {
+  return registryFor(m).displayName;  // registry-driven (D-2)
+}
+
+void ModeManager::setComm(CommInterface* newComm) {
+  if (newComm) comm_ = newComm;
+}
+
+void ModeManager::setAuxComm(CommInterface* aux) {
+  auxComm_ = aux;
+}
+
+void ModeManager::setExtraInfo(const char* info) {
+  if (!info) { extraInfo_[0] = '\0'; return; }
+  strncpy(extraInfo_, info, EXTRA_INFO_LEN - 1);
+  extraInfo_[EXTRA_INFO_LEN - 1] = '\0';
+}
+
+size_t ModeManager::getStatusText(char* buf, size_t bufLen) const {
+  if (!buf || bufLen == 0) return 0;
+  strncpy(buf, statusText_, bufLen - 1);
+  buf[bufLen - 1] = '\0';
+  return strlen(buf);
+}
+
+int ModeManager::getSpeed() const { return static_cast<int>(speed_); }
+ModeManager::Mode ModeManager::getMode() const { return currentMode_; }
+const char* ModeManager::getModeString() const { return modeToString(currentMode_); }
+bool ModeManager::isConnectedNowPublic() const { return isConnectedNow(); }
+
+void ModeManager::setMode(Mode newMode) {
+  Mode prevMode = currentMode_;
+  currentMode_ = newMode;
+  if (motor_) motor_->drive(Action::STOP, 0);
+  g_2wd1mHandler.reset();  // clear 2WD1M joystick state on mode entry
+
+  failsafeActive_ = false;
+  readyDisplayed_ = false;
+  lastCommandTimeMs_ = nowFn_();
+
+  // T-18 (W-8): push registry truth (token + capability flags) to the OLED so
+  // layout decisions never depend on display strings (2026-09-15: isStub +
+  // isWip so WIP modes render an IN-PROGRESS frame, not a live dashboard).
+  if (oled_) {
+    oled_->setModeContext(getModeToken(),
+                          registryFor(currentMode_).isStub(),
+                          registryFor(currentMode_).avail == ModeAvail::WIP,
+                          registryFor(currentMode_).acceptsDrive);
+  }
+
+  if (auxComm_ != nullptr && currentMode_ != Mode::SERVER) {
+    comm_ = auxComm_;
+  }
+
+  bool conn = isConnectedNow();
+  snprintf(statusText_, STATUS_TEXT_LEN, "mode changed.");
+  // W-9/T-18: a mode change must ALWAYS produce one immediate OLED frame —
+  // bypass the status-changed check and the draw throttle (W-3-style early
+  // path). MANUAL entry rendered slowly on hardware because this draw was
+  // skipped when the status text repeated.
+  if (oled_) oled_->draw(statusText_, speed_, conn, modeToString(currentMode_), extraInfo_);
+  strncpy(lastOledStatus_, statusText_, STATUS_TEXT_LEN - 1);
+  lastOledStatus_[STATUS_TEXT_LEN - 1] = '\0';
+  lastOledMs_ = nowFn_();
+
+  // F-22: push authoritative state so remote/app chips update instantly.
+  sendState();
+
+  // T-41 (round-3): persist the mode IMMEDIATELY (no 1 s debounce) so a reboot
+  // right after a switch restores the SAME mode — the owner's ESP_CLI revert
+  // (2WD1M after a while) is a candidate stale-boot-restore. Speed persist
+  // stays debounced (setSpeed). Level-1 serial log so the next flash session
+  // can tell a reboot-restore from a never-delivered command.
+  saveBootState(static_cast<uint8_t>(currentMode_), speed_);
+  FW_LOG("[MODE] set %s -> %s (speed=%d, btFed=%d)\n",
+         modeToString(prevMode), modeToString(currentMode_), static_cast<int>(speed_),
+         auxComm_ ? (auxComm_->connected() ? 1 : 0) : -1);
+
+  FW_LOG_VERBOSE("Free heap (Mode change): %d\n", static_cast<int>(ESP.getFreeHeap()));
+}
+
+void ModeManager::cycleMode() {
+  int next = static_cast<int>(currentMode_) + 1;
+  if (next >= MODE_COUNT || next < 0) next = 0;
+  FW_LOG("[MODE] cycle button -> %s\n", modeToString(static_cast<Mode>(next)));
+  setMode(static_cast<Mode>(next));
+}
+
+static void trimWhitespace(char* s) {
+  if (!s) return;
+  char* start = s;
+  while (*start && isspace((unsigned char)*start)) start++;
+  if (start != s) memmove(s, start, strlen(start) + 1);
+  size_t len = strlen(s);
+  while (len > 0 && isspace((unsigned char)s[len - 1])) s[--len] = '\0';
+}
+
+void ModeManager::handleCommand(const char* cmdC, CmdSource src) {
+  if (!cmdC) return;
+  char cmdBuf[128];
+  strncpy(cmdBuf, cmdC, sizeof(cmdBuf) - 1);
+  cmdBuf[sizeof(cmdBuf) - 1] = '\0';
+  trimWhitespace(cmdBuf);
+  if (cmdBuf[0] == '\0') return;
+
+  // v1.4.0 provisioning: system commands (WIFICFG) run before every other
+  // path — they must work in every mode and never collide with mode tokens.
+  if (systemCmdHook_ && systemCmdHook_(cmdBuf)) {
+    return;
+  }
+
+  if (strncmp(cmdBuf, "MODE_", 5) == 0) {
+    setModeFromString(cmdBuf + 5);
+    return;
+  }
+
+  // F-22: authoritative state request (remote sends this on connect,
+  // app polls it every 2s).
+  if (strncasecmp(cmdBuf, "REQ_STATE", 9) == 0) {
+    sendState();
+    return;
+  }
+  // T-49 (round-5): saved-networks request — sendState() broadcasts STATE +
+  // CAPS + the NETW; names line on every connected transport.
+  if (strncasecmp(cmdBuf, "REQ_NETW", 8) == 0) {
+    sendState();
+    return;
+  }
+
+  // W-13/T-17: a REJECTED command must NOT reset the failsafe clock, so the
+  // idle-clock refresh happens only where the command is actually accepted.
+  // Stop ('S') is always accepted (stopping is safe in every mode).
+  const bool modeAcceptsDrive = registryFor(currentMode_).acceptsDrive;
+
+  // D-2: 2WD1M-compat mode routes signed SPD/SERVO to the drive handler
+  // BEFORE the absolute-speed parsing below (remote parity, see reference
+  // Genum_SELF_BALANCE_CAR/2WD1M.cpp). v1.4.0: skipped in stub modes — a
+  // coming-soon mode must not drive through the signed path either.
+  if (registryFor(currentMode_).usesSignedSpd && !isCurrentModeStub()) {
+    // T-29: Bluetooth transport drives 2WD1M only where the registry says so;
+    // WIRE (WS/HTTP) is always allowed for a LIVE drive-capable mode.
+    if ((src == CmdSource::WIRE || registryFor(currentMode_).acceptsBtDrive) &&
+        g_2wd1mHandler.handleCommand(cmdBuf, motor_, speed_, this)) {
+      lastCommandTimeMs_ = nowFn_();
+      failsafeActive_ = false;
+      readyDisplayed_ = false;
+      return;
+    }
+  }
+
+  if (cmdBuf[0] == '#') {
+    // v1.4.0: '#<n>' speed set is refused in stub modes too.
+    if (isCurrentModeStub()) {
+      snprintf(statusText_, STATUS_TEXT_LEN, "COMING SOON");
+      if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+      return;
+    }
+    lastCommandTimeMs_ = nowFn_();
+    failsafeActive_ = false;
+    readyDisplayed_ = false;
+    int val = atoi(cmdBuf + 1);
+    if (val < static_cast<int>(MIN_SPEED)) val = MIN_SPEED;
+    if (val > static_cast<int>(MAX_SPEED)) val = MAX_SPEED;
+    speed_ = static_cast<uint16_t>(val);
+    // T-13: persist the authoritative speed (debounced write).
+    scheduleModeSpeedPersist();
+    snprintf(statusText_, STATUS_TEXT_LEN, "Speed Update");
+    uint32_t now = nowFn_();
+    const unsigned long OLED_MIN_INTERVAL = 150;
+    if (now - lastOledMs_ >= OLED_MIN_INTERVAL) {
+      if (oled_ && strncmp(statusText_, lastOledStatus_, STATUS_TEXT_LEN) != 0) {
+        oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+        strncpy(lastOledStatus_, statusText_, STATUS_TEXT_LEN - 1);
+        lastOledStatus_[STATUS_TEXT_LEN - 1] = '\0';
+      }
+      lastOledMs_ = now;
+    }
+    return;
+  }
+
+  if (strlen(cmdBuf) == 1) {
+    char c = cmdBuf[0];
+    if (c == 'F' || c == 'B' || c == 'L' || c == 'R' || c == 'S') {
+      // W-13/T-17: drive letters are mode-scoped by registry declaration
+      // (acceptsDrive). T-29 + 2026-09-15 (owner bug #1): the transport is
+      // source-gated, NOT the mode: BLUETOOTH may drive only rows with
+      // acceptsBtDrive (4WD4M — MAN is RF-transmitter-only); WIRE (WS/HTTP)
+      // may drive any LIVE drive-capable mode, which fixed ESP_SER driving
+      // over neither channel in v1.5.0. `S` (stop) is ALWAYS accepted —
+      // stopping is safe in every mode. Rejected commands announce on the
+      // OLED and do NOT reset the failsafe.
+      const bool chanMayDrive = (src == CmdSource::WIRE) ||
+                                registryFor(currentMode_).acceptsBtDrive;
+      if (c != 'S' && (!modeAcceptsDrive || isCurrentModeStub() || !chanMayDrive)) {
+        snprintf(statusText_, STATUS_TEXT_LEN, isCurrentModeStub() ? "COMING SOON" : "Cmd Ignored (mode)");
+        if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+        return;
+      }
+      lastCommandTimeMs_ = nowFn_();
+      failsafeActive_ = false;
+      if (c == 'F') { if (motor_) motor_->drive(Action::FORWARD, speed_); snprintf(statusText_, STATUS_TEXT_LEN, "Forward"); }
+      else if (c == 'B') { if (motor_) motor_->drive(Action::BACKWARD, speed_); snprintf(statusText_, STATUS_TEXT_LEN, "Backward"); }
+      else if (c == 'L') { if (motor_) motor_->drive(Action::LEFT, speed_); snprintf(statusText_, STATUS_TEXT_LEN, "Left"); }
+      else if (c == 'R') { if (motor_) motor_->drive(Action::RIGHT, speed_); snprintf(statusText_, STATUS_TEXT_LEN, "Right"); }
+      else if (c == 'S') {
+        if (motor_) motor_->drive(Action::STOP, 0);
+        snprintf(statusText_, STATUS_TEXT_LEN, "Stopped");
+        // Immediate OLED update, no throttle (W-3)
+        if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+        return; // exit early so stop is applied instantly
+      }
+
+      const unsigned long OLED_MOVE_INTERVAL = 20;
+      uint32_t now = nowFn_();
+      if (now - lastOledMs_ >= OLED_MOVE_INTERVAL) {
+        if (oled_ && strncmp(statusText_, lastOledStatus_, STATUS_TEXT_LEN) != 0) {
+          oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+          strncpy(lastOledStatus_, statusText_, STATUS_TEXT_LEN - 1);
+          lastOledStatus_[STATUS_TEXT_LEN - 1] = '\0';
+        }
+        lastOledMs_ = now;
+      }
+      return;
+    }
+  }
+
+  if (strncasecmp(cmdBuf, "SPD", 3) == 0) {
+    // v1.4.0: stub modes take no speed changes (SPD0 keeps its safe-stop below).
+    int stubProbe = atoi(cmdBuf + 3);
+    if (stubProbe != 0 && isCurrentModeStub()) {
+      snprintf(statusText_, STATUS_TEXT_LEN, "COMING SOON");
+      if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+      return;
+    }
+    // Accepted command (speed set or safe-stop) → refresh the failsafe clock.
+    lastCommandTimeMs_ = nowFn_();
+    failsafeActive_ = false;
+    readyDisplayed_ = false;
+    int val = atoi(cmdBuf + 3);
+    if (val == 0) {
+      // Safe-stop from app/remote (SPD0): stop motors, KEEP the stored speed
+      // (v2.0.2 semantics — do not clamp to MIN_SPEED and do not raise speed_).
+      if (motor_) motor_->drive(Action::STOP, 0);
+      snprintf(statusText_, STATUS_TEXT_LEN, "Stopped");
+      if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+      return;
+    }
+    if (val < static_cast<int>(MIN_SPEED)) val = MIN_SPEED;
+    if (val > static_cast<int>(MAX_SPEED)) val = MAX_SPEED;
+    speed_ = static_cast<uint16_t>(val);
+    // T-13: persist the authoritative speed (debounced write).
+    scheduleModeSpeedPersist();
+    snprintf(statusText_, STATUS_TEXT_LEN, "Speed %d", val);
+    uint32_t now = nowFn_();
+    const unsigned long OLED_MIN_INTERVAL = 150;
+    if (now - lastOledMs_ >= OLED_MIN_INTERVAL) {
+      if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+      lastOledMs_ = now;
+    }
+    return;
+  }
+
+  // F-21: bare mode tokens (app carProtocol.ts + remote MODE_CMDS[]). The
+  // registry match makes unknown tokens show "Unknown mode:" (existing OLED
+  // behavior) without eating the command path.
+  setModeFromString(cmdBuf);
+}
+
+void ModeManager::sendState() {
+  // T-38 (round-3): broadcast on EVERY connected transport. In SERVER mode
+  // comm_ is WebServerComm whose write() only reaches WiFi (WS/HTTP) clients —
+  // the BT hand-held remote never saw STATE (its ESP_SER dashboard sat at
+  // "(connecting...)/(none)/State: starting..." while the browser had the
+  // car). Mirror the same STATE over the BT channel so the remote gets the
+  // live SSID/AP/IP (pattern proven by the T-35 provisioning reply push).
+  bool sent = false;
+  if (comm_ && comm_->connected()) {
+    sendStateOn(*comm_);
+    sent = true;
+  }
+  if (currentMode_ == Mode::SERVER && auxComm_ && auxComm_->connected()) {
+    sendStateOn(*auxComm_);
+    sent = true;
+  }
+  (void)sent;
+}
+
+void ModeManager::sendStateOn(CommInterface& comm) {
+  char word[24];
+  getStatusWord(word, sizeof(word));
+  // T-19 (W-10): stub truth is announced on BOTH channels from the SAME
+  // registry source: `;CAP=STUB` on STATE lines (Bluetooth consumers — the
+  // hand-held remote, R-10) and `"stub":true` in the WS JSON (WiFi consumers
+  // — app/site). The suffix retuned in v1.4.0 (iv); reinstated 2026-09-14 (v)
+  // because the BT-only remote can never see WS JSON. Both read
+  // registryFor(currentMode_).isStub() so they can never disagree.
+  char buf[232];
+  // R-12: in webserver mode, STATE also carries the configured SSID (never
+  // the password) and the AP fallback broadcast id so the hand-held remote's
+  // ESP_SER dashboard can show the car's WiFi truth (app gets the same via
+  // WS JSON `ssid`/`ap`).
+  // R-13: plus the car's LIVE reachable IP (`;IP=`), so the remote OLED and
+  // the app deck show where to point a browser / WS even over pure WiFi.
+  char wifiKeys[128] = "";
+  if (currentMode_ == Mode::SERVER) {
+    WebServerComm* ws = WebServerComm::instance();  // may be null pre-setup
+    if (ws && ws->storedSsid()[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";SSID=%s", ws->storedSsid());
+    if (ws && ws->apBroadcastId()[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";AP=%s", ws->apBroadcastId());
+    char ip[32] = "";
+    if (ws) ws->currentIp(ip, sizeof(ip));
+    if (ip[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";IP=%s", ip);
+  }
+  // v1.4.0: a queued provisioning reply (WIFICFG;STORED;… etc.) rides the
+  // next STATE line as REPLY=<text> so it reaches the app over Bluetooth.
+  if (pendingReply_[0] != '\0') {
+    snprintf(buf, sizeof(buf), "STATE;MODE=%s;SPD=%d;TRIM=%d;STATUS=%s%s%s;REPLY=%s\n",
+             getModeToken(), static_cast<int>(speed_), getTrim(), word,
+             registryFor(currentMode_).isStub() ? ";CAP=STUB" : "", wifiKeys, pendingReply_);
+    pendingReply_[0] = '\0';
+  } else {
+    snprintf(buf, sizeof(buf), "STATE;MODE=%s;SPD=%d;TRIM=%d;STATUS=%s%s%s\n",
+             getModeToken(), static_cast<int>(speed_), getTrim(), word,
+             registryFor(currentMode_).isStub() ? ";CAP=STUB" : "", wifiKeys);
+  }
+  comm.write(buf, strlen(buf));
+
+  // 2026-09-15 (owner matrix): broadcast the FULL per-mode availability map
+  // on every STATE so the hand-held remote / app learn each mode's state
+  // (LIVE/WIP/CS) for the CURRENTLY PAIRED car up front — ESP_SER (and any
+  // WIP) becomes reachable immediately without waiting for car truth on each
+  // token. Clients parse CAPS;TOKEN:STATE;... and mark non-LIVE modes.
+  char caps[128];
+  buildCapsMap(caps, sizeof(caps));
+  snprintf(buf, sizeof(buf), "CAPS;%s\n", caps);
+  comm.write(buf, strlen(buf));
+
+  // T-49 (round-5): names-only saved-router sync — the hand-held remote's SW
+  // saved-networks menu consumes this (never passwords; source of truth is the
+  // car's NVS registry). Idempotent for the remote (its cache is change-guarded).
+  if (WebServerComm::instance()) {
+    char networks[200] = "";
+    WebServerComm::instance()->buildNetworksLine(networks, sizeof(networks));
+    if (networks[0]) {
+      snprintf(buf, sizeof(buf), "%s\n", networks);
+      comm.write(buf, strlen(buf));
+    }
+  }
+}
+
+void ModeManager::setStatusText(const char* s) {
+  if (!s) return;
+  strncpy(statusText_, s, STATUS_TEXT_LEN - 1);
+  statusText_[STATUS_TEXT_LEN - 1] = '\0';
+  // Throttled OLED redraw (same cadence as drive-command updates).
+  uint32_t now = nowFn_();
+  if (oled_ && strncmp(statusText_, lastOledStatus_, STATUS_TEXT_LEN) != 0 &&
+      (now - lastOledMs_ >= 20)) {
+    oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+    strncpy(lastOledStatus_, statusText_, STATUS_TEXT_LEN - 1);
+    lastOledStatus_[STATUS_TEXT_LEN - 1] = '\0';
+    lastOledMs_ = now;
+  }
+}
+
+void ModeManager::getStatusWord(char* buf, size_t bufLen) const {
+  whitelistedStatus(statusText_, buf, bufLen);
+}
+
+void ModeManager::checkFailsafe() {
+  uint32_t now = nowFn_();
+  bool connectedNow = isConnectedNow();
+
+  if (connectedNow != lastConnected_) {
+    lastConnected_ = connectedNow;
+    failsafeActive_ = false;
+    readyDisplayed_ = false;
+    lastCommandTimeMs_ = now;
+    // T-46 (round-4): dedupe the edge frame — skip the redraw when the
+    // new message matches the last shown status, so rapid Reconnected /
+    // Disconnected chattering during BT settling no longer floods the OLED.
+    snprintf(statusText_, STATUS_TEXT_LEN, connectedNow ? "Reconnected" : "Disconnected");
+    if (strcmp(statusText_, lastOledStatus_) != 0 && oled_) {
+      oled_->draw(statusText_, speed_, connectedNow, modeToString(currentMode_), extraInfo_);
+      strncpy(lastOledStatus_, statusText_, STATUS_TEXT_LEN - 1);
+      lastOledStatus_[STATUS_TEXT_LEN - 1] = '\0';
+      lastOledMs_ = now;
+    }
+    return;
+  }
+  if (readyDisplayed_) return;
+
+  if (!failsafeActive_ && !registryFor(currentMode_).runsAutonomous &&
+      (now - lastCommandTimeMs_ > FAILSAFE_TIMEOUT_MS)) {
+    if (motor_) motor_->drive(Action::STOP, 0);
+    snprintf(statusText_, STATUS_TEXT_LEN, "Failsafe Stop");
+    if (oled_) oled_->draw(statusText_, 0, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+    failsafeActive_ = true;
+    failsafeStartMs_ = now;
+    FW_LOG_VERBOSE("Free heap (Failsafe Stop): %d\n", static_cast<int>(ESP.getFreeHeap()));
+    return;
+  }
+  if (failsafeActive_ && (now - failsafeStartMs_ > 1500)) {
+    failsafeActive_ = false;
+    // T-27: parked modes show ONLY "COMING SOON" in the body — the top bar
+    // already carries the mode name, and the old "(stub)" suffix is gone.
+    if (isCurrentModeStub()) {
+      if (oled_) oled_->draw("COMING SOON", 0, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+    } else {
+      snprintf(statusText_, STATUS_TEXT_LEN, " !!! Ready !!! ");
+      if (oled_) oled_->draw(statusText_, 0, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+    }
+    readyDisplayed_ = true;
+  }
+}
+
+static size_t readLineFromComm(CommInterface* c, char* buf, size_t bufLen, unsigned long timeoutMs = 20) {
+  if (!c || !buf || bufLen == 0) return 0;
+  size_t idx = 0;
+  unsigned long start = millis();
+  while (millis() - start < timeoutMs && idx < bufLen - 1) {
+    if (c->available()) {
+      int ch = c->read();
+      if (ch < 0) continue;
+      if (ch == '\r') continue;
+      if (ch == '\n') break;
+      buf[idx++] = static_cast<char>(ch);
+    } else {
+      yield();
+    }
+  }
+  buf[idx] = '\0';
+  trimWhitespace(buf);
+  return idx;
+}
+
+void ModeManager::run() {
+  char cmdBuf[128];
+
+  // T-13: flush any pending debounced NVS persist (mode + speed) when due.
+  flushModeSpeedPersistIfDue();
+
+  // Single command path (F-20b): both channels go through handleCommand().
+  if (auxComm_ != nullptr && auxComm_->available()) {
+    size_t n = readLineFromComm(auxComm_, cmdBuf, sizeof(cmdBuf), 20);
+    if (n > 0) handleCommand(cmdBuf);
+  }
+
+  if (comm_ != nullptr && comm_->available()) {
+    size_t n = readLineFromComm(comm_, cmdBuf, sizeof(cmdBuf), 20);
+    if (n > 0) handleCommand(cmdBuf);
+  }
+
+  // F-22: periodic STATE broadcast keeps the remote's mode/speed mirror fresh
+  // (prevents the remote's stale-telemetry safe-stop while connected).
+  // T-38 (round-3): the tick fires when EITHER transport is live — in SERVER
+  // mode the browser can be absent while the BT remote is connected.
+  bool anyConnected = (comm_ != nullptr && comm_->connected()) ||
+                      (currentMode_ == Mode::SERVER && auxComm_ != nullptr && auxComm_->connected());
+  if (anyConnected) {
+    uint32_t now = nowFn_();
+    if (now - lastStateMs_ >= STATE_INTERVAL_MS) {
+      sendState();
+      lastStateMs_ = now;
+    }
+  }
+
+  checkFailsafe();
+}
+
+bool ModeManager::isConnectedNow() const {
+  if (currentMode_ == Mode::BT) {
+    return comm_ ? comm_->connected() : false;
+  }
+  if (currentMode_ == Mode::SERVER) {
+    if (extraInfo_[0] == '\0') return false;
+    if (strstr(extraInfo_, "dBm") != nullptr) return true;
+    if (strchr(extraInfo_, '.') != nullptr) return true;
+    return false;
+  }
+  return comm_ ? comm_->connected() : false;
+}
+
+void ModeManager::resetFailsafe() {
+  failsafeActive_ = false;
+  readyDisplayed_ = false;
+  lastCommandTimeMs_ = nowFn_();
+}
+
+// T-13: debounced NVS persistence of the authoritative mode + speed. The
+// write itself is cheap and rare (once per change, 1 s debounce); scheduling
+// happens on every accepted mode/speed change, flushing once per loop.
+void ModeManager::scheduleModeSpeedPersist() {
+  pendingModeSpeedSave_ = true;
+  modeSpeedSaveMs_ = nowFn_();
+}
+
+void ModeManager::flushModeSpeedPersistIfDue() {
+  if (!pendingModeSpeedSave_) return;
+  uint32_t now = nowFn_();
+  if (now - modeSpeedSaveMs_ >= MODE_SPEED_SAVE_DEBOUNCE_MS) {
+    saveBootState(static_cast<uint8_t>(currentMode_), speed_);
+    pendingModeSpeedSave_ = false;
+    modeSpeedSaveMs_ = now;
+  }
+}
+
+// T-13: applies the persisted boot state (last mode + speed) with the same
+// entry side effects as setMode(). Must run from setup(): NVS (Preferences)
+// is only usable after nvs_flash_init(), which the Arduino core performs
+// right before setup() — NOT at global-ctor time. Mirrors the
+// Genum_2WD1M_CAR / Genum_SELF_BALANCE_CAR reference.
+void ModeManager::applyBootState() {
+  uint8_t bootMode = 0xFF;
+  uint16_t bootSpeed = 0xFFFF;
+  if (loadBootState(bootMode, bootSpeed)) {
+    if (bootMode < MODE_COUNT) {
+      currentMode_ = static_cast<Mode>(bootMode);
+      // T-41 (round-3): level-1 so reboot-restore is visible on the flash
+      // session (pins the ESP_CLI revert: does a [BOOT] line appear?).
+      FW_LOG("[BOOT] Restored mode=%s\n", modeToString(currentMode_));
+    }
+    if (bootSpeed >= static_cast<uint16_t>(MIN_SPEED) && bootSpeed <= static_cast<uint16_t>(MAX_SPEED)) {
+      speed_ = bootSpeed;
+      FW_LOG("[BOOT] Restored speed=%u\n", (unsigned)speed_);
+    }
+  } else {
+    FW_LOG("[BOOT] No boot state found; keeping defaults (BT / MIN_SPEED).\n");
+  }
+
+  if (motor_) motor_->drive(Action::STOP, 0);
+
+  failsafeActive_ = false;
+  readyDisplayed_ = false;
+  lastCommandTimeMs_ = nowFn_();
+
+  // T-18 parity: push registry truth to the OLED (token + capability flags),
+  // then one immediate frame so the restored mode renders on boot.
+  snprintf(statusText_, STATUS_TEXT_LEN, "Ready");
+  if (oled_) {
+    oled_->setModeContext(getModeToken(),
+                          registryFor(currentMode_).isStub(),
+                          registryFor(currentMode_).avail == ModeAvail::WIP,
+                          registryFor(currentMode_).acceptsDrive);
+    oled_->draw(statusText_, speed_, isConnectedNow(),
+                modeToString(currentMode_), extraInfo_);
+  }
+  strncpy(lastOledStatus_, statusText_, STATUS_TEXT_LEN - 1);
+  lastOledStatus_[STATUS_TEXT_LEN - 1] = '\0';
+  lastOledMs_ = nowFn_();
+}
+
+void ModeManager::setNowProvider(NowFn nowFn) {
+  nowFn_ = nowFn ? nowFn : defaultNow;
+}
+
+void ModeManager::setSpeed(int newSpeed) {
+  if (newSpeed < static_cast<int>(MIN_SPEED)) newSpeed = MIN_SPEED;
+  if (newSpeed > static_cast<int>(MAX_SPEED)) newSpeed = MAX_SPEED;
+  speed_ = static_cast<uint16_t>(newSpeed);
+  // T-13: persist the authoritative speed (debounced write).
+  scheduleModeSpeedPersist();
+  snprintf(statusText_, STATUS_TEXT_LEN, "Speed set %d", newSpeed);
+  uint32_t now = nowFn_();
+  const unsigned long OLED_MIN_INTERVAL = 150;
+  if (now - lastOledMs_ >= OLED_MIN_INTERVAL) {
+    if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+    lastOledMs_ = now;
+  }
+}
+
+// Accept canonical registry tokens first (parity with the remote's
+// MODE_CMDS[]), then web-page/legacy aliases (F-20c).
+int ModeManager::getTrim() const {
+  return g_2wd1mHandler.getTrim();
+}
+
+void ModeManager::setModeFromString(const char* modeStr) {
+  if (!modeStr) return;
+
+  for (int i = 0; i < MODE_COUNT; ++i) {
+    if (strcasecmp(modeStr, MODE_REGISTRY[i].token) == 0) {
+      FW_LOG("[MODE] token='%s' accepted -> %s\n", modeStr, MODE_REGISTRY[i].token);
+      setMode(MODE_REGISTRY[i].mode);
+      return;
+    }
+  }
+
+  // X-8 permanent legacy alias: pre-v1.5.0 controllers send "BT" for the
+  // 4WD4M mode. Receivers accept both tokens forever (compat matrix in
+  // INTEGRATION.md §2d X-8); senders emit "4WD4M".
+  if (strcasecmp(modeStr, "BT") == 0) {
+    setMode(Mode::BT);
+    return;
+  }
+
+  if (strcasecmp(modeStr, "ESP_SERVER") == 0) {
+    setMode(Mode::SERVER);
+    return;
+  }
+  if (strcasecmp(modeStr, "ESP_CLIENT") == 0) {
+    setMode(Mode::CLIENT);
+    return;
+  }
+  if (strcasecmp(modeStr, "MANUAL") == 0) {
+    setMode(Mode::MANUAL);
+    return;
+  }
+
+  // Unknown mode: show on OLED
+  snprintf(statusText_, STATUS_TEXT_LEN, "Unknown mode: %s", modeStr);
+  if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
+  // R-4: explicit fleet NACK so the hand-held remote / app surface
+  // "Not supported by car" instead of a silent no-op (mixed-pair case:
+  // e.g. new remote sending the renamed 4WD4M token to a legacy car).
+  if (comm_ && comm_->connected()) {
+    char nack[96];
+    snprintf(nack, sizeof(nack), "NACK;E=UNKNOWN_MODE;ARG=%s\n", modeStr);
+    comm_->write(nack, strlen(nack));
+  }
+}

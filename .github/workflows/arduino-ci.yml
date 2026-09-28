@@ -1,0 +1,42 @@
+name: Arduino CI — Genum_4WD4M_CAR
+
+# Compile-gate the 4WD4M car firmware. This job does NOT touch any device:
+# it proves the sketch still compiles for the exact fqbn the owner flashes
+# (`esp32:esp32:esp32:PartitionScheme=huge_app` — README: Huge APP **REQUIRED**,
+# Arduino core 3.3.11) and reports the flash/SRAM deltas so the round-13 matrix
+# rows (R-20/R-20b, T-71a) that currently read "compile figures PENDING" get
+# real numbers.
+#
+# Pass = compile succeeds + flash within Huge APP budget. Fail = sketch no
+# longer builds → push/PR blocked until fixed.
+#
+# NOTE: `Config.h` pulls `secrets.h` behind `__has_include("secrets.h")` — a
+# per-device gitignored file. arduino-ci makes the sketch compile with NO
+# secrets provisioned (the `#else` branch fills placeholders), so no credential
+# is ever needed in the repo or this workflow.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile sketch
+        uses: arduino/compile-sketches@v1
+        with:
+          fqbn: esp32:esp32:esp32:PartitionScheme=huge_app
+          sketch-paths: |
+            - .
+          platforms: |
+            - name: esp32:esp32
+              version: 3.3.11
+          libraries: |
+            - name: WebSockets
+            - name: U8g2
+          enable-deltas-report: true

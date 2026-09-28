@@ -1,0 +1,18 @@
+# ---- Secrets (NEVER commit) ----
+# Real WiFi credentials live here; Config.h carries a placeholder fallback.
+secrets.h
+
+# ---- Arduino / build artifacts ----
+build/
+build.*/
+*.hex
+*.bin
+*.elf
+*.map
+compile_commands.json
+.cache/
+
+# ---- OS noise ----
+Thumbs.db
+.DS_Store
+desktop.ini

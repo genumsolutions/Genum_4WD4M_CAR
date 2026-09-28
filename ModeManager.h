@@ -1,0 +1,186 @@
+#pragma once
+
+// =====================================================================
+// Genum_4WD4M_CAR — multimode 4WD4M car firmware (ESP32 + L298N)
+// File: ModeManager.h — mode engine: 9-mode registry, single command path
+//       (T-1), failsafe, STATE/CAP=STUB/NACK broadcast, per-mode
+//       availability (LIVE/WIP/CS) + transport-aware drive gate
+// Property of GENUM SOLUTIONS PVT. LTD.
+// =====================================================================
+#include "Config.h"
+#include "MotorControl.h"
+#include "CommInterface.h"
+#include "OledDisplay.h"
+#include <stdint.h>
+#include <stddef.h>
+
+class ModeManager {
+public:
+  enum class Mode : uint8_t {
+    BT = 0,
+    SERVER,
+    CLIENT,
+    PATH,
+    OBS_US,
+    OBS_IR,
+    MANUAL,
+    AUTO,
+    M2WD1M,   // D-2: 2WD1M-compat tank steer (signed SPD + SERVO)
+    MODE_LAST
+  };
+
+  static constexpr int MODE_COUNT = static_cast<int>(Mode::MODE_LAST);
+
+  // Per-mode availability announced to controllers (CAPS broadcast / JSON
+  // "caps"). LIVE = functional now, WIP = in progress, CS = coming soon.
+  //   isStub() == (avail != LIVE)  → WIP and CS are both inert for driving.
+  enum class ModeAvail : uint8_t {
+    LIVE = 0,
+    WIP,
+    CS
+  };
+
+  // Transport the command arrived on. T-29 intent: acceptsBtDrive scopes the
+  // BLUETOOTH transport only; WIRE (WebSocket/HTTP) drive only needs the mode
+  // LIVE and drive-capable. This fixed the v1.5.0 regression where ESP_SER
+  // drove over neither channel.
+  enum class CmdSource : uint8_t {
+    BLUETOOTH = 0,
+    WIRE
+  };
+
+  using NowFn = uint32_t(*)();
+
+  ModeManager(MotorControl* motor, CommInterface* primaryComm, OledDisplay* oled);
+  ~ModeManager();
+
+  void setMode(Mode newMode);
+  void cycleMode();
+  void handleCommand(const char* cmd, CmdSource src = CmdSource::BLUETOOTH);
+  void run();
+  void checkFailsafe();
+  void resetFailsafe();
+  void setComm(CommInterface* newComm);
+  void setAuxComm(CommInterface* aux);
+  void setExtraInfo(const char* info);
+  size_t getStatusText(char* buf, size_t bufLen) const;
+  int getSpeed() const;
+  Mode getMode() const;
+  const char* getModeString() const;
+  bool isConnectedNowPublic() const;
+  void setNowProvider(NowFn nowFn);
+
+  // ---- System-command hook (v1.4.0 provisioning) ----
+  // Runs BEFORE every other command path. Return true = consumed (never a
+  // mode token, so registry matching is unaffected). Used by WebServerComm
+  // to intercept WIFICFG;... provisioning lines sent over Bluetooth.
+  using SystemCmdFn = bool (*)(const char* cmd);
+  void setSystemCommandHook(SystemCmdFn fn) { systemCmdHook_ = fn; }
+
+  /** Queue a raw reply line for the app (WIFICFG responses). It rides the
+   *  next STATE broadcast as REPLY=<text> and is then cleared. */
+  void queueReply(const char* text);
+
+  void setSpeed(int newSpeed);
+
+  // Allow setting mode from app strings
+  void setModeFromString(const char* modeStr);
+
+  // Get current 2WD1M trim offset.
+  int getTrim() const;
+
+  // T-13: applies the persisted boot state (last mode + speed, ParamsStore)
+  // with all mode-entry side effects (motor stop, failsafe reset, OLED
+  // context + immediate frame). Called from setup() AFTER webServerComm.init()
+  // so a restored SERVER session can join WiFi from loop(); a fresh boot with
+  // no saved state keeps the constructor defaults (BT / MIN_SPEED).
+  void applyBootState();
+
+  // ---- Mode registry (D-2: extensible, data-driven) ----
+  // One entry per mode: canonical token, display name, capability flags.
+  // Adding a future mode = add a Mode + a REGISTRY row; the dispatch,
+  // STATE emission and token mapping read from here (kills the F-21/F-23
+  // token-drift class structurally).
+  struct ModeEntry {
+    Mode mode;
+    const char* token;       // canonical protocol token (MODE_CMDS[] parity)
+    const char* displayName; // human-readable (OLED only, never protocol)
+    bool usesSignedSpd;      // accepts signed SPD±255 (2WD1M-style handler)
+    bool runsAutonomous;     // command silence is normal (failsafe exemption)
+    bool acceptsDrive;       // T-17 (W-13): accepts F/B/L/R/S direction letters
+    ModeAvail avail;         // LIVE / WIP / CS — announced via CAPS + "stub" JSON
+    bool acceptsBtDrive;     // T-29: Bluetooth transport may DRIVE this mode
+                             // (system commands stay universal; WIRE transport
+                             // only needs avail==LIVE + acceptsDrive)
+    bool isStub() const { return avail != ModeAvail::LIVE; }  // WIP + CS inert
+  };
+  static const ModeEntry MODE_REGISTRY[MODE_COUNT];
+  static const ModeEntry& registryFor(Mode m);
+  static const char* modeToCommandToken(Mode m);
+  const char* getModeToken() const;
+
+  /** T-19 (W-10): true when the current mode is not LIVE (WIP or CS). */
+  bool isCurrentModeStub() const { return registryFor(currentMode_).isStub(); }
+
+  /** Fleet availability map for clients: "4WD4M:LIVE;ESP_SER:LIVE;...;2WD1M:CS"
+   *  (device order). Sent on STATE lines as CAPS;... and in WS JSON "caps". */
+  void buildCapsMap(char* buf, size_t bufLen) const;
+
+  // ---- Authoritative state (F-22) ----
+  void sendState();
+  /** T-35: sendState() to an EXPLICIT transport (used while comm_ points at a
+   *  no-op web transport in ESP_SER — the WIFICFG;STORED confirmation must
+   *  still reach the app over the Bluetooth channel). Shares sendState()'s
+   *  formatter, so pendingReply_ (REPLY=…) rides the line exactly once. */
+  void sendStateOn(CommInterface& comm);
+  void setStatusText(const char* s);
+  /** Whitelisted protocol status word for the current status text (F-23). */
+  void getStatusWord(char* buf, size_t bufLen) const;
+
+private:
+  const char* modeToString(Mode m) const;
+  bool isConnectedNow() const;
+
+  MotorControl* motor_;
+  CommInterface* comm_;
+  CommInterface* auxComm_;
+  OledDisplay* oled_;
+
+  Mode currentMode_;
+  uint32_t lastCommandTimeMs_;
+  uint16_t speed_;
+
+  static constexpr size_t EXTRA_INFO_LEN = 64;
+  static constexpr size_t STATUS_TEXT_LEN = 64;
+  char extraInfo_[EXTRA_INFO_LEN];
+  mutable char statusText_[STATUS_TEXT_LEN];
+
+  bool failsafeActive_;
+  uint32_t failsafeStartMs_;
+  bool readyDisplayed_;
+
+  bool lastConnected_;
+
+  uint32_t lastOledMs_;
+  char lastOledStatus_[STATUS_TEXT_LEN];
+
+  uint32_t lastStateMs_;
+
+  SystemCmdFn systemCmdHook_;
+
+  // v1.4.0: reply text produced by the system-command hook (WIFICFG replies).
+  // sendState() appends it as REPLY=<text> on the next STATE line when set.
+  char pendingReply_[64];
+
+  // T-13: debounced NVS persistence (mode + speed). scheduleModeSpeedPersist()
+  // is called from every path that modifies the authoritative mode/speed;
+  // flushModeSpeedPersistIfDue() runs once per loop and writes only when the
+  // debounce window has elapsed. Mirrors the Genum_2WD1M_CAR reference.
+  void scheduleModeSpeedPersist();
+  void flushModeSpeedPersistIfDue();
+  bool pendingModeSpeedSave_;
+  uint32_t modeSpeedSaveMs_;
+  static constexpr unsigned long MODE_SPEED_SAVE_DEBOUNCE_MS = 1000;
+
+  NowFn nowFn_;
+};
