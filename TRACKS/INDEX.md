@@ -13,14 +13,15 @@ no longer switches modes A→ boot restore refuses retired modes A→ failsafe/l
 transport-honest on both links. Commits: `ac1a9c8` baseline → `a0a06b1` → `1ccbb34` →
 **`a48705e` v2 (run `36377627226`: 1,742,098 B / 55%)**.
 
-**This session was app-only (U-49).** The owner's "Wi-Fi never connects at all" report was
-**root-caused to the app, not the car** — the release manifest has no Wi-Fi permissions and no
-cleartext allowance, so the app could not legally open a socket (`guide/FAILSAFES.md` **F-30**).
-Firmware re-verified correct. Firmware-facing consequences recorded in `TRACKS/FAILSAFE.md`
-items 9–11: the `caps` **string** carrier, `setMode()` persisting `CS` tokens, and **no ESTOP
-exists** (T7 rewritten). Next: **build the APK** — F-30 cannot be fixed by OTA — then owner device
-round 1 (`DEVICE-TESTS.md`, T3 gated on the new APK) and Phase 2 app verification
-(`genumsolutions-app/mobile/TESTING.md` U-49).
+**This session was app-only (U-49) and is now SHIPPED.** The owner's "Wi-Fi never connects at all"
+report was **root-caused to the app, not the car** — the release manifest had no Wi-Fi permissions
+and no cleartext allowance, so the app could not legally open a socket (`guide/FAILSAFES.md`
+**F-30**). Firmware re-verified correct, unchanged. App `5c99357` = **v3.2.7/60**: CI
+`36436791234` green, Release `36436791172` green, `genum-solutions-3.2.7.apk` (42.9 MB) published,
+manifest proven with `aapt` in the published artifact. Firmware-facing consequences recorded in
+`TRACKS/FAILSAFE.md` items 9–11 (the `caps` **string** carrier, `setMode()` persisting `CS` tokens,
+**no ESTOP exists** → T7 rewritten). **Next: owner installs 3.2.7 (a NEW APK, not an OTA) and runs
+device round 1** (`DEVICE-TESTS.md`, T3 now unblocked) + app U-49.
 
 | File | Purpose |
 |---|---|

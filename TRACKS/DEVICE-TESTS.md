@@ -27,11 +27,14 @@
 - [ ] T1 — BT pair to `4WD CAR` (PIN 1234) from the app; drive F/B/L/R/S
 - [ ] T2 — median command round-trip over BT (10 × `SPD150` → STATE echo), recorded ms
 - [ ] T3 — phone joins AP `4WDCar_Wifi`; HTTP :80 page loads; WS drive works (4WD4M, no mode switch)
-      — **⚠ 2026-09-28: this row CANNOT pass from the app yet.** The app's release manifest has no
-      Wi-Fi permissions and no cleartext allowance, so the app cannot open the socket at all
-      (`guide/FAILSAFES.md` **F-30**). It needs a new **APK**, not an OTA. The firmware half is
-      verifiable right now: load `http://192.168.245.1` in the phone **browser** on the car AP —
-      page loads ⇒ the car is healthy and the fault is the app build.
+      — **app half UNBLOCKED 2026-09-28:** the manifest fix shipped in **app 3.2.7/60**
+      (`5c99357`, release run `36436791172`) and was verified with `aapt` **in the published APK**
+      (all four Wi-Fi permissions, `NEARBY_WIFI_DEVICES` + `neverForLocation`,
+      `usesCleartextTraffic=true`), so the app can now legally open the socket. Install **3.2.7** —
+      a **new APK, not an OTA**; an OTA cannot deliver a manifest change — and this row can pass.
+      Do the browser half first: load `http://192.168.245.1` on the car AP; page loads ⇒ the car is
+      healthy, so any later failure is the app's and not the firmware's. (`guide/FAILSAFES.md`
+      **F-30**.)
 - [ ] T4 — median command round-trip over WS (10 commands), recorded ms
 - [ ] T5 — provisioning E2E: send `WIFICFG;<home>;…` over BT → car joins home LAN → `REQ_NETW` confirms
 - [ ] T6 — provisioning over AP WS: `ROUTERS;LIST` returns list (v2 path, after Phase 1)
@@ -70,11 +73,14 @@ Rows (rows 1–10 carried into the v1.0.1 round above; this v1.0.0 round is clos
 - [ ] T1 — BT pair to `4WD CAR` (PIN 1234) from the app; drive F/B/L/R/S
 - [ ] T2 — median command round-trip over BT (10 × `SPD150` → STATE echo), recorded ms
 - [ ] T3 — phone joins AP `4WDCar_Wifi`; HTTP :80 page loads; WS drive works (4WD4M, no mode switch)
-      — **⚠ 2026-09-28: this row CANNOT pass from the app yet.** The app's release manifest has no
-      Wi-Fi permissions and no cleartext allowance, so the app cannot open the socket at all
-      (`guide/FAILSAFES.md` **F-30**). It needs a new **APK**, not an OTA. The firmware half is
-      verifiable right now: load `http://192.168.245.1` in the phone **browser** on the car AP —
-      page loads ⇒ the car is healthy and the fault is the app build.
+      — **app half UNBLOCKED 2026-09-28:** the manifest fix shipped in **app 3.2.7/60**
+      (`5c99357`, release run `36436791172`) and was verified with `aapt` **in the published APK**
+      (all four Wi-Fi permissions, `NEARBY_WIFI_DEVICES` + `neverForLocation`,
+      `usesCleartextTraffic=true`), so the app can now legally open the socket. Install **3.2.7** —
+      a **new APK, not an OTA**; an OTA cannot deliver a manifest change — and this row can pass.
+      Do the browser half first: load `http://192.168.245.1` on the car AP; page loads ⇒ the car is
+      healthy, so any later failure is the app's and not the firmware's. (`guide/FAILSAFES.md`
+      **F-30**.)
 - [ ] T4 — median command round-trip over WS (10 commands), recorded ms
 - [ ] T5 — provisioning E2E: send `WIFICFG;<home>;…` over BT → car joins home LAN → `REQ_NETW` confirms
 - [ ] T6 — provisioning over AP WS: `ROUTERS;LIST` returns list (v2 path, after Phase 1)
