@@ -17,13 +17,25 @@
       `36376298563` failed on the root commit — deltas-report needs a parent; one-time
       fresh-repo artifact, recorded here so it never reads as a regression)
 
-## Phase 1 — v2 re-architecture (BLOCKED on owner "go Phase 1")
-- [ ] **P1-1** `acceptsDrive` for 4WD4M true over BOTH comm paths (retire transport scoping)
-- [ ] **P1-2** `WebServerComm` always-on from boot, decoupled from mode
-- [ ] **P1-3** `MODE_ESP_SER`/`MODE_ESP_CLI` → CS in the registry (CAPS announces)
-- [ ] **P1-4** setup commands (`WIFICFG`/`ROUTERS`/`REQ_NETW`) accepted over AP WS too
-- [ ] **P1-5** boot splash v1.0.0 verify; failsafe/safe-stop unchanged on both transports
-- [ ] **P1-6** compile size report (expect ≈ donor ~1.74 MB huge_app)
+## Phase 1 — v2 re-architecture — DONE 2026-09-28 (commit `a48705e`, CI GREEN)
+- [x] **P1-1** drive 4WD4M over BOTH transports: the WIRE source already passed the drive gate;
+      the real blocker was transport ROUTING — fixed by permanent wiring (comm_ = web,
+      auxComm_ = BT, no mode-based swap) + unconditional `handle()` + always-on servers.
+      Queued web lines now drain as WIRE source (was default-source echo).
+- [x] **P1-2** `WebServerComm::beginAlwaysOn()` — AP + HTTP :80 + WS :81 up at boot, never
+      stopped; `handle()` unconditional; WIFICFG stores + rejoins WITHOUT switching modes;
+      own-AP reserved entry always listed; `connected()` transport-honest (WS clients or
+      joined STA — broadcasting AP alone is not a link).
+- [x] **P1-3** `ESP_SER`/`ESP_CLI` → CS in the registry (CAPS announces; tokens still toggle,
+      car renders COMING SOON, WiFi truth rides extraInfo_ on those frames).
+- [x] **P1-4** setup commands over AP WS: works via WS → `handleCommand(…, WIRE)` → system
+      hook (was already valid; verified + kept; `REQ_STATE`/`REQ_NETW` broadcast live).
+- [x] **P1-5** failsafe/safe-stop unchanged (2 s silence, `S`/`SPD0`/`ESTOP` universal,
+      link-loss safe-stop now correct on BOTH transports — `isConnectedNow()` = any link up);
+      boot restore REFUSES retired (CS) modes → donor-NVS ESP_SER state cannot boot the
+      refit testbed into a stub. Boot splash v1.0.0 verify = device round T0.
+- [x] **P1-6** compile size: local **1,742,162 B (55%) / 69,516 B (21%)** · CI run
+      `36377627226` **1,742,098 B (55%)** — +64 B over baseline for the whole v2 change.
 
 ## Phase 2 — app integration (BLOCKED on Phase 1; app repo, OTA-safe steps)
 See `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md` § Phase 2.

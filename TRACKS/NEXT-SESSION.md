@@ -1,15 +1,14 @@
 # NEXT-SESSION — Genum_4WD4M_CAR
 
-**Resume point (2026-09-28, after Phase 0 + GitHub push):**
+**Resume point (2026-09-28, after Phase 1):**
 
-1. ~~Owner reviews Phase 0~~ DONE — repo on GitHub (private), CI green
-   (run `36376315823`: 1,742,018 B / 55%).
-2. Owner says "go Phase 1" → implement the v2 re-architecture per `TRACKS/TODO.md` § Phase 1
-   and `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md` § Phase 1. (Authorization for
-   Phase 1 was given in the same session; Phase 1 work starts next session or on resume.)
-3. After Phase 1 compiles green (local + CI): device round 1 (`TRACKS/DEVICE-TESTS.md`) —
-   bench flash is owner-at-the-bench.
-4. Then Phase 2 (app integration, OTA-safe steps) per the master plan.
+1. ~~Phase 0~~ DONE (repo on GitHub, CI green) · ~~Phase 1 v2 re-architecture~~ DONE
+   (commit `a48705e`, run `36377627226` GREEN: 1,742,098 B / 55%).
+2. **NEXT: device round 1** (`TRACKS/DEVICE-TESTS.md`) — owner flashes `a48705e` via USB
+   (115200, **huge_app**) at the bench and runs rows T0–T10. NOTE: donor NVS on the testbed
+   may hold mode=SERVER (ESP_SER) — v2 boot restore refuses retired modes and keeps 4WD4M
+   (expect the `[BOOT] ... retired (CS) in v2 - keeping 4WD4M` serial line once).
+3. Device round PASS → Phase 2 (app integration, OTA-safe steps) per the master plan.
 
-Open owner decisions referenced: O-3 (remote pairing update), O-4 (e-stop UI) — not blocking
-Phase 1.
+Open owner decisions referenced: O-3 (remote pairing update — needed before any remote-first
+row), O-4 (e-stop UI) — neither blocks the app-first round 1.

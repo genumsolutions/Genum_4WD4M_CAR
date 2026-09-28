@@ -4,15 +4,14 @@
 > this repo). Cross-project ledger: workspace `guide/GUIDE.md`. Master plan:
 > `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md`.
 
-**Status (2026-09-28):** Phase 0 EXECUTED + GATE G0 PASSED **AND LIVE ON CI** — fresh v1.0.0
-baseline from `Genum_WIRELESS_CAR` 1.8.4 (`d0bf8c0`), renamed identity (BT `4WD CAR` · AP
-`4WDCar_Wifi` · AP 192.168.245.1/24), commits **`ac1a9c8`** (baseline) + **`a0a06b1`** (TRACKS
-gate record), pushed to `origin/main` (github.com/genumsolutions/Genum_4WD4M_CAR, private).
-CI **GREEN** — run `36376315823`: **1,742,018 B (55%) / 69,516 B (21%) RAM** (local G0 run:
-1,742,066 B — 48 B toolchain variance). NOTE: the first CI run (`36376298563`) failed on the
-**root commit** — `compile-sketches` `enable-deltas-report` needs a parent commit; one-time
-fresh-repo artifact, not a code failure. Phase 1 (v2 re-architecture) BLOCKED on owner
-"go Phase 1".
+**Status (2026-09-28):** Phase 0 + Phase 1 DONE, CI GREEN. v2 architecture LIVE in firmware:
+**Wi-Fi = always-on connection/setup channel (AP `4WDCar_Wifi` @ 192.168.245.1/24 + HTTP :80 +
+WS :81, up from boot, never stopped)** · **4WD4M is the single live drive mode over BOTH
+Bluetooth and Wi-Fi (no mode switch)** · `ESP_SER`/`ESP_CLI` retired → CS via CAPS · WIFICFG
+no longer switches modes · boot restore refuses retired modes · failsafe/link-loss safe-stop
+transport-honest on both links. Commits: `ac1a9c8` baseline → `a0a06b1` → `1ccbb34` →
+**`a48705e` v2 (run `36377627226`: 1,742,098 B / 55%)**. Next: owner device round 1
+(`DEVICE-TESTS.md`, bench flash, huge_app) → then Phase 2 (app integration, OTA-safe).
 
 | File | Purpose |
 |---|---|
