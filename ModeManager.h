@@ -63,6 +63,19 @@ public:
   void setComm(CommInterface* newComm);
   void setAuxComm(CommInterface* aux);
   void setExtraInfo(const char* info);
+
+  // v1.0.1 (owner OLED directive 2026-09-28): the dashboard must ALWAYS show
+  // which link method is connected - pronto - and the transport type under it
+  // (SPP / BLE / WebServer / WebClient / RF). Computed each run() from live
+  // transport truth: BT (SPP) > WiFi (WebServer WS clients, else WebServer AP/
+  // STA) > none. Pushed to the OLED as a two-part context string.
+  struct LinkInfo {
+    const char* method;  // "Bluetooth" / "WiFi" / "None"
+    const char* type;    // "SPP" / "WebServer" / "AP ready" / "LAN ready" / "--"
+    bool connected;
+  };
+  LinkInfo currentLink() const;
+  void pushLinkInfo();
   size_t getStatusText(char* buf, size_t bufLen) const;
   int getSpeed() const;
   Mode getMode() const;
@@ -150,6 +163,9 @@ private:
   uint32_t lastCommandTimeMs_;
   uint16_t speed_;
 
+  // v1.0.1: two-part link context for the OLED ("method|type").
+  static constexpr size_t LINK_BUF_LEN = 40;
+  char linkContext_[LINK_BUF_LEN];
   static constexpr size_t EXTRA_INFO_LEN = 64;
   static constexpr size_t STATUS_TEXT_LEN = 64;
   char extraInfo_[EXTRA_INFO_LEN];

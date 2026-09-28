@@ -577,6 +577,11 @@ void WebServerComm::stop() {
 
 bool WebServerComm::isRunning() const { return serverRunning; }
 
+// v1.0.1 (owner OLED directive): differentiated link truth for the OLED.
+bool WebServerComm::hasWsClients() { return ws.connectedClients() > 0; }
+
+bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; }
+
 void WebServerComm::handle() {
   if (serverRunning) server.handleClient();
   ws.loop();

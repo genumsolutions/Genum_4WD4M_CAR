@@ -122,7 +122,41 @@ ModeManager::ModeManager(MotorControl* motor, CommInterface* primaryComm, OledDi
   extraInfo_[0] = '\0';
   lastOledStatus_[0] = '\0';
   pendingReply_[0] = '\0';
+  linkContext_[0] = '\0';
   g_2wd1mHandler.reset();
+}
+
+// v1.0.1 (owner OLED directive 2026-09-28): compute the CURRENT live link.
+// Precedence: an actively-linked controller wins, then server reachability.
+ModeManager::LinkInfo ModeManager::currentLink() const {
+  // Precedence: an actively-LINKED controller wins (WS client, then BT SPP);
+  // mere reachability (joined router / own AP broadcasting) only shows when
+  // no controller is linked. The panel must always tell the truth about
+  // WHO is connected right now, pronto.
+  const bool btUp = auxComm_ && auxComm_->connected();
+  WebServerComm* ws = WebServerComm::instance();
+  const bool wsClients = ws && ws->hasWsClients();
+  const bool staJoined = ws && ws->isStaJoined();
+  if (wsClients) return {"WiFi", "WebServer", true};
+  if (btUp) return {"Bluetooth", "SPP", true};
+  if (staJoined) return {"WiFi", "LAN ready", true};
+  if (ws && (ws->apBroadcastId()[0] != '\0')) return {"None", "AP ready", false};
+  return {"None", "--", false};
+}
+
+void ModeManager::pushLinkInfo() {
+  LinkInfo li = currentLink();
+  char ctx[LINK_BUF_LEN];
+  snprintf(ctx, sizeof(ctx), "%s|%s", li.method, li.type);
+  if (strcmp(ctx, linkContext_) == 0) return;  // unchanged - no repaint
+  strncpy(linkContext_, ctx, LINK_BUF_LEN - 1);
+  linkContext_[LINK_BUF_LEN - 1] = '\0';
+  if (oled_) {
+    oled_->setLinkContext(li.method, li.type, li.connected);
+    // Pronto: a link change must repaint NOW, not wait for the next status
+    // change. draw() consumes the OLED's linkDirty flag so this frame lands.
+    oled_->draw(statusText_, speed_, isConnectedNow(), getModeString(), extraInfo_);
+  }
 }
 
 void ModeManager::queueReply(const char* text) {
@@ -591,6 +625,10 @@ void ModeManager::run() {
   // WebSocket to the car's own AP while the BT remote is also connected.
   bool anyConnected = (comm_ != nullptr && comm_->connected()) ||
                       (auxComm_ != nullptr && auxComm_->connected());
+
+  // v1.0.1 (owner OLED directive): refresh the Link/Type context every loop
+  // (cheap; the OLED change-gates on the string so no repaint storms).
+  pushLinkInfo();
   if (anyConnected) {
     uint32_t now = nowFn_();
     if (now - lastStateMs_ >= STATE_INTERVAL_MS) {

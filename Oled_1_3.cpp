@@ -84,6 +84,17 @@ void Oled_1_3::setModeContext(const char* modeToken, bool isStub, bool isWip, bo
   modeHasDash = hasDriveDashboard;
 }
 
+// v1.0.1 (owner OLED directive): live link truth — WHICH method is connected
+// (Bluetooth / WiFi / None) and the transport type under it (SPP / WebServer /
+// AP ready / LAN ready). ModeManager computes it from transport state every
+// loop and pushes it on CHANGE; the next draw() renders it pronto.
+void Oled_1_3::setLinkContext(const char* method, const char* type, bool connected) {
+  safeCopy(linkMethodBuf, LINK_METHOD_LEN, method ? method : "None");
+  safeCopy(linkTypeBuf, LINK_TYPE_LEN, type ? type : "--");
+  linkConnected = connected;
+  linkDirty = true;  // the next draw() must render this frame immediately
+}
+
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
 
@@ -306,28 +317,24 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     return;
   }
 
+  // v1.0.1 (owner OLED directive): the link rows are TRANSPORT truth, not
+  // mode truth — WHICH method is connected (pronto) + the type under it.
+  // Row 3: Link : Bluetooth / WiFi / None (live, from currentLink()).
+  // Row 4: Type  : SPP / WebServer / AP ready / LAN ready / -- (the connected
+  // method's concrete transport). The right-edge bar stack keeps its R-20
+  // semantics (4 bars while a link is up).
   char connLine[40];
-  if (isBluetooth) {
-    snprintf(connLine, sizeof(connLine), "Bluetooth : %s",
-             connected ? "Connected" : "Not Connected");
-    u8g2->drawStr(leftX, lineBaseline[2], connLine);
-  } else if (isApFallback) {
-    snprintf(connLine, sizeof(connLine), "AP : %s", netBuf);
-    u8g2->drawStr(leftX, lineBaseline[2], connLine);
-  } else if (netBuf[0]) {
-    snprintf(connLine, sizeof(connLine), "WiFi : %s", netBuf);
-    u8g2->drawStr(leftX, lineBaseline[2], connLine);
-  } else {
-    snprintf(connLine, sizeof(connLine), "WiFi : %s",
-             connected ? "Connected" : "Not Connected");
-    u8g2->drawStr(leftX, lineBaseline[2], connLine);
-  }
+  snprintf(connLine, sizeof(connLine), "Link : %s%s", linkMethodBuf,
+           linkConnected ? "" : " (scan)");
+  u8g2->drawStr(leftX, lineBaseline[2], connLine);
 
-  // R-20 (fleet rule: link bars live ONLY in the drive dashboards): the BT
-  // (4WD4M) view draws a STATIC connection bar stack — 4 bars while linked
-  // (SPP has no RSSI), nothing when down. The ESP_SER speed gauge below keeps
-  // its own semantics.
-  if (isBluetooth && connected) {
+  snprintf(connLine, sizeof(connLine), "Type : %s", linkTypeBuf);
+  u8g2->drawStr(leftX, lineBaseline[3], connLine);
+
+  // R-20 (fleet rule: link bars live ONLY in the drive dashboards) + v1.0.1:
+  // the bar stack keys off the LIVE LINK (any method), not the mode — bars
+  // show whenever a controller is actually linked (SPP or WS).
+  if (linkConnected) {
     const int maxBars = 4, barW = 4, spacing = 2;
     int rightBaseX = SCREEN_W - RIGHT_MARGIN - (maxBars * (barW + spacing));
     int baseY = bodyBottom - 2;
@@ -353,7 +360,8 @@ void Oled_1_3::draw(const char* status, int speed, bool connected, const char* m
   const bool contentChanged =
       (status && strcmp(statusBuf, status) != 0) ||
       modeChanged ||
-      (extraInfo && strcmp(extraBuf, extraInfo) != 0);
+      (extraInfo && strcmp(extraBuf, extraInfo) != 0) ||
+      linkDirty;  // v1.0.1: a link change repaints pronto (bypasses throttle)
 
   safeCopy(statusBuf, STATUS_BUF_LEN, status ? status : "");
   if (mode) safeCopy(modeBuf, MODE_BUF_LEN, mode);
@@ -363,6 +371,7 @@ void Oled_1_3::draw(const char* status, int speed, bool connected, const char* m
     return;
   }
   lastDrawMs = millis();
+  linkDirty = false;  // consumed
   redrawNow(speed, connected);
 }
 

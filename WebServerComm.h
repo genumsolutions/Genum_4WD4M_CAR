@@ -119,6 +119,13 @@ public:
   void clearLastWifiReply() { lastWifiReply_ = ""; }
 
   bool isRunning() const;
+  // v1.0.1 (owner OLED directive 2026-09-28): differentiated link truth for
+  // the dashboard's Link/Type rows. hasWsClients() = a controller is linked
+  // over the WebSocket (the ACTIVE control path); isStaJoined() = the STA
+  // side joined a router (server reachable on the LAN even with no client).
+  // (Non-const: WebSocketsServer::connectedClients() is not const-safe.)
+  bool hasWsClients();
+  bool isStaJoined() const;
 
   // CommInterface overrides
   size_t available() override;

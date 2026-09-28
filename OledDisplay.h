@@ -21,6 +21,11 @@ public:
   // decisions read these (2026-09-15: WIP modes render an IN PROGRESS frame).
   // Default no-op keeps other display classes source-compatible.
   virtual void setModeContext(const char* /*modeToken*/, bool /*isStub*/, bool /*isWip*/, bool /*hasDriveDashboard*/) {}
+  // v1.0.1 (owner OLED directive 2026-09-28): the dashboard shows WHICH link
+  // method is connected (Bluetooth / WiFi / None) and the transport type under
+  // it (SPP / WebServer / AP ready / LAN ready / RF / --), updated pronto from
+  // live transport truth. Default no-op keeps other displays source-compatible.
+  virtual void setLinkContext(const char* /*method*/, const char* /*type*/, bool /*connected*/) {}
   virtual void sleep() = 0;
   virtual void wake() = 0;
   virtual ~OledDisplay() = default;
@@ -34,6 +39,7 @@ public:
   bool begin() override;
   void draw(const char* status, int speed, bool connected, const char* mode, const char* extraInfo = nullptr) override;
   void setModeContext(const char* modeToken, bool isStub, bool isWip, bool hasDriveDashboard) override;
+  void setLinkContext(const char* method, const char* type, bool connected) override;
   void sleep() override;
   void wake() override;
 
@@ -51,6 +57,13 @@ private:
   char modeBuf[MODE_BUF_LEN];
   char extraBuf[EXTRA_BUF_LEN];
   char modeTokenBuf[TOKEN_BUF_LEN];  // canonical token (registry truth, T-18)
+  // v1.0.1: live link method + transport type (owner OLED directive).
+  static constexpr size_t LINK_METHOD_LEN = 16;
+  static constexpr size_t LINK_TYPE_LEN = 16;
+  char linkMethodBuf[LINK_METHOD_LEN] = "None";
+  char linkTypeBuf[LINK_TYPE_LEN] = "--";
+  bool linkConnected = false;
+  bool linkDirty = false;  // set by setLinkContext; consumed by the next draw()
   bool modeIsStub = false;           // registry avail != LIVE → "COMING SOON"
   bool modeIsWip = false;            // registry avail == WIP → "IN PROGRESS"
   bool modeHasDash = false;          // registry drive mode → full status layout
