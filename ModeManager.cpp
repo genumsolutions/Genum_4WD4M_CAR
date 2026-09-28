@@ -457,14 +457,16 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // — app/site). The suffix retuned in v1.4.0 (iv); reinstated 2026-09-14 (v)
   // because the BT-only remote can never see WS JSON. Both read
   // registryFor(currentMode_).isStub() so they can never disagree.
-  char buf[232];
+  char buf[248];
   // R-12: in webserver mode, STATE also carries the configured SSID (never
   // the password) and the AP fallback broadcast id so the hand-held remote's
   // ESP_SER dashboard can show the car's WiFi truth (app gets the same via
   // WS JSON `ssid`/`ap`).
   // R-13: plus the car's LIVE reachable IP (`;IP=`), so the remote OLED and
   // the app deck show where to point a browser / WS even over pure WiFi.
-  char wifiKeys[128] = "";
+  // Connections-Hub: plus the stable board id (`;ID=`), the fw:<id> profile
+  // key source for WiFi-only cars (STATE:000000..FFFFFF hex).
+  char wifiKeys[160] = "";
   // v2: WiFi truth (SSID / AP id / reachable IP) rides EVERY STATE line in
   // EVERY mode — the web layer is always-on and no longer SERVER-scoped.
   // (instanceForWs may be null pre-setup(); guarded.)
@@ -475,6 +477,11 @@ void ModeManager::sendStateOn(CommInterface& comm) {
     char ip[32] = "";
     if (ws) ws->currentIp(ip, sizeof(ip));
     if (ip[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";IP=%s", ip);
+    if (ws) {
+      char id[8] = "";
+      WebServerComm::boardIdHex(id, sizeof(id));
+      snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";ID=%s", id);
+    }
   }
   // v1.4.0: a queued provisioning reply (WIFICFG;STORED;… etc.) rides the
   // next STATE line as REPLY=<text> so it reaches the app over Bluetooth.

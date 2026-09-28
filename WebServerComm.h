@@ -114,6 +114,11 @@ public:
   void currentIp(char* buf, size_t bufLen);
   // R-12: ModeManager::sendState() reads WiFi truth (SSID / AP id) for STATE lines.
   static WebServerComm* instance() { return instanceForWs; }
+  // Connections-Hub (2026-09-28): the car's stable BOARD identity — the last
+  // 6 hex digits of ESP.getEfuseMac() (uppercase), e.g. "1A2B3C". This is the
+  // per-device profile key (`fw:<id>`) the app uses for WiFi-only cars. Rides
+  // `;ID=` on STATE lines and the status JSON `id`. Stable across renames.
+  static void boardIdHex(char* out, size_t outLen);
   // Reply produced by the last consumed WIFICFG line ("" when none).
   const String& lastWifiReply() const { return lastWifiReply_; }
   void clearLastWifiReply() { lastWifiReply_ = ""; }

@@ -11,6 +11,17 @@
 
 WebServerComm* WebServerComm::instanceForWs = nullptr;
 
+// Connections-Hub: the stable board identity — last 6 hex of ESP.getEfuseMac()
+// in uppercase. Never changes across renames/AP-join/AP-fallback state, which
+// is exactly what the app needs to key a per-device profile on.
+void WebServerComm::boardIdHex(char* out, size_t outLen) {
+  if (!out || outLen == 0) return;
+  uint64_t mac = ESP.getEfuseMac();
+  // 0xFFFFFF keeps only the (low-address) bytes that differ per board — the
+  // ESP32 OUI bytes are identical fleet-wide, so the last 6 hex DO identify.
+  snprintf(out, outLen, "%06X", static_cast<unsigned int>(mac & 0xFFFFFF));
+}
+
 WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
     connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
@@ -970,7 +981,10 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // leave the car; W-14).
   char networks[260] = "";
   buildNetworksJson(networks, sizeof(networks));
-   snprintf(buf, bufLen,
+  // Connections-Hub: the stable board id (fw:<id> profile key for WiFi cars).
+  char boardId[8] = "";
+  boardIdHex(boardId, sizeof(boardId));
+  snprintf(buf, bufLen,
      "{"
        "\"status\":\"%s\","
        "\"mode\":\"%s\","
@@ -989,6 +1003,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
        "\"max_speed\":%d,"
        "\"ssid\":\"%s\","
        "\"ap\":\"%s\","
+       "\"id\":\"%s\","
        "\"networks\":[%s]"
      "}",
      statusWord,
@@ -1008,6 +1023,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
      static_cast<int>(MAX_SPEED),
      ssidOut,
      apOut,
+     boardId,
      networks
   );
 }
