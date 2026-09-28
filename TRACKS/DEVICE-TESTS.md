@@ -27,10 +27,19 @@
 - [ ] T1 — BT pair to `4WD CAR` (PIN 1234) from the app; drive F/B/L/R/S
 - [ ] T2 — median command round-trip over BT (10 × `SPD150` → STATE echo), recorded ms
 - [ ] T3 — phone joins AP `4WDCar_Wifi`; HTTP :80 page loads; WS drive works (4WD4M, no mode switch)
+      — **⚠ 2026-09-28: this row CANNOT pass from the app yet.** The app's release manifest has no
+      Wi-Fi permissions and no cleartext allowance, so the app cannot open the socket at all
+      (`guide/FAILSAFES.md` **F-30**). It needs a new **APK**, not an OTA. The firmware half is
+      verifiable right now: load `http://192.168.245.1` in the phone **browser** on the car AP —
+      page loads ⇒ the car is healthy and the fault is the app build.
 - [ ] T4 — median command round-trip over WS (10 commands), recorded ms
 - [ ] T5 — provisioning E2E: send `WIFICFG;<home>;…` over BT → car joins home LAN → `REQ_NETW` confirms
 - [ ] T6 — provisioning over AP WS: `ROUTERS;LIST` returns list (v2 path, after Phase 1)
-- [ ] T7 — ESTOP over BT AND over WS; link-loss safe-stop on both (kill app / close socket)
+- [ ] T7 — ~~ESTOP over BT AND over WS~~ → **STALE ROW, rewritten 2026-09-28:** this firmware has
+      **no ESTOP handler at all** (and the app's e-stop UI was removed by owner directive), so
+      there is nothing to test. Test instead: **`S` and `SPD0` over BT AND over WS**, plus
+      **link-loss safe-stop on both** (kill the app / close the socket) within
+      `FAILSAFE_TIMEOUT_MS` = 2000 ms. Do not re-add an ESTOP control without a firmware ruling.
 - [ ] T8 — 100-command burst over WS; packet loss % recorded
 - [ ] T9 — old-car regression: donor WIRELESS car still pairs/drives as before (untouched repo proof)
 - [ ] T10 — CAPS shows `4WD4M:LIVE`, `ESP_SER:CS`, `ESP_CLI:CS`; app marks the CS ones Coming Soon
@@ -61,10 +70,19 @@ Rows (rows 1–10 carried into the v1.0.1 round above; this v1.0.0 round is clos
 - [ ] T1 — BT pair to `4WD CAR` (PIN 1234) from the app; drive F/B/L/R/S
 - [ ] T2 — median command round-trip over BT (10 × `SPD150` → STATE echo), recorded ms
 - [ ] T3 — phone joins AP `4WDCar_Wifi`; HTTP :80 page loads; WS drive works (4WD4M, no mode switch)
+      — **⚠ 2026-09-28: this row CANNOT pass from the app yet.** The app's release manifest has no
+      Wi-Fi permissions and no cleartext allowance, so the app cannot open the socket at all
+      (`guide/FAILSAFES.md` **F-30**). It needs a new **APK**, not an OTA. The firmware half is
+      verifiable right now: load `http://192.168.245.1` in the phone **browser** on the car AP —
+      page loads ⇒ the car is healthy and the fault is the app build.
 - [ ] T4 — median command round-trip over WS (10 commands), recorded ms
 - [ ] T5 — provisioning E2E: send `WIFICFG;<home>;…` over BT → car joins home LAN → `REQ_NETW` confirms
 - [ ] T6 — provisioning over AP WS: `ROUTERS;LIST` returns list (v2 path, after Phase 1)
-- [ ] T7 — ESTOP over BT AND over WS; link-loss safe-stop on both (kill app / close socket)
+- [ ] T7 — ~~ESTOP over BT AND over WS~~ → **STALE ROW, rewritten 2026-09-28:** this firmware has
+      **no ESTOP handler at all** (and the app's e-stop UI was removed by owner directive), so
+      there is nothing to test. Test instead: **`S` and `SPD0` over BT AND over WS**, plus
+      **link-loss safe-stop on both** (kill the app / close the socket) within
+      `FAILSAFE_TIMEOUT_MS` = 2000 ms. Do not re-add an ESTOP control without a firmware ruling.
 - [ ] T8 — 100-command burst over WS; packet loss % recorded
 - [ ] T9 — old-car regression: donor WIRELESS car still pairs/drives as before (untouched repo proof)
 - [ ] T10 — CAPS shows `4WD4M:LIVE`, `ESP_SER:CS`, `ESP_CLI:CS`; app marks the CS ones Coming Soon
