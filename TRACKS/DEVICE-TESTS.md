@@ -3,6 +3,64 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## Round E — Connection-Manager Phase B acceptance (T11–T14, 2026-09-30, READY — gate still OFF)
+
+> **This car is the ONLY test target for the envelope work** (owner scope ruling 2026-09-30:
+> donor cars wireless/2WD/balance/remote are not test targets and must not change). Plan:
+> `guide/PLAN-2026-09-30-CONNECTION-MANAGER-ROADMAP.md` §4.
+>
+> **No firmware change ships with this round.** Phase B is app-side only: the JSON envelope is
+> translated to the wire lines this firmware ALREADY understands (`F`/`SPD<n>`/`SERVO<n>`/
+> `STEER<n>`/`TRIM<n>`/`4WD4M`/`REQ_STATE`/`ROUTERS;*`/`WIFICFG;*`). So the car stays v1.0.1
+> and this round is an ACCEPTANCE round, not a firmware round — if a row fails, the fix is in the
+> app's translation layer, never in a new token on the car (F-21/F-23/FIN-23/24).
+>
+> **HOW TO RUN IT:** the intake ships OFF (F-41 — nothing is user-selectable until it is proven
+> here). To exercise it, flip `setEnvelopeIntakeEnabled(true)` in a scratch build
+> (`mobile/src/transports/envelopeWiring.ts`) — NOT in a shipped build — and drive it from the
+> dev console / a temporary hook. Then T11–T14. Record PASS/FAIL/NA per row with a note; no
+> "all fine" summaries.
+
+### T11 — every envelope type drives the car over BT
+
+- [ ] Flip the gate, pair to `4WD CAR` over BT, then send each of: `{type:"drive",dir:"F"}`,
+      `{type:"speed",value:140}`, `{type:"servo",value:90}`, `{type:"steerLimit",value:30}`,
+      `{type:"trim",value:5}`, `{type:"mode",token:"4WD4M"}`, `{type:"requestState"}` — the car
+      responds to every one exactly as it does to the hand-written line (wheels move, `STATE;`
+      echoes `SPD`/`TRIM`, `CAPS;` still lists `4WD4M:LIVE`).
+- [ ] Wheels stop moving at `SPD0`/`S` the instant the command is sent — no lag introduced by the
+      extra translation hop.
+
+### T12 — the SAME envelopes over the car's WebSocket (AP `4WDCar_Wifi`, ws :81)
+
+- [ ] Repeat T11's full list over WS. Every row behaves identically to BT — **the envelope must not
+      care which link carries it** (that is the whole premise of the additive form).
+- [ ] Repeat T11's rows once more with the phone on the **home-router** WS if a `ROUTERS;USE`
+      entry exists, so the STA path is covered too.
+
+### T13 — malformed envelopes FAIL CLOSED with a readable reason
+
+- [ ] Each of these emits **nothing at all** on the wire and returns its error (no wheel twitch,
+      no partial command, no timeout on the car): `{v:99,...}` (bad version) · `{type:"mode",
+      token:"obstacle_avoid"}` (free-text name — the FIN-23 registry is the only vocab) ·
+      `{type:"speed",value:42}` (below `SPEED_MIN`) · `{type:"speed",value:300}` (above
+      `SPEED_MAX`) · `{type:"trim",value:91}` · malformed JSON text.
+- [ ] With the gate still ON, a valid command immediately afterwards still works (the failed
+      attempt left no stuck state).
+
+### T14 — byte parity + no behaviour change (the regression guard)
+
+- [ ] With a serial logger attached, compare the bytes for the SAME action sent both ways: a
+      hand-written `SPD150` from the existing UI vs `{type:"speed",value:150}` through the intake.
+      **The serial log must be indistinguishable.** Any difference is a Phase B defect.
+- [ ] With the gate OFF (the shipped default), the entire Control Panel behaves exactly as before
+      this round: driving, mode switching, speed/servo/trim, the router panel, the deck layouts.
+      No screen changed, so nothing here should feel different.
+- [ ] Donors untouched: wireless/2WD/balance/remote firmware NOT reflashed and NOT retested
+      (they are not test targets). Prove it by `git status` staying clean in those four repos.
+
+Verdict: **RC-PENDING** — awaiting the owner's bench round.
+
 ## Round 1 — v1.0.1 (R1 fix round — T0 PASS, T1–T10 verdicts NOT YET TRANSCRIBED)
 
 > The v1.0.1 source is on `main` (`93817b2` OLED link-context, `Config.h` version bump) and the
