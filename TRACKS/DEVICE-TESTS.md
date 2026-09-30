@@ -61,6 +61,59 @@
 
 Verdict: **RC-PENDING** — awaiting the owner's bench round.
 
+## Round H — HTTP/REST method on the app (T15–T18, 2026-09-30, READY — app fix shipped, method still F-41-gated)
+
+> Phase C item 2 of `guide/PLAN-2026-09-30-CONNECTION-MANAGER-ROADMAP.md`: the roadmap called
+> HTTP "already implemented end-to-end; cheapest win; do first". **It was not** — auditing it
+> against this firmware found two defects, both fixed app-side in `adapters.ts` and recorded as
+> **FAILSAFES F-51**. No firmware change: the car's routes were always correct; the app was
+> calling the wrong ones.
+>
+> - **F-50/F-51 defect 1:** the app sent `/f` `/b` `/l` `/r`; this car registers `/forward`
+>   `/backward` `/left` `/right` → every direction command 404'd while `/status` kept the link
+>   looking healthy.
+> - **F-51 defect 2 (SAFETY):** `SPD0` (a stop line) mapped to `/speed?val=0`, but
+>   `handleSpeed()` clamps to `MIN_SPEED` = 100 → a **stop became speed 100 and the car drove**.
+>
+> ⚠ The HTTP row is still **F-41-gated** (not user-selectable). To test: flip the transport's
+> `isSupported()` for `http` in a scratch build, or call `linkManager.activate("http")` from a
+> dev path. Do NOT ship the flip before these rows pass.
+
+### T15 — direction commands actually move the car (the defect that was hiding)
+
+- [ ] HTTP link connected, car on **wheels up** (stand it on a stand first — this row makes
+      the car drive for the first time over this method). Send `F`, `B`, `L`, `R`, `S` one at
+      a time. **Every one must move the car the right way.**
+- [ ] Then confirm the negative: with the app sending nothing, the car is still. If a command
+      appears to "work" while the car never moved, that is the old 404 behaviour — re-check the
+      route names.
+
+### T16 — speed behaves, and the floor is a floor (SAFETY row — do this one first)
+
+- [ ] `SPD100`, `SPD180`, `SPD255` each set that speed. `SPD255` must not exceed the ceiling.
+- [ ] **`SPD0` STOPS the car — it must NOT set speed 100.** Watch the wheels. If the car
+      accelerates on `SPD0`, the `/speed?val=n` floor bug is back; stop the round.
+- [ ] A speed below the floor (`SPD50`) also stops rather than driving at 100.
+- [ ] `S` and `ESTOP` still stop. All four stop paths behave the SAME over HTTP as over BT/WS.
+
+### T17 — mode tokens over HTTP
+
+- [ ] `4WD4M` switches mode; the app reflects the new mode from the next `/status`.
+- [ ] An invalid token is refused by the car and the app surfaces a readable error — it does not
+      report a false success.
+
+### T18 — link honesty + regression (the F-41 gate)
+
+- [ ] `/status` in a browser first (`http://192.168.245.1/status`): JSON confirms the car is
+      healthy before blaming the app (F-30's browser-first rule).
+- [ ] With the HTTP row **gated off** (the shipped default), the Control Panel is unchanged and
+      HTTP is not selectable — confirming the F-41 gate still holds after the fix.
+- [ ] BT (T1) and WS (T4) still pass: the fix must not have touched the other transports.
+- [ ] Donors untouched: wireless/2WD/balance/remote NOT reflashed. Prove with clean `git status`
+      in those four repos.
+
+Verdict: **RC-PENDING** — awaiting the owner's bench round.
+
 ## Round 1 — v1.0.1 (R1 fix round — T0 PASS, T1–T10 verdicts NOT YET TRANSCRIBED)
 
 > The v1.0.1 source is on `main` (`93817b2` OLED link-context, `Config.h` version bump) and the
