@@ -114,6 +114,39 @@ Verdict: **RC-PENDING** — awaiting the owner's bench round.
 
 Verdict: **RC-PENDING** — awaiting the owner's bench round.
 
+## Round N — LIVE-transport command-rejection audit (T19–T20, 2026-09-30, READY — app fix shipped)
+
+> Applying F-51's rule to the transports people actually drive (Bluetooth SPP + WebSocket), not
+> just the gated ones. **F-52**: the car answers *any* line it does not handle with
+> `NACK;E=UNKNOWN_MODE` (ModeManager.cpp:436 falls through to `setModeFromString`), so the error
+> code covers "no such command" as well as "unknown mode". The app believed it, so **every
+> EMERGENCY STOP press** raised a red *"ESTOP is not supported by this car"* toast, overwrote the
+> EMERGENCY STOP status, and parked a phantom stub — this car implements none of `ESTOP`,
+> `TRIM<n>`, `STEER<n>`. The car did stop (`SPD0` is the real stop, sent second in the batch),
+> which is why the round read as PASS. App-side fix: classify before reacting.
+
+### T19 — EMERGENCY STOP must be silent and must stay labelled EMERGENCY STOP
+
+- [ ] Wheels up, car driving, then press **EMERGENCY STOP** over **Bluetooth**.
+- [ ] The car stops. **No red error toast appears** — specifically nothing saying "not supported
+      by this car", and nothing naming `ESTOP`.
+- [ ] The drive status still reads **EMERGENCY STOP** (it must not flip to "Not supported by car").
+- [ ] Repeat over **WebSocket** (`wifi-ap-ws`). Same three results.
+- [ ] Sanity check that the fix did not silence real problems: connect to a car that genuinely
+      lacks the mode and select it — the "not supported by this car" message MUST still appear
+      for a real MODE token.
+
+### T20 — trim / steering-limit edits raise no error on this car
+
+- [ ] Adjust **TRIM** and the **steering limit** on the 4WD4M. No error toast; the value still
+      updates and persists.
+- [ ] Nothing in the mode list gains a stray row, and the car keeps driving normally afterwards
+      (a wrongly-parked stub must not block a later legit mode).
+- [ ] Cross-car regression: on a 2WD1M / self-balance car, `SERVO90` centring and `TRIM<n>` must
+      STILL work — the fix moved the interpretation, it did not delete the commands.
+
+Verdict: **RC-PENDING** — awaiting the owner's bench round.
+
 ## Round 1 — v1.0.1 (R1 fix round — T0 PASS, T1–T10 verdicts NOT YET TRANSCRIBED)
 
 > The v1.0.1 source is on `main` (`93817b2` OLED link-context, `Config.h` version bump) and the
