@@ -3,6 +3,34 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## ⭐ MASTER RUN — one bench session, everything outstanding (2026-09-30, RC-PENDING)
+
+> **Owner instruction 2026-09-30: finish all the code first, run the device tests at the end, as
+> one round.** So this is the consolidated sheet. Rounds E, H, N and 1 below are the detail; this
+> is the running order. **Do the SAFETY rows first (A, then B).**
+>
+> Everything in the "CI-proved instead" column no longer needs the car — that is the point of
+> moving the F-41 gate into a unit test.
+
+| # | Row | What it proves | Needs the car? |
+|---|-----|----------------|----------------|
+| **A** | **T1 + T19 (e-stop)** | Bluetooth drives; **EMERGENCY STOP raises no error and keeps its label** (F-52) | **YES — do first** |
+| **B** | **T2 + T16 (speed/stop)** | Speed is real, `SPD0` **stops** and never becomes speed 100, `S`/`ESTOP` agree across methods (F-51 safety) | **YES — do first** |
+| C | T3–T6 | Reconnect, link loss → safe stop, mode + speed persistence, STATUS text | YES |
+| D | T4 + T17 | WebSocket row: drives, mode tokens, clean STATE JSON | YES |
+| E | T7–T10 | Round-1 regression (verdicts still untranscribed — please record them) | YES |
+| F | **T15** | **HTTP/REST: direction commands actually MOVE the car** (the 404 defect) | YES |
+| G | T18a | `/status` in a browser first, then the JSON agrees with the app | YES |
+| H | T20 | Trim / steering-limit edits raise no error; no stray mode row; car still drives | YES |
+| I | T11–T14 | Phase B envelope wiring — **gate still OFF**, use a scratch build | YES (scratch) |
+| J | T18b | HTTP row is NOT selectable (F-41 still holds) | **NO — CI-proved** (`transportGate.test.ts`) |
+| K | T19b | A genuinely unsupported MODE token still says "not supported by this car" | YES |
+| L | T20b | 2WD1M / self-balance: `SERVO90` centring + `TRIM<n>` still work | YES (other car) |
+| M | — | Donors untouched: clean `git status` in the four other car repos | NO — desk check |
+
+**Record the verdict for every row you run** (PASS / FAIL / NOT RUN). The standing release rule
+holds: no FIN-36 release tag and no sign-off until these are PASS on hardware.
+
 ## Round E — Connection-Manager Phase B acceptance (T11–T14, 2026-09-30, READY — gate still OFF)
 
 > **This car is the ONLY test target for the envelope work** (owner scope ruling 2026-09-30:
