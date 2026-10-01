@@ -216,8 +216,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       attachHold('btn-stop','stop');
       attachHold('btn-right','right');
       attachHold('btn-back','backward');
+      // Select the shown default ONLY; deliberately NOT calling setMode() here.
+      // ESP_SER is a ModeAvail::CS stub in v2 (ModeManager.cpp) and mode tokens
+      // PERSIST (F-31), so loading this page must never push the car into it.
       document.getElementById('m').value = 'MODE_ESP_SERVER';
-      setMode();
       document.getElementById('m').addEventListener('change', setMode);
       var r = document.getElementById('r');
       if(r) r.addEventListener('change', setRouter);
