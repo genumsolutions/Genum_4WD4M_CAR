@@ -252,13 +252,12 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
       if (serverRunning) rejoinNetwork();
       else updateExtraInfo();
     } else {
+      // First check if the ssid is already in the saved routers list
       int slot = -1;
       for (int i = 0; i < savedRouterCount_; ++i) {
         if (strcmp(savedRouterSsid_[i], ssid) == 0) { slot = i; break; }
       }
-      if (slot < 0) {
-        snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Not saved:%s", ssid);
-      } else {
+      if (slot >= 0) {
         // Switch the ACTIVE pair to this saved router (the car holds its pass).
         strncpy(storedSsid_, savedRouterSsid_[slot], ROUTER_SSID_LEN - 1);
         strncpy(storedPass_, savedRouterPass_[slot], ROUTER_PASS_LEN - 1);
@@ -270,12 +269,61 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
         prefs.putString("wifi_ssid", storedSsid_);
         prefs.putString("wifi_pass", storedPass_);
         prefs.end();
-        FW_LOG_VERBOSE("[ROUTERS] USE SSID=\"%s\"\n", storedSsid_);
+        FW_LOG_VERBOSE("[ROUTERS] USE SSID=\"%s\" (saved router)\n", storedSsid_);
         snprintf(reply, sizeof(reply), "ROUTERS;USED;%s", storedSsid_);
-        // Server stays up during the hand-over (T-34 proven path). In BT mode
-        // the pair is simply stored — the next ESP_SER begin() uses it.
+        // Server stays up during the hand-over (T-34 proven path).
         if (serverRunning) rejoinNetwork();
         else updateExtraInfo();
+      } else {
+        // ssid not in saved list — attempt to add it temporarily then switch
+        const char* semi = strchr(ssid, ';');
+        const char* pass = semi ? semi + 1 : "";
+        size_t ssidLen = semi ? static_cast<size_t>(semi - ssid) : strlen(ssid);
+        if (ssidLen == 0 || ssidLen >= ROUTER_SSID_LEN) {
+          snprintf(reply, sizeof(reply), "ROUTERS;ERROR;SSID length");
+        } else if (strlen(pass) >= ROUTER_PASS_LEN) {
+          snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Password too long");
+        } else if (strcasecmp(ssid, WIFI_AP_NAME) == 0) {
+          // T-66: the car's own network is protected — cannot be added to saved list
+          snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Reserved");
+        } else {
+          // Attempt to add this router to the saved list
+          int newSlot = -1;
+          if (savedRouterCount_ >= MAX_SAVED_ROUTERS) {
+            snprintf(reply, sizeof(reply), "ROUTERS;FULL");
+          } else {
+            newSlot = savedRouterCount_++;
+            strncpy(savedRouterSsid_[newSlot], ssid, ssidLen);
+            savedRouterSsid_[newSlot][ssidLen] = '\0';
+            strncpy(savedRouterPass_[newSlot], pass, ROUTER_PASS_LEN - 1);
+            savedRouterPass_[newSlot][ROUTER_PASS_LEN - 1] = '\0';
+            Preferences prefs;
+            prefs.begin("botcfg", false);
+            static const char* sKeys[] = { "rnet0s", "rnet1s", "rnet2s", "rnet3s", "rnet4s", "rnet5s" };
+            static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
+            prefs.putString(sKeys[newSlot], savedRouterSsid_[newSlot]);
+            prefs.putString(pKeys[newSlot], savedRouterPass_[newSlot]);
+            prefs.end();
+            FW_LOG_VERBOSE("[ROUTERS] added SSID=\"%s\" (slot %d, on-the-fly)\n", savedRouterSsid_[newSlot], newSlot);
+          }
+          // Now switch to the newly added router
+          if (newSlot >= 0) {
+            strncpy(storedSsid_, savedRouterSsid_[newSlot], ROUTER_SSID_LEN - 1);
+            strncpy(storedPass_, savedRouterPass_[newSlot], ROUTER_PASS_LEN - 1);
+            storedSsid_[ROUTER_SSID_LEN - 1] = '\0';
+            storedPass_[ROUTER_PASS_LEN - 1] = '\0';
+            hasStoredWifi_ = true;
+            FW_LOG_VERBOSE("[ROUTERS] USE SSID=\"%s\" (newly added)\n", storedSsid_);
+            snprintf(reply, sizeof(reply), "ROUTERS;USED;%s", storedSsid_);
+            // Server stays up during the hand-over (T-34 proven path). In BT mode
+            // the pair is simply stored — the next ESP_SER begin() uses it.
+            if (serverRunning) rejoinNetwork();
+            else updateExtraInfo();
+          } else {
+            // Should not reach here, but fallback to error
+            snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Could not add router");
+          }
+        }
       }
     }
   } else if (rest[0] == ';' && strncasecmp(rest, ";DEL;", 5) == 0) {
