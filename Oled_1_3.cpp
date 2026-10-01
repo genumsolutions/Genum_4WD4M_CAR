@@ -323,13 +323,48 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   // Row 4: Type  : SPP / WebServer / AP ready / LAN ready / -- (the connected
   // method's concrete transport). The right-edge bar stack keeps its R-20
   // semantics (4 bars while a link is up).
-  char connLine[40];
-  snprintf(connLine, sizeof(connLine), "Link : %s%s", linkMethodBuf,
-           linkConnected ? "" : " (scan)");
-  u8g2->drawStr(leftX, lineBaseline[2], connLine);
+  // v1.0.1 OLED directive (2026-09-30): display Bluetooth / WiFi type with
+  // friendly labels, and blink WiFi type label turn-by-turn for 1.5s each.
+  {
+    const char* method = linkMethodBuf;
+    const char* type = linkTypeBuf;
+    bool connected = linkConnected;
 
-  snprintf(connLine, sizeof(connLine), "Type : %s", linkTypeBuf);
-  u8g2->drawStr(leftX, lineBaseline[3], connLine);
+    // Build display lines
+    char line3[33] = "";
+    char line4[33] = "";
+
+    if (strcmp(method, "Bluetooth") == 0 || strcmp(method, "BT") == 0) {
+      // Bluetooth: show friendly label + SPP type
+      snprintf(line3, sizeof(line3), "Bluetooth");
+      snprintf(line4, sizeof(line4), "Type: spp");
+    } else if (strcmp(method, "WiFi") == 0 || strcmp(method, "Wi-Fi") == 0) {
+      // WiFi: show type blinking turn-by-turn for 1.5s each
+      static uint32_t lastBlinkMs = 0;
+      static int blinkState = 0;
+      uint32_t now = millis();
+      if (now - lastBlinkMs >= 1500) {
+        lastBlinkMs = now;
+        blinkState ^= 1;  // toggle
+      }
+      if (blinkState == 0) {
+        // First 1.5s half: show "Wifi:" on line3, blank on line4
+        snprintf(line3, sizeof(line3), "Wifi:");
+        snprintf(line4, sizeof(line4), "                ");
+      } else {
+        // Second 1.5s half: show type on both lines
+        snprintf(line3, sizeof(line3), "Wifi: %s", type && type[0] ? type : "--");
+        snprintf(line4, sizeof(line4), "Type: %s", type && type[0] ? type : "--");
+      }
+    } else {
+      // None or unknown
+      snprintf(line3, sizeof(line3), "Link : %s", method ? method : "None");
+      snprintf(line4, sizeof(line4), "Type : %s", type ? type : "--");
+    }
+
+    u8g2->drawStr(leftX, lineBaseline[2], line3);
+    u8g2->drawStr(leftX, lineBaseline[3], line4);
+  }
 
   // R-20 (fleet rule: link bars live ONLY in the drive dashboards) + v1.0.1:
   // the bar stack keys off the LIVE LINK (any method), not the mode — bars
