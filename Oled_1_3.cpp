@@ -317,49 +317,47 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     return;
   }
 
-  // v1.0.1 (owner OLED directive): the link rows are TRANSPORT truth, not
-  // mode truth — WHICH method is connected (pronto) + the type under it.
-  // Row 3: Link : Bluetooth / WiFi / None (live, from currentLink()).
-  // Row 4: Type  : SPP / WebServer / AP ready / LAN ready / -- (the connected
-  // method's concrete transport). The right-edge bar stack keeps its R-20
-  // semantics (4 bars while a link is up).
-  // v1.0.1 OLED directive (2026-09-30): display Bluetooth / WiFi type with
-  // friendly labels, and blink WiFi type label turn-by-turn for 1.5s each.
+  // v1.0.1 (owner OLED directive 2026-09-30): display Bluetooth / WiFi
+  // friendly names + types. Bluetooth shows APP name + SPP type. WiFi shows
+  // SSID + type + IP blinking turn-by-turn for 2.5s each per F-53/F-33.
   {
     const char* method = linkMethodBuf;
     const char* type = linkTypeBuf;
     bool connected = linkConnected;
 
-    // Build display lines
+    // Build display lines — line3 and line4 as requested
     char line3[33] = "";
     char line4[33] = "";
 
     if (strcmp(method, "Bluetooth") == 0 || strcmp(method, "BT") == 0) {
-      // Bluetooth: show friendly label + SPP type
-      snprintf(line3, sizeof(line3), "Bluetooth");
-      snprintf(line4, sizeof(line4), "Type: spp");
+      // Bluetooth: show friendly label from deviceName (APP / Esp Remote etc)
+      // + SPP type. deviceName comes from ModeManager scan results.
+      const char* btName = deviceName && deviceName[0] ? deviceName : "APP";
+      snprintf(line3, sizeof(line3), "Bluetooth: %s", btName);
+      snprintf(line4, sizeof(line4), "Type: SPP");
     } else if (strcmp(method, "WiFi") == 0 || strcmp(method, "Wi-Fi") == 0) {
-      // WiFi: show type blinking turn-by-turn for 1.5s each
+      // WiFi: show SSID + type + IP blinking turn-by-turn for 2.5s each
       static uint32_t lastBlinkMs = 0;
       static int blinkState = 0;
       uint32_t now = millis();
-      if (now - lastBlinkMs >= 1500) {
+      if (now - lastBlinkMs >= 2500) {
         lastBlinkMs = now;
-        blinkState ^= 1;  // toggle
+        blinkState ^= 1;  // toggle every 2.5s
       }
       if (blinkState == 0) {
-        // First 1.5s half: show "Wifi:" on line3, blank on line4
-        snprintf(line3, sizeof(line3), "Wifi:");
-        snprintf(line4, sizeof(line4), "                ");
+        // First 2.5s half: SSID on line3, IP on line4
+        snprintf(line3, sizeof(line3), "WiFi: %s", type && type[0] ? type : "—");
+        snprintf(line4, sizeof(line4), "IP: %s", ipBuf && ipBuf[0] ? ipBuf : "—");
       } else {
-        // Second 1.5s half: show type on both lines
-        snprintf(line3, sizeof(line3), "Wifi: %s", type && type[0] ? type : "--");
-        snprintf(line4, sizeof(line4), "Type: %s", type && type[0] ? type : "--");
+        // Second 2.5s half: type label + "Car AP" / "Server" + IP on both lines
+        const char* typeLabel = type && type[0] ? type : "—";
+        snprintf(line3, sizeof(line3), "WiFi: %s", typeLabel);
+        snprintf(line4, sizeof(line4), "Type: %s   IP: 192.0.0.0", typeLabel);
       }
     } else {
       // None or unknown
-      snprintf(line3, sizeof(line3), "Link : %s", method ? method : "None");
-      snprintf(line4, sizeof(line4), "Type : %s", type ? type : "--");
+      snprintf(line3, sizeof(line3), "Link: %s", method ? method : "None");
+      snprintf(line4, sizeof(line4), "Type: —   IP: —");
     }
 
     u8g2->drawStr(leftX, lineBaseline[2], line3);
