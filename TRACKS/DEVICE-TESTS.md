@@ -27,6 +27,7 @@
 | K | T19b | A genuinely unsupported MODE token still says "not supported by this car" | YES |
 | L | T20b | 2WD1M / self-balance: `SERVO90` centring + `TRIM<n>` still work | YES (other car) |
 | M | — | Donors untouched: clean `git status` in the four other car repos | NO — desk check |
+| N2 | **T21–T23 (Round 2)** | OLED link rows are real (no fake SSID/IP), `ROUTERS;USE` adds+switches without resetting, web page no longer flips the car's mode | **YES — flash v1.0.1+ first** |
 
 **Record the verdict for every row you run** (PASS / FAIL / NOT RUN). The standing release rule
 holds: no FIN-36 release tag and no sign-off until these are PASS on hardware.
@@ -174,6 +175,39 @@ Verdict: **RC-PENDING** — awaiting the owner's bench round.
       STILL work — the fix moved the interpretation, it did not delete the commands.
 
 Verdict: **RC-PENDING** — awaiting the owner's bench round.
+
+## Round 2 — OLED names + ROUTERS;USE + web-mode fixes (T21–T23, 2026-10-01→02, READY — NOT YET FLASHED)
+
+> Source on `main` through `dfda326`, CI ✓ `36909403120`. **A bench flash is required** —
+> none of this is on the board yet. The flash for Round 1's "flash v1.0.1 + confirm the OLED
+> line" row and this round are THE SAME FLASH: flash `main` once, then run T21–T23 followed by
+> the still-untranscribed T1–T10 verdicts.
+
+### T21 — OLED shows real link truth (v1.0.1 directive, fixes through `dfda326`)
+
+- [ ] Bluetooth link: OLED prints the plain BT label + `Type: SPP`; the APP banner carries the
+      controller name (the firmware has no peer-name channel — owner ruling Q2=B).
+- [ ] Wi-Fi: row 3 shows the REAL joined SSID / AP id (parsed from extraInfo), never the link
+      type string; the IP row shows the car's live `ipBuf` — never the hardcoded `192.0.0.0`.
+- [ ] No garbage glyphs anywhere (UTF-8 em-dashes were removed from literals); a long SSID
+      cannot run into the right-edge bar zone (40-byte rows + width trim).
+- [ ] WiFi type blinks ~2.5 s per entry on the link line, per the directive.
+
+### T22 — `ROUTERS;USE` adds-and-switches instead of resetting (`cd3158f`)
+
+- [ ] Send `ROUTERS;USE;<new-ssid>;…` for a router the car has never stored → the car ADDS it
+      on the fly, joins it, and STAYS UP — no reset/reboot, no crash on unknown router.
+- [ ] Switching back to a stored router still works (`ROUTERS;LIST` → `USE`).
+
+### T23 — web page never changes the car's mode (`64c2781` + F-57 `2478735`)
+
+- [ ] Note the car's mode (app or `STATUS`), open the car web page in a browser → the mode is
+      UNCHANGED (the page only pre-selects the dropdown for display; v1 used to force
+      `MODE_ESP_SERVER` on load, which also PERSISTED it — F-31).
+- [ ] Picking a mode in the dropdown still sends it and the car acts on it; the dropdown
+      re-syncs to the car's real mode (no empty option can be sent).
+
+Verdict: **RC-PENDING** — not flashed.
 
 ## Round 1 — v1.0.1 (R1 fix round — T0 PASS, T1–T10 verdicts NOT YET TRANSCRIBED)
 
