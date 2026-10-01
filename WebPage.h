@@ -112,6 +112,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
           if(j.status){
             document.getElementById('status').innerText=j.status;
             document.getElementById('mode').innerText=j.mode_name || j.mode;
+            syncMode(j.mode);   // F-57: keep the dropdown equal to car truth
             document.getElementById('conn').innerText=(j.connected === true || j.connected === 'true') ? 'Connected' : 'Disconnected';
             syncSpeed(j.speed);
             document.getElementById('ip').innerText=j.ip || '--';
@@ -203,7 +204,23 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     }
     function setMode(){
       let sel = document.getElementById('m');
+      if (!sel || !sel.value) return;   // F-57: never send the empty "unknown" option
       sendCmd(sel.value);
+    }
+    // F-57: mirror the car's REPORTED mode into the dropdown, so the control a
+    // user reads agrees with the #mode readout. Never while the user has it
+    // open or focused - same anti-flicker / anti-fighting-the-user rule the
+    // saved-router dropdown uses below.
+    function syncMode(canon){
+      if (!canon) return;
+      let sel = document.getElementById('m');
+      if (!sel || document.activeElement === sel) return;
+      for (let i=0; i<sel.options.length; i++){
+        if (sel.options[i].getAttribute('data-canon') === canon){
+          if (sel.value !== sel.options[i].value) sel.value = sel.options[i].value;
+          return;
+        }
+      }
     }
     function setRouter(){
       let sel = document.getElementById('r');
@@ -216,10 +233,12 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       attachHold('btn-stop','stop');
       attachHold('btn-right','right');
       attachHold('btn-back','backward');
-      // Select the shown default ONLY; deliberately NOT calling setMode() here.
-      // ESP_SER is a ModeAvail::CS stub in v2 (ModeManager.cpp) and mode tokens
-      // PERSIST (F-31), so loading this page must never push the car into it.
-      document.getElementById('m').value = 'MODE_ESP_SERVER';
+      // F-57: do NOT preselect a mode. The dropdown starts on the empty
+      // "— current mode —" option and is filled in by syncMode() once the car
+      // reports, so the page never shows a mode the car is not actually in.
+      // (Preselecting is also what made the page look like it was driving the
+      // car; the earlier fix stopped it SENDING the value, but the display was
+      // still lying.)
       document.getElementById('m').addEventListener('change', setMode);
       var r = document.getElementById('r');
       if(r) r.addEventListener('change', setRouter);
@@ -233,15 +252,28 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     <h1>4WD4M Car</h1>
     <div class='top-selects'>
       <select id='m'>
-        <option value='MODE_BT'>4WD4M</option>
-        <option value='MODE_ESP_SERVER'>ESP32 (WS)</option>
-        <option value='MODE_ESP_CLIENT'>ESP32 (CLIENT)</option>
-        <option value='MODE_PATH'>PATH</option>
-        <option value='MODE_OBS_US'>OBS-US</option>
-        <option value='MODE_OBS_IR'>OBS-IR</option>
-        <option value='MODE_MANUAL'>MANUAL</option>
-        <option value='MODE_AUTO'>AUTO</option>
-        <option value='MODE_2WD1M'>2WD1M</option>
+        <!-- F-57: the first option is the "car has not told us yet" state and is
+             what the page shows until the car reports. The old page hardcoded
+             MODE_ESP_SERVER as the selected value, so it displayed "ESP32 (WS)"
+             while the car was really in 4WD4M - the same page showed the true
+             mode in the #mode readout and a different one here (F-53). A
+             dropdown must not assert a state nothing has confirmed. -->
+        <option value='' selected>— current mode —</option>
+        <!-- data-canon is the CANONICAL token the car reports as j.mode. Keeping
+             it in the markup next to the label means the dropdown <-> reported
+             mode mapping cannot drift from the option list, and adding a mode
+             here is all that is needed for it to sync. Legacy aliases on the
+             wire (MODE_BT -> 4WD4M, MODE_ESP_SERVER -> ESP_SER) live in
+             ModeManager::setModeFromString and are NOT repeated here. -->
+        <option value='MODE_BT'        data-canon='4WD4M'>4WD4M</option>
+        <option value='MODE_ESP_SERVER' data-canon='ESP_SER'>ESP32 (WS)</option>
+        <option value='MODE_ESP_CLIENT' data-canon='ESP_CLI'>ESP32 (CLIENT)</option>
+        <option value='MODE_PATH'      data-canon='PATH'>PATH</option>
+        <option value='MODE_OBS_US'    data-canon='OBS_US'>OBS-US</option>
+        <option value='MODE_OBS_IR'    data-canon='OBS_IR'>OBS-IR</option>
+        <option value='MODE_MANUAL'    data-canon='MAN'>MANUAL</option>
+        <option value='MODE_AUTO'      data-canon='AUTO'>AUTO</option>
+        <option value='MODE_2WD1M'     data-canon='2WD1M'>2WD1M</option>
       </select>
       <select id='r'>
         <option value='' disabled selected>— Select router —</option>
