@@ -317,26 +317,32 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     return;
   }
 
-  // v1.0.1 (owner OLED directive 2026-09-30): display Bluetooth / WiFi
-  // friendly names + types. Bluetooth shows APP name + SPP type. WiFi shows
-  // SSID + type + IP blinking turn-by-turn for 2.5s each per F-53/F-33.
+  // v1.0.1 (owner OLED directive 2026-09-30): display the live link's network
+  // name + transport type. Row 3 = joined SSID (or the AP broadcast id), row 4
+  // = type + live IP, blinking turn-by-turn every 2.5s (F-53/F-33). Bluetooth
+  // has no network name, so it shows the plain label + SPP transport.
   {
     const char* method = linkMethodBuf;
-    const char* type = linkTypeBuf;
-    bool connected = linkConnected;
+    const char* type = (linkTypeBuf[0] != '\0') ? linkTypeBuf : "--";
 
-    // Build display lines — line3 and line4 as requested
-    char line3[33] = "";
-    char line4[33] = "";
+    // Row 3 = the NETWORK name (joined SSID, else the AP broadcast id).
+    // Row 4 = the transport type + the live IP. netBuf/ipBuf were parsed from
+    // extraInfo above, so the names shown here are the ones the car is really
+    // on -- never a placeholder.
+    char line3[40] = "";
+    char line4[40] = "";
+    const char* netName = (netBuf[0] != '\0') ? netBuf : "--";
+    const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "--";
 
     if (strcmp(method, "Bluetooth") == 0 || strcmp(method, "BT") == 0) {
-      // Bluetooth: show friendly label from deviceName (APP / Esp Remote etc)
-      // + SPP type. deviceName comes from ModeManager scan results.
-      const char* btName = deviceName && deviceName[0] ? deviceName : "APP";
-      snprintf(line3, sizeof(line3), "Bluetooth: %s", btName);
+      // Bluetooth: firmware keeps the plain Bluetooth label + SPP transport.
+      // The controller's friendly name is shown by the APP banner (owner
+      // ruling 2026-09-30, Q2=B) -- there is no peer-name channel here.
+      snprintf(line3, sizeof(line3), "Bluetooth");
       snprintf(line4, sizeof(line4), "Type: SPP");
     } else if (strcmp(method, "WiFi") == 0 || strcmp(method, "Wi-Fi") == 0) {
-      // WiFi: show SSID + type + IP blinking turn-by-turn for 2.5s each
+      // WiFi: row 3 shows the SSID / AP name, row 4 the transport type + IP.
+      // 2.5s turn-by-turn blink between the two rows (F-53/F-33).
       static uint32_t lastBlinkMs = 0;
       static int blinkState = 0;
       uint32_t now = millis();
@@ -345,21 +351,28 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
         blinkState ^= 1;  // toggle every 2.5s
       }
       if (blinkState == 0) {
-        // First 2.5s half: SSID on line3, IP on line4
-        snprintf(line3, sizeof(line3), "WiFi: %s", type && type[0] ? type : "—");
-        snprintf(line4, sizeof(line4), "IP: %s", ipBuf && ipBuf[0] ? ipBuf : "—");
+        snprintf(line3, sizeof(line3), "WiFi: %s", netName);
+        snprintf(line4, sizeof(line4), "IP: %s", ipText);
       } else {
-        // Second 2.5s half: type label + "Car AP" / "Server" + IP on both lines
-        const char* typeLabel = type && type[0] ? type : "—";
-        snprintf(line3, sizeof(line3), "WiFi: %s", typeLabel);
-        snprintf(line4, sizeof(line4), "Type: %s   IP: 192.0.0.0", typeLabel);
+        snprintf(line3, sizeof(line3), "WiFi: %s", netName);
+        snprintf(line4, sizeof(line4), "Type: %s   IP: %s", type, ipText);
       }
     } else {
       // None or unknown
-      snprintf(line3, sizeof(line3), "Link: %s", method ? method : "None");
-      snprintf(line4, sizeof(line4), "Type: —   IP: —");
+      snprintf(line3, sizeof(line3), "Link: %s", method);
+      snprintf(line4, sizeof(line4), "Type: %s   IP: %s", type, ipText);
     }
 
+    u8g2->setFont(fontBody);
+    // Width-trim instead of letting a long SSID run into the right-edge bar
+    // zone (same guard as the webserver rows above).
+    const int linkTextWide = usableW - 26;
+    for (int i = 0; i < 2; ++i) {
+      char* row = (i == 0) ? line3 : line4;
+      while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
+        row[strlen(row) - 1] = '\0';
+      }
+    }
     u8g2->drawStr(leftX, lineBaseline[2], line3);
     u8g2->drawStr(leftX, lineBaseline[3], line4);
   }
