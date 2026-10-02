@@ -25,6 +25,14 @@ untranscribed T1–T10, then the ⭐ MASTER RUN safety rows A/B. App side of thi
 `genumsolutions-app` `edb3fd7`→`f3223ce` (method switching while connected etc.), device rows
 U-60-1..5 there.
 
+**⚠ 2026-10-02 (evening) — THE OWNER'S BENCH SESSION CONFIRMED THE UNFLASHED-BINARY SYMPTOM
+LIVE:** trying to switch the car to the home router from the app "resets the car and it never
+reaches the new router settings" — exactly `cd3158f`'s bug (`ROUTERS;USE` on an unknown
+router rebooting the flashed binary; fixed on `main`, CI green, NOT on the board). The app
+side of that report is separately queued in `genumsolutions-app/TRACKS/NEXT-SESSION.md`
+(handoff card needs a real confirm button + a link-loss phase). **Flash `main` before any
+T21–T23 / home-router attempt — on the current board those rows cannot pass by design.**
+
 **Previous resume point (2026-09-28, after the Connections Hub firmware round — board-id broadcast landed):**
 
 0. **DONE `8a25dbb`: the car broadcasts its stable board id.** `WebServerComm::boardIdHex()`
