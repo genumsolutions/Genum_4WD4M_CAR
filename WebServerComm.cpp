@@ -660,8 +660,37 @@ void WebServerComm::startOwnAP() {
                       IPAddress(192, 168, 245, 1),   // gateway (the car itself)
                       IPAddress(255, 255, 255, 0));  // /24 — up to ~250 clients
   }
+  // U-72 (2026-10-02): THE AP CHANNEL MUST NOT BE PINNED WHILE A ROUTER IS JOINED.
+  //
+  // This was `WiFi.softAP(ssid, nullptr, /*channel=*/1, ...)` unconditionally,
+  // and the comment above it claimed "channel 1 follows the STA router in
+  // AP_STA". It does not — passing an explicit channel is precisely what STOPS
+  // it following. In AP_STA the softAP and the STA share ONE radio and must
+  // share ONE channel, so while the car is joined to a router on (say) channel
+  // 6, a hard-pinned channel 1 leaves the driver with a channel conflict: the
+  // AP beacons on one channel while the STA listens on another.
+  //
+  // That is why the owner's report is specific — *"the car still restart while
+  // in other route"*: on its own hotspot there is no STA, so channel 1 is fine;
+  // the instability appears exactly once a router is joined, and re-running
+  // softAP() against a live association is a known way to wedge (and trip the
+  // task watchdog, whose action is a reboot — F-24).
+  //
+  // Fix: channel 1 only when there is no station interface to share with.
+  // Channel 0 tells the core to follow the STA's channel, which is the only
+  // legal answer in AP_STA. The owner's own hotspot behaviour is unchanged,
+  // because with nothing joined the AP still comes up on channel 1.
+  const bool staSharing = (WiFi.getMode() == WIFI_AP_STA) &&
+                          (WiFi.status() == WL_CONNECTED || connectingPending_ ||
+                           rejoinStep_ != REJOIN_STEP_IDLE);
+  const uint8_t apChannel = staSharing ? 0 : 1;  // 0 = follow the STA
+  if (staSharing && apRunning_) {
+    // The AP is already up on whatever channel the core settled on; reconfiguring
+    // it mid-association is the very thing that destabilises the driver. Leave it.
+    return;
+  }
   const bool apOk = WiFi.softAP(apName.c_str(), /*passphrase=*/nullptr,
-                                /*channel=*/1, /*ssid_hidden=*/0,
+                                apChannel, /*ssid_hidden=*/0,
                                 /*max_connection=*/4);
   if (!apOk) {
     // Retry is driven by handle() (AP_RETRY_INTERVAL_MS backoff); log here so

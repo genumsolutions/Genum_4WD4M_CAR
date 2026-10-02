@@ -180,9 +180,32 @@ void ModeManager::setAuxComm(CommInterface* aux) {
 }
 
 void ModeManager::setExtraInfo(const char* info) {
-  if (!info) { extraInfo_[0] = '\0'; return; }
-  strncpy(extraInfo_, info, EXTRA_INFO_LEN - 1);
+  if (!info) {
+    if (extraInfo_[0] == '\0') return;   // already blank - nothing to repaint
+    extraInfo_[0] = '\0';
+    if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), getModeString(), extraInfo_);
+    return;
+  }
+  // U-72 (2026-10-02): THE OLED WAS NOT REPAINTED WHEN THE NETWORK CHANGED.
+  //
+  // `setExtraInfo()` used to copy the string and nothing else. The display was
+  // repainted ONLY by unrelated events - sendState(), a command, a mode change -
+  // so `updateExtraInfo()` (which runs every second and holds the real joined
+  // SSID / IP) updated a buffer nobody looked at. The owner's report - *"the
+  // oled shows the wrong wifi detail and is not sync with the car's state"* - is
+  // exactly this: the data was correct and the picture was stale, which from the
+  // bench is indistinguishable from the data being wrong.
+  //
+  // Repaint ONLY when the content actually changed (the guard is what keeps this
+  // from repainting 1x/second forever), and repaint straight away rather than
+  // waiting for the next unrelated event - which is what "pronto" requires.
+  char next[EXTRA_INFO_LEN];
+  strncpy(next, info, EXTRA_INFO_LEN - 1);
+  next[EXTRA_INFO_LEN - 1] = '\0';
+  if (strcmp(next, extraInfo_) == 0) return;
+  strncpy(extraInfo_, next, EXTRA_INFO_LEN - 1);
   extraInfo_[EXTRA_INFO_LEN - 1] = '\0';
+  if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), getModeString(), extraInfo_);
 }
 
 size_t ModeManager::getStatusText(char* buf, size_t bufLen) const {
