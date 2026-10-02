@@ -457,7 +457,12 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // — app/site). The suffix retuned in v1.4.0 (iv); reinstated 2026-09-14 (v)
   // because the BT-only remote can never see WS JSON. Both read
   // registryFor(currentMode_).isStub() so they can never disagree.
-  char buf[248];
+  // D7 (U-68): sized so a full `REPLY=` (a complete saved-router list, up to
+  // 191 bytes in pendingReply_) plus the fixed STATE fields and wifiKeys still
+  // fit. At 248 a two-or-three-router list was truncated mid-answer, which is
+  // now a WRONG answer rather than an ignored one. The Bluetooth link buffers
+  // a line at a time, so a longer line is fine as long as the builder holds it.
+  char buf[448];
   // R-12: in webserver mode, STATE also carries the configured SSID (never
   // the password) and the AP fallback broadcast id so the hand-held remote's
   // ESP_SER dashboard can show the car's WiFi truth (app gets the same via
@@ -515,6 +520,17 @@ void ModeManager::sendStateOn(CommInterface& comm) {
     WebServerComm::instance()->buildNetworksLine(networks, sizeof(networks));
     if (networks[0]) {
       snprintf(buf, sizeof(buf), "%s\n", networks);
+      comm.write(buf, strlen(buf));
+    }
+    // D3 (U-68): the car-side nearby-network scan, as its own line — the
+    // Bluetooth encoding, exactly as `SCAN;<ssid>,<rssi>,<open>;…` / `SCAN;NONE`.
+    // The WS JSON carries the same data as `"scan":[…]`, so one app parser
+    // serves both links (F-66). `SCAN;NONE` when there is nothing to show, so
+    // the app can tell "scanned, found none" from "never scanned".
+    char scan[320] = "";
+    WebServerComm::instance()->buildScanLine(scan, sizeof(scan));
+    if (scan[0]) {
+      snprintf(buf, sizeof(buf), "%s\n", scan);
       comm.write(buf, strlen(buf));
     }
   }

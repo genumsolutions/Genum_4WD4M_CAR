@@ -186,7 +186,18 @@ private:
 
   // v1.4.0: reply text produced by the system-command hook (WIFICFG replies).
   // sendState() appends it as REPLY=<text> on the next STATE line when set.
-  char pendingReply_[64];
+  //
+  // D7 (U-68, 2026-10-02): this was 64 bytes while the hook builds its reply
+  // in 160 — so a `ROUTERS;<ownAP>;<ssid>…` list was SILENTLY TRUNCATED at 63
+  // characters, right where it matters: with two or three saved routers the
+  // answer stopped mid-list. Nobody noticed because the app discarded the
+  // reply entirely (that was D2). Now that the answer is consumed, a truncated
+  // one would be a wrong one, so the buffer matches the largest reply the hook
+  // can build (a full saved-router list: 6 x 32 + separators + the own AP).
+  //
+  // It rides ONE STATE line, so the STATE builder's own buffer must be able to
+  // hold it — see sendStateOn()'s `buf`.
+  char pendingReply_[192];
 
   // T-13: debounced NVS persistence (mode + speed). scheduleModeSpeedPersist()
   // is called from every path that modifies the authoritative mode/speed;

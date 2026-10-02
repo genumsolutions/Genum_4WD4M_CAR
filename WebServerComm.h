@@ -13,6 +13,7 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <Preferences.h>
+#include <vector>
 
 #define CMD_QUEUE_LEN 8
 #define CMD_BUF_LEN 128
@@ -32,6 +33,15 @@
 #define STA_MAX_RETRIES 6
 // FIN-40/D1: retry cadence for a softAP() that failed to start (radio busy).
 #define AP_RETRY_INTERVAL_MS 2000ul
+// D3 (U-68): the car-side nearby-network scan. SCAN_SETTLE_MS is the pause
+// between "the command asked" and "the radio may be asked" — the radio can
+// still be finishing an association, and scanning into that returns nothing.
+// SCAN_TIMEOUT_MS bounds the wait so a radio that never finishes reports
+// honestly instead of leaving the app waiting. SCAN_MAX_RESULTS caps both the
+// kept list and the JSON fragment so the status buffer stays bounded.
+#define SCAN_SETTLE_MS 400ul
+#define SCAN_TIMEOUT_MS 8000ul
+#define SCAN_MAX_RESULTS 12
 // T-48 (round-5): saved-router registry — the car is the source of truth.
 // Max 6 routers (ssid ≤32 / pass ≤64, no ';' in either — split-rule parity
 // with WIFICFG). Names sync OUT only; passwords never leave the car's NVS.
@@ -92,6 +102,34 @@ public:
   // (fed into the remote's saved-networks menu). WS JSON: networks:[...].
   void buildNetworksLine(char* buf, size_t bufLen);
   void buildNetworksJson(char* buf, size_t bufLen);
+  /**
+   * F-68 (U-68): the acknowledgement form of a command line, with every
+   * credential stripped. `ROUTERS;ADD;<ssid>;<pass>` -> `ROUTERS;ADD;<ssid>`.
+   * An ack confirms the request; it must never replay it, because the raw line
+   * travels back over WebSocket (and over HTTP, where it is also broadcast to
+   * every WS client) and would otherwise sit in any proxy log in plain text.
+   */
+  static void redactForAck(const char* cmd, char* out, size_t outLen);
+
+  /**
+   * D3 (U-68, 2026-10-02): the car-side nearby-network scan.
+   *
+   * `ROUTERS;SCAN` existed in the app since the Connections-Hub round and the
+   * car answered `ROUTERS;ERROR;Syntax` every time — there was no "networks
+   * near the car" list anywhere in the system. This is it.
+   *
+   * ASYNCHRONOUS ON PURPOSE: `WiFi.scanNetworks()` blocks for seconds. Called
+   * from the command path it would starve loop() and trip the task watchdog
+   * (F-24), rebooting the car — the exact failure F-60 was written to stop.
+   * So the command only ARMS the scan; handle() runs and collects it.
+   */
+  void startScan();
+  void runScanIfDue();
+  void collectScanIfDone();
+  /** SPP form: `SCAN;<ssid>,<rssi>,<1|0>;…` or `SCAN;NONE`. */
+  void buildScanLine(char* buf, size_t bufLen) const;
+  /** WS JSON form: `[{"ssid":…,"rssi":…,"open":true|false},…]`. */
+  size_t buildScanJson(char* buf, size_t bufLen) const;
   int savedRouterCount() const { return savedRouterCount_; }
   const char* savedRouterSsid(int i) const {
     return (i >= 0 && i < MAX_SAVED_ROUTERS) ? savedRouterSsid_[i] : "";
@@ -207,6 +245,22 @@ private:
   // Last WIFICFG reply, consumed by ModeManager's system-command hook so the
   // answer reaches the app over whichever comm is active.
   String lastWifiReply_;
+
+  // D3 (U-68): the nearby-network scan. One pass at a time, armed by the
+  // command and driven by handle(); scanNetworks_ survives until the next scan
+  // so the app can read it at leisure (and so a passive status broadcast keeps
+  // carrying it). scanCount_ is the raw pass count (diagnostics only).
+  struct ScannedNetwork {
+    char ssid[33];
+    int32_t rssi;
+    bool open;
+  };
+  bool scanPending_;
+  bool scanBusy_;
+  unsigned long scanStartMs_;
+  unsigned long scanWaitMs_;
+  int scanCount_;
+  std::vector<ScannedNetwork> scanNetworks_;
   // AP fallback broadcast id ("4WDCar_Wifi", T-56), shown on the OLED and
   // in the status JSON ("ap") so the app/website can display it.
   String apName_;

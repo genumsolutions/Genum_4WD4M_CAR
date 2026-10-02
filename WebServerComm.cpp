@@ -24,8 +24,9 @@ void WebServerComm::boardIdHex(char* out, size_t outLen) {
 
 WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
-    connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
-    staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
+  connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
+  staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
+  scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
     serverRunning(false), startedAsAP(false), apRunning_(false),
     modeManager(nullptr), pendingModeAtMs(0)
 {
@@ -405,12 +406,155 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     // The car reverts to its own AP as the network (default) right away.
     if (serverRunning) rejoinNetwork();
     else updateExtraInfo();
-  } else {
-    snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Syntax");
-  }
-
+  } else if (rest[0] == ';' && strncasecmp(rest, ";SCAN", 5) == 0) {
+    // D3 (U-68, 2026-10-02): ROUTERS;SCAN NOW EXISTS.
+    //
+    // The app has been sending this since the Connections-Hub round and the
+    // car has answered `ROUTERS;ERROR;Syntax` every time — and the app then
+    // ignored that answer, so the failure was invisible. There was no
+    // "nearby networks" list to select from anywhere in the system, which is
+    // the owner's "the selecting of the network is not proper".
+    //
+    // WiFi.scanNetworks() BLOCKS for seconds, so it CANNOT run here: this
+    // handler runs inside the command path, and a multi-second block would
+    // starve loop() and trip the task watchdog (F-24) — the car would reboot,
+    // which is the one thing this whole subsystem exists to stop (F-60).
+    //
+    // So the scan is started ASYNCHRONOUSLY and the result is collected in
+    // handle(). The reply is the honest acknowledgement; the RESULT arrives as
+    // its own line, exactly like the saved-network list does.
   lastWifiReply_ = reply;
   return true;
+}
+
+// --- D3: the car-side nearby-network scan -------------------------------
+//
+// `WiFi.scanNetworks()` blocks for seconds, so it is never called from the
+// command path (that would starve loop() and trip the task watchdog — F-24 —
+// rebooting the car, which is exactly what F-60 forbids). Instead:
+//   startScan()         arms a short settle delay, then kicks ONE non-blocking
+//                       pass and remembers when it started;
+//   runScanIfDue()      is that kick, called from handle();
+//   collectScanIfDone() reads the result once the radio reports it finished,
+//                       keeps the strongest reading per SSID, and broadcasts it.
+//
+// The result is delivered two ways, so both link types and both app parsers
+// work without either being special:
+//   - as its own SPP line   `SCAN;<ssid>,<rssi>,<open>;…`  (or `SCAN;NONE`)
+//   - in the status JSON    `"scan":[{"ssid":…,"rssi":…,"open":…}]`
+// Names only — a scan can never reveal a password (W-14).
+//
+// While the STA is ASSOCIATED, ESP32 scan results are unreliable (the radio is
+// busy and the channel follows the router), so strength is reported only as a
+// hint. The saved-router list remains the source of truth for what the car
+// will actually join.
+
+void WebServerComm::startScan() {
+  if (scanPending_ || scanBusy_) return;  // armed or in flight already
+  scanPending_ = true;
+  scanStartMs_ = 0;  // armed; handle() kicks it on a later pass
+}
+
+void WebServerComm::runScanIfDue() {
+  if (!scanPending_ || scanBusy_) return;
+  const unsigned long now = millis();
+  // A short settle delay: kicking the scan in the same millisecond as the
+  // command that asked for it races the radio, which may still be finishing
+  // the previous association.
+  if (scanStartMs_ == 0) {
+    scanStartMs_ = now;
+    return;
+  }
+  if (now - scanStartMs_ < SCAN_SETTLE_MS) return;
+
+  scanPending_ = false;
+  scanBusy_ = true;
+  scanCount_ = WiFi.scanNetworks(/*async=*/true, /*show_hidden=*/false);
+  scanWaitMs_ = now;
+}
+
+void WebServerComm::collectScanIfDone() {
+  if (!scanBusy_) return;
+  const int found = WiFi.scanComplete();
+  const unsigned long now = millis();
+  if (found < 0 && now - scanWaitMs_ < SCAN_TIMEOUT_MS) return;  // still running
+
+  scanBusy_ = false;
+  scanCount_ = (found >= 0) ? found : 0;
+
+  // Keep the strongest reading per SSID: one pass can report the same name
+  // more than once, and the app shows one row per router.
+  scanNetworks_.clear();
+  int n = scanCount_;
+  if (n > SCAN_MAX_RESULTS) n = SCAN_MAX_RESULTS;
+  for (int i = 0; i < n; ++i) {
+    const char* name = WiFi.SSID(i).c_str();
+    if (!name || !name[0]) continue;
+    const int32_t rssi = WiFi.RSSI(i);
+    const bool open = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
+    bool merged = false;
+    for (size_t k = 0; k < scanNetworks_.size(); ++k) {
+      if (strcasecmp(scanNetworks_[k].ssid.c_str(), name) == 0) {
+        if (rssi > scanNetworks_[k].rssi) {
+          scanNetworks_[k].rssi = rssi;
+          scanNetworks_[k].open = open;
+        }
+        merged = true;
+        break;
+      }
+    }
+    if (!merged && scanNetworks_.size() < SCAN_MAX_RESULTS) {
+      ScannedNetwork entry;
+      snprintf(entry.ssid, sizeof(entry.ssid), "%s", name);
+      entry.rssi = rssi;
+      entry.open = open;
+      scanNetworks_.push_back(entry);
+    }
+  }
+
+  FW_LOG_VERBOSE("[SCAN] %u network(s) found\n",
+                 static_cast<unsigned int>(scanNetworks_.size()));
+  // The SPP form rides the next STATE (the same way NETW does); the JSON form
+  // goes out on this broadcast so a WS client sees it straight away.
+  if (modeManager) modeManager->sendState();
+  broadcastStatus();
+}
+
+void WebServerComm::buildScanLine(char* buf, size_t bufLen) const {
+  if (!buf || bufLen == 0) return;
+  if (scanNetworks_.empty()) {
+    snprintf(buf, bufLen, "SCAN;NONE");
+    return;
+  }
+  size_t used = 0;
+  used += snprintf(buf + used, bufLen - used, "SCAN");
+  for (size_t i = 0; i < scanNetworks_.size() && used < bufLen; ++i) {
+    int n = snprintf(buf + used, bufLen - used, ";%s,%d,%d",
+                     scanNetworks_[i].ssid, static_cast<int>(scanNetworks_[i].rssi),
+                     scanNetworks_[i].open ? 1 : 0);
+    if (n < 0) break;
+    used += static_cast<size_t>(n);
+  }
+}
+
+size_t WebServerComm::buildScanJson(char* buf, size_t bufLen) const {
+  if (!buf || bufLen == 0) return 0;
+  size_t used = 0;
+  int n = snprintf(buf, bufLen, "[");
+  if (n > 0) used = static_cast<size_t>(n);
+  for (size_t i = 0; i < scanNetworks_.size() && used < bufLen; ++i) {
+    n = snprintf(buf + used, bufLen - used, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"open\":%s}",
+                 i ? "," : "", scanNetworks_[i].ssid,
+                 static_cast<int>(scanNetworks_[i].rssi),
+                 scanNetworks_[i].open ? "true" : "false");
+    if (n < 0) break;
+    used += static_cast<size_t>(n);
+  }
+  if (used < bufLen) {
+    n = snprintf(buf + used, bufLen - used, "]");
+    if (n > 0) used += static_cast<size_t>(n);
+  }
+  return used;
 }
 
 // T-49: names-only SPP line — "NETW;<ssid1>;<ssid2>;..." (fed to the remote's
@@ -652,6 +796,12 @@ void WebServerComm::handle() {
       pendingModeAtMs = 0;
     }
   }
+
+  // D3 (U-68): drive the car-side scan from the loop, never from the command
+  // path. runScanIfDue kicks a non-blocking pass once the settle delay has
+  // passed; collectScanIfDone reads it when the radio finishes and broadcasts.
+  runScanIfDue();
+  collectScanIfDone();
 
   // F-20a: resolve the pending STA connect without blocking the loop.
   if (connectingPending_) {
@@ -946,17 +1096,53 @@ void WebServerComm::handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * p
       broadcastStatus();
       return;
     }
+    // F-68 (U-68, 2026-10-02): the ack used to echo the command VERBATIM, so
+    // `ROUTERS;ADD;Home;hunter2` came straight back to the phone — and would
+    // land in any WebSocket proxy log on the way. The app happened to ignore
+    // the field; that was luck, not design.
+    //
+    // An acknowledgement confirms the REQUEST, it never replays it. Password-
+    // bearing commands are confirmed by operation + SSID only. Same for the
+    // HTTP route (the next block) and the WIFICFG family.
     char ack[128];
-    snprintf(ack, sizeof(ack), "{\"ok\":true,\"cmd\":\"%s\"}", msg);
+    char safe[96];
+    redactForAck(msg, safe, sizeof(safe));
+    snprintf(ack, sizeof(ack), "{\"ok\":true,\"cmd\":\"%s\"}", safe);
     ws.sendTXT(num, ack);
   }
 }
 
+// F-68: build the acknowledgement form of a command line — every credential
+// stripped. `ROUTERS;ADD;<ssid>;<pass>` becomes `ROUTERS;ADD;<ssid>` and
+// `WIFICFG;<ssid>;<pass>` becomes `WIFICFG;<ssid>`. Defined at file scope so
+// both the WS and the HTTP ack paths use the one rule.
+void WebServerComm::redactForAck(const char* cmd, char* out, size_t outLen) {
+  if (!cmd || !out || outLen == 0) return;
+  out[0] = '\0';
+  if (!cmd) return;
+
+  // Split on ';' and keep at most the operation plus ONE further field: for
+  // ADD/WIFICFG that field is the SSID, which is not secret; everything after
+  // it (the password) is dropped.
+  const char* semi = strchr(cmd, ';');
+  if (!semi) {
+    snprintf(out, outLen, "%s", cmd);
+    return;
+  }
+  size_t headLen = static_cast<size_t>(semi - cmd);
+  const char* tail = semi + 1;
+  const char* semi2 = strchr(tail, ';');
+  size_t keep = semi2 ? static_cast<size_t>(semi2 - tail) : strlen(tail);
+  snprintf(out, outLen, "%.*s;%.*s", static_cast<int>(headLen), cmd,
+           static_cast<int>(keep), tail);
+}
+
 void WebServerComm::broadcastStatus() {
   if (!modeManager) return;
-  // 640: status JSON + ssid(32) + ap(21) + caps map(~90) + networks (6×33 ≈ 200)
-  // (v1.4.0 provisioning fields + full availability map + T-49 saved routers)
-  char buf[640];
+  // 1200: status JSON + ssid(32) + ap(21) + caps map(~90) + networks (6×33 ≈ 200)
+  // + scan (D3, 12 × ~48 ≈ 600). Grown for the scan field; `buildStatusJson`
+  // bounds every fragment it writes, so a full scan cannot overflow this.
+  char buf[1200];
   buildStatusJson(buf, sizeof(buf));
   ws.broadcastTXT(buf);
 }
@@ -973,8 +1159,12 @@ void WebServerComm::handleMove(const char* cmd) {
     queuePush(cmd);
     if (strcmp(cmd, "S") == 0) queueClear();
   }
+  // F-68: same redaction as the WS ack — this one is also broadcast to every
+  // WS client, so an unredacted password would reach all of them.
   char out[128];
-  snprintf(out, sizeof(out), "{\"ok\":true,\"cmd\":\"%s\"}", cmd);
+  char safe[96];
+  redactForAck(cmd, safe, sizeof(safe));
+  snprintf(out, sizeof(out), "{\"ok\":true,\"cmd\":\"%s\"}", safe);
   server.send(200, "application/json", out);
   ws.broadcastTXT(out);
 }
@@ -1015,7 +1205,7 @@ void WebServerComm::handleMode() {
 }
 
 void WebServerComm::handleStatus() {
-  char buf[640];
+  char buf[1200];
   buildStatusJson(buf, sizeof(buf));
   server.send(200, "application/json", buf);
 }
@@ -1066,6 +1256,11 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // leave the car; W-14).
   char networks[260] = "";
   buildNetworksJson(networks, sizeof(networks));
+  // D3 (U-68): the car-side nearby-network scan as `"scan":[…]` — the WS half
+  // of the same data the SPP `SCAN;…` line carries. `[]` until a scan has run,
+  // so the app can tell "not scanned yet" from "scanned, found nothing".
+  char scanJson[512] = "";
+  buildScanJson(scanJson, sizeof(scanJson));
   // Connections-Hub: the stable board id (fw:<id> profile key for WiFi cars).
   char boardId[8] = "";
   boardIdHex(boardId, sizeof(boardId));
@@ -1089,7 +1284,8 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
        "\"ssid\":\"%s\","
        "\"ap\":\"%s\","
        "\"id\":\"%s\","
-       "\"networks\":[%s]"
+       "\"networks\":[%s],"
+       "\"scan\":%s"
      "}",
      statusWord,
      modeToken,
@@ -1109,6 +1305,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
      ssidOut,
      apOut,
      boardId,
-     networks
+     networks,
+     scanJson
   );
 }
