@@ -1,3 +1,46 @@
+**✅ U-68 PHASE 3 SHIPPED 2026-10-02 — THE CAR'S NETWORK LAYER REBUILT. Arduino CI ✓ `37012141471`
+(1,748,602 B = 55% of the 3 MB `huge_app`, 69,772 B SRAM = 21%). NOT FLASHED YET.** Three defects
+the app could not work around, all on the connection/provisioning path:
+
+1. **`ROUTERS;SCAN` DID NOT EXIST — D3.** The app has sent it since the Connections-Hub round and
+   the car answered `ROUTERS;ERROR;Syntax` every time; the app then discarded that answer, so the
+   failure was invisible. **There was no "networks near the car" list anywhere in the system** —
+   the owner's *"the selecting of the network is not proper"*. Now implemented and delivered BOTH
+   ways so one app parser serves both links (F-66): the SPP line `SCAN;<ssid>,<rssi>,<1|0>;…`
+   (or `SCAN;NONE`) and `"scan":[{"ssid":…,"rssi":…,"open":…}]` in the status JSON. An empty
+   array / `SCAN;NONE` until a scan has run, so the app can tell *not scanned yet* from *scanned,
+   found nothing*. Names only — a scan can never reveal a password (W-14).
+   **ASYNC ON PURPOSE:** `WiFi.scanNetworks()` blocks for seconds; from the command path it would
+   starve `loop()` and trip the task watchdog (F-24), **rebooting the car** — exactly what F-60
+   exists to stop. So the command only ARMS the scan (`startScan`), `handle()` runs it after a
+   settle delay (`runScanIfDue`) and collects it when the radio finishes (`collectScanIfDone`),
+   keeping the strongest reading per SSID and broadcasting on both transports. One pass at a time,
+   bounded by `SCAN_TIMEOUT_MS` so a radio that never finishes reports honestly instead of leaving
+   the app waiting. Note the caveat: while the STA is ASSOCIATED the radio is busy and the channel
+   follows the router, so **strength is a hint only** — the saved-router list stays the source of
+   truth for what the car will actually join.
+2. **The router reply was TRUNCATED at 63 characters — D7.** `ModeManager::pendingReply_` was 64
+   bytes while the command hook builds its reply in 160, so `ROUTERS;<ownAP>;<ssid>…` was cut off
+   mid-list as soon as two or three routers were saved. Nobody noticed because the app threw the
+   reply away (that was D2). Now the answer is consumed, a truncated one would be a *wrong* one, so
+   the buffer matches the largest reply the hook can build and the STATE builder's buffer was grown
+   (`buf[248]` → `buf[448]`) to carry a full `REPLY=` in one line.
+3. **A credential rode every acknowledgement — F-68.** Each WebSocket command was answered
+   `{"ok":true,"cmd":"<the full line it was sent>"}`, so `ROUTERS;ADD;Home;hunter2` came straight
+   back to the phone and would land in any WebSocket proxy log. The HTTP route did the same **and
+   broadcast it to every WS client**. New `redactForAck()` confirms the request by operation + SSID
+   only. *An acknowledgement confirms a request; it must never replay it.*
+
+**Bench:** the app half is U-68 (`genumsolutions-app` — see its `TRACKS/NEXT-SESSION.md`); device
+rows **`genumsolutions-app/mobile/TESTING.md` U-68-4** (nearby-network selection) are the ones that
+**cannot pass until this is flashed**, because no earlier binary has `ROUTERS;SCAN`. The
+flash-verify car rows to add alongside: T24–T26 (U-67, still open) and T21–T23.
+
+**Lesson recorded (it cost two CI runs):** the phase-3 commit shipped with `handleRouterCommand()`
+closing *inside* its if-chain — a follow-up edit had replaced the SCAN branch's body along with the
+anchor it matched — so everything after it parsed as declarations. The **Arduino CI compile gate
+is the only thing that can catch a brace-level mistake in firmware**; treat a red compile as a real
+defect, never as CI noise. (Second failure was `strcasecmp` on a `char[33]`'s `.c_str()`.)
 # NEXT-SESSION — Genum_4WD4M_CAR
 
 **⚠️ U-67 (2026-10-02, owner bench) — THE ROUTER-SWITCH RESET IS FIXED, AND IT WAS NOT
