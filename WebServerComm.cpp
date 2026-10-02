@@ -500,7 +500,7 @@ void WebServerComm::collectScanIfDone() {
     const bool open = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
     bool merged = false;
     for (size_t k = 0; k < scanNetworks_.size(); ++k) {
-      if (strcasecmp(scanNetworks_[k].ssid.c_str(), name) == 0) {
+      if (strcasecmp(scanNetworks_[k].ssid, name) == 0) {
         if (rssi > scanNetworks_[k].rssi) {
           scanNetworks_[k].rssi = rssi;
           scanNetworks_[k].open = open;
