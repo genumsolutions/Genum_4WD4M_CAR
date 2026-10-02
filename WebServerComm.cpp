@@ -772,6 +772,7 @@ bool WebServerComm::beginStation() {
   WiFi.setAutoReconnect(false);
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
+  giveUpStep_ = GIVEUP_IDLE;
   if (hasStoredWifi_) {
     Serial.println("Stored router available - join via ROUTERS;USE / WIFICFG (own AP stays default)");
   }
@@ -818,6 +819,18 @@ void WebServerComm::rejoinNetwork() {
   connectingPending_ = false;
   startedAsAP = true;
   rejoinStep_ = REJOIN_STEP_MODE;
+  // U-75: an in-flight give-up must be cancelled by a new request, or its stale
+  // `WiFi.mode(WIFI_AP)` step would land AFTER the user asked to join a router
+  // and yank the car off the network they just selected.
+  giveUpStep_ = GIVEUP_IDLE;
+  // U-75: an EXPLICIT switch always gets the FULL retry budget. Previously
+  // `armBootAutoJoin()` wrote the short boot budget here and only the
+  // success path ever put it back — so after a failed boot auto-join the car
+  // silently kept ONE retry and a 6 s window for the rest of the session, and
+  // the comment promising "a later ROUTERS;USE starts STA with a fresh budget"
+  // was false. `armBootAutoJoin()` now applies its short budget AFTER this call.
+  staTimeoutMs_ = WIFI_STA_TIMEOUT_MS;
+  staRetryCap_ = STA_MAX_RETRIES;
   // Servers: not radio work, and they must stay up so an HTTP request that
   // arrives during the switch is still ANSWERED (the pre-switch socket is what
   // the app is holding while the car changes networks).
@@ -831,6 +844,64 @@ void WebServerComm::rejoinNetwork() {
                  (int)rejoinStep_, hasStoredWifi_ ? storedSsid_ : "");
 }
 
+// U-75 (2026-10-02): the give-up fallback, one blocking radio call per pass.
+//
+// The owner's `[BOOT] reset reason: 6 (TASK WATCHDOG)` is the proof this was
+// needed: the three calls it replaces ran back to back inside ONE handle()
+// pass, and `WiFi.mode(WIFI_AP)` restarts the WiFi driver, so loop() could
+// exceed the 5 s task watchdog — and a WDT trip reboots the car. This is the
+// same rule `advanceRejoinStep()` follows, and the reason is identical: no
+// single blocking operation on the connection path may be able to take the car
+// down (F-24/F-60).
+//
+// Every branch returns immediately after advancing, so `handle()` spends at
+// most ONE driver call per loop iteration and returns, feeding the WDT and
+// giving the web server a chance to answer a request in between.
+void WebServerComm::giveUpStepMachine() {
+  switch (giveUpStep_) {
+    case GIVEUP_IDLE:
+      return;
+
+    case GIVEUP_DISCONNECT:
+      noteRadioStep("giveup/disconnect");
+      WiFi.disconnect();
+      giveUpStep_ = GIVEUP_MODE;
+      return;
+
+    case GIVEUP_MODE:
+      // On its own pass, deliberately: this is the driver restart, and it is the
+      // single most expensive call on this path.
+      noteRadioStep("giveup/mode-AP");
+      WiFi.mode(WIFI_AP);
+      giveUpStep_ = GIVEUP_AP;
+      return;
+
+    case GIVEUP_AP:
+      // `apRunning_` is forced false rather than trusted, because the
+      // AP_STA→AP switch can bounce the beacon (FIN-40/D1) — but only the beacon
+      // claim is forced; the call itself still goes through `startOwnAP()`.
+      noteRadioStep("giveup/softAP");
+      apRunning_ = false;
+      startOwnAP();
+      giveUpStep_ = GIVEUP_IDLE;
+      Serial.println("WiFi STA gave up (router unreachable) - AP-only mode");
+      updateExtraInfo();
+      if (modeManager) modeManager->sendState();
+      return;
+  }
+}
+
+// U-75: print the step BEFORE it runs.
+//
+// A hang emits no serial output of its own, so the last breadcrumb printed is
+// the step that hung. Without this the owner can only ever be told "loop()
+// blocked somewhere"; with it, the next occurrence names the culprit line. The
+// cost is one short line per network transition.
+void WebServerComm::noteRadioStep(const char* step) {
+  Serial.print("[RADIO] ");
+  Serial.println(step);
+}
+
 void WebServerComm::advanceRejoinStep() {
   // U-71: one radio operation per pass. Every branch returns immediately after
   // advancing, so the caller (handle()) never spends more than a single driver
@@ -841,6 +912,7 @@ void WebServerComm::advanceRejoinStep() {
 
     case REJOIN_STEP_MODE:
       if (WiFi.getMode() != WIFI_AP_STA) {
+        noteRadioStep("rejoin/mode-AP_STA");
         WiFi.mode(WIFI_AP_STA);
       }
       rejoinStep_ = REJOIN_STEP_AP;
@@ -849,6 +921,7 @@ void WebServerComm::advanceRejoinStep() {
     case REJOIN_STEP_AP:
       // T-65: the own hotspot is never torn down during a network change, so
       // the phone keeps a way in for the whole switch.
+      noteRadioStep("rejoin/softAP");
       startOwnAP();
       rejoinStep_ = REJOIN_STEP_BEGIN;
       return;
@@ -863,6 +936,7 @@ void WebServerComm::advanceRejoinStep() {
       }
       connectingPending_ = true;
       connectStartMs_ = millis();
+      noteRadioStep("rejoin/begin");
       WiFi.begin(storedSsid_, storedPass_);
       FW_LOG_VERBOSE("[WIFICFG] STA begin issued for \"%s\"\n", storedSsid_);
       return;
@@ -927,10 +1001,14 @@ void WebServerComm::armBootAutoJoin() {
   strncpy(storedPass_, lastGoodPass_, ROUTER_PASS_LEN - 1);
   storedPass_[ROUTER_PASS_LEN - 1] = '\0';
   hasStoredWifi_ = true;
+  rejoinNetwork();
+  // U-75: the SHORT boot budget is applied AFTER rejoinNetwork(), because that
+  // function now sets the full explicit-switch budget for every caller. Order
+  // matters: this is a boot-time concession, not a policy for the session.
   staTimeoutMs_ = BOOT_STA_TIMEOUT_MS;
   staRetryCap_ = BOOT_STA_MAX_RETRIES;
-  rejoinNetwork();
 }
+
 void WebServerComm::stop() {
   FW_LOG_VERBOSE("DBG: stop() called, serverRunning=%d\n", serverRunning ? 1 : 0);
 
@@ -1111,21 +1189,36 @@ void WebServerComm::handle() {
         WiFi.begin(storedSsid_, storedPass_);
       }
     } else if (hasStoredWifi_ && !staGiveUpLogged_) {
-      // Budget spent: settle AP-only. Force a fresh softAP call in case the
-      // AP_STA→AP switch bounced the beacon (never trust apRunning_ here).
+      // Budget spent: settle AP-only.
+      //
+      // U-75: this branch now DOES NO RADIO WORK. It used to run
+      // `WiFi.disconnect(); WiFi.mode(WIFI_AP); apRunning_ = false;
+      // startOwnAP();` in one pass — a teardown, a full driver RESTART and a
+      // softAP bring-up back to back. The owner proved that is fatal by flashing
+      // this firmware and getting `[BOOT] reset reason: 6 (TASK WATCHDOG)`:
+      // loop() blocked past 5 s and the watchdog's action is a reboot.
+      //
+      // It is ARMED here and executed one call per pass in
+      // `giveUpStepMachine()`, which `handle()` always runs — the same fix, and
+      // for the same reason, as `advanceRejoinStep()`.
+      //
+      // Note the ordering consequence, which is intentional: `startedAsAP` is
+      // set now so the UI immediately stops claiming a router, while the beacon
+      // itself comes back a pass or two later. A truthful "falling back" that is
+      // a second stale is strictly better than a watchdog reboot.
       staGiveUpLogged_ = true;
       startedAsAP = true;
-      WiFi.disconnect();
-      WiFi.mode(WIFI_AP);
-      apRunning_ = false;
-      startOwnAP();
-      Serial.println("WiFi STA gave up (router unreachable) - AP-only mode");
+      giveUpStep_ = GIVEUP_DISCONNECT;
       updateExtraInfo();
       // R-16/pronto: immediate STATE so the remote + app drop the stale SSID
       // row the same second the car settles AP-only.
       if (modeManager) modeManager->sendState();
     }
   }
+
+  // U-75: the give-up fallback, one radio call per pass. Never more than one
+  // driver call per loop iteration, so the task watchdog is always fed.
+  giveUpStepMachine();
 
   // FIN-40/D1: a softAP() that failed at bring-up (radio busy) is retried with
   // backoff until the beacon is actually up — apRunning_ only turns true on a

@@ -175,8 +175,49 @@ public:
     REJOIN_STEP_AP,     // startOwnAP() — the hotspot stays up throughout
     REJOIN_STEP_BEGIN,  // WiFi.begin(ssid, pass)
   };
-  void advanceRejoinStep();
+void advanceRejoinStep();
   uint8_t rejoinStep_;
+
+  // U-75 (2026-10-02): OWNER HARD EVIDENCE - the device finally told us why.
+  //
+  //   [BOOT] reset reason: 6 (TASK WATCHDOG (loop hung >5s))
+  //
+  // That is ESP_RST_TASK_WDT: `loop()` was blocked for more than 5 s, so the
+  // watchdog fired and its action IS a reboot. It is not a crash and not a
+  // brownout — which is exactly what had been suspected for weeks. The fault is
+  // a BLOCKING CALL IN LOOP.
+  //
+  // `advanceRejoinStep()` above already solved this for the switch path: one
+  // radio call per pass, loop() returns between steps. The one place that still
+  // violated it was the GIVE-UP fallback, which ran, in a single pass:
+  //
+  //     WiFi.disconnect(); WiFi.mode(WIFI_AP); startOwnAP();
+  //
+  // i.e. a teardown plus a full WiFi driver RESTART plus a softAP bring-up,
+  // back to back. `WiFi.mode()` is the expensive one — it stops and restarts the
+  // driver — and doing that while an association is being torn down is the most
+  // expensive case there is.
+  //
+  // U-71 made this path far more likely to be taken: boot auto-join gives every
+  // power-up ONE short attempt at the last-good router, so an unreachable router
+  // now reaches the give-up branch on EVERY boot rather than only after a user
+  // asked for a switch. The hazard and the new exposure arrived together.
+  //
+  // So the same treatment: one radio call per pass, loop() fed in between.
+  enum GiveUpStep : uint8_t {
+    GIVEUP_IDLE = 0,
+    GIVEUP_DISCONNECT,  // WiFi.disconnect()
+    GIVEUP_MODE,        // WiFi.mode(WIFI_AP) — the driver restart, on its own
+    GIVEUP_AP,          // startOwnAP() — softAPConfig() + softAP()
+  };
+  void giveUpStepMachine();
+  uint8_t giveUpStep_;
+
+  // U-75: name the blocking step BEFORE it runs. A hang produces no serial
+  // output of its own, so the last breadcrumb printed is the step that hung —
+  // which turns the next occurrence from a hunt into a diagnosis. This is the
+  // cheap half of the fix; splitting the passes above is the real one.
+  void noteRadioStep(const char* step);
 
   // Remember the router that ACTUALLY associated, so a boot can retry it and a
   // failed switch cannot overwrite a working router with a broken one.
