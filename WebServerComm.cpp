@@ -8,6 +8,7 @@
 #include "WebPage.h"
 #include <WiFi.h>
 #include <pgmspace.h>
+#include <ESPmDNS.h>   // U-74: advertise the car by name on whatever network it is on
 
 WebServerComm* WebServerComm::instanceForWs = nullptr;
 
