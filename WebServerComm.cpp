@@ -668,11 +668,35 @@ void WebServerComm::handle() {
       if (modeManager) modeManager->resetFailsafe();
     } else if (millis() - connectStartMs_ > WIFI_STA_TIMEOUT_MS) {
       connectingPending_ = false;
-      pendingRejoin_ = false;
       // T-65: the own hotspot is already broadcasting — it simply IS the
       // network now (no 8 s hidden-window, no separate softAP hand-over).
       startedAsAP = true;
-      Serial.println("WiFi STA failed, own AP is the network");
+      // OWNER BUG 2026-10-02 ("the car doesn't always switch to the router
+      // properly / doesn't do it in one go"). WIFI_STA_TIMEOUT_MS is only the
+      // FIRST attempt's budget, not the whole switch. The old code settled
+      // AP-only here AND cleared pendingRejoin_, which also made the retry
+      // branch below UNREACHABLE (it keys on pendingRejoin_ || !startedAsAP,
+      // and these lines had just set pendingRejoin_ false + startedAsAP true)
+      // - so STA_MAX_RETRIES never ran and ONE flaky association failed the
+      // switch PERMANENTLY, with the car silently left on its own AP.
+      //
+      // The timeout now hands OFF to that existing capped budget: up to
+      // STA_MAX_RETRIES more attempts spaced WIFI_RETRY_INTERVAL_MS, and only
+      // once the budget is spent does the give-up branch settle AP-only. The
+      // cap still holds, so an unreachable router cannot blank the softAP
+      // beacon forever (FIN-40/D2).
+      if (hasStoredWifi_) {
+        // pendingRejoin_ TRUE is what arms the retry budget below.
+        pendingRejoin_ = true;
+        // Prompt the first retry instead of inheriting an old backoff stamp.
+        lastWifiRetryMs_ = 0;
+        Serial.println("WiFi STA: first attempt timed out - retrying");
+      } else {
+        // Nothing stored (the "back to my own network" case): there is no
+        // target to retry, so the own AP simply IS the network now.
+        pendingRejoin_ = false;
+        Serial.println("WiFi STA failed, own AP is the network");
+      }
       updateExtraInfo();
       // R-16/pronto: mirror the fallback switch immediately (STATE SSID= drops,
       // AP=/IP= re-point at the own network).
@@ -697,6 +721,19 @@ void WebServerComm::handle() {
       if (now - lastWifiRetryMs_ >= WIFI_RETRY_INTERVAL_MS) {
         lastWifiRetryMs_ = now;
         staRetryCount_++;
+        // Each retry gets its OWN connect window. This branch is an `else if`
+        // behind `if (connectingPending_)`, so a retry that did not re-arm the
+        // flag would never be RESOLVED: a successful association would be
+        // invisible (no updateExtraInfo, no sendState - the app would sit on
+        // "getting an address" while the car was already on the router), and
+        // pendingRejoin_ would stay set so this branch kept yanking a WORKING
+        // association down every WIFI_RETRY_INTERVAL_MS. Arming
+        // connectingPending_ hands the outcome back to the block above, which
+        // clears both flags on success and re-arms the budget on the next
+        // timeout. WIFI_STA_TIMEOUT_MS is therefore the real per-attempt
+        // spacing; WIFI_RETRY_INTERVAL_MS is only the floor.
+        connectingPending_ = true;
+        connectStartMs_ = now;
         WiFi.disconnect();
         WiFi.begin(storedSsid_, storedPass_);
       }

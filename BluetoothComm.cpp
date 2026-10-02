@@ -13,10 +13,26 @@ bool BluetoothComm::begin() {
   return SerialBT.begin("4WD CAR");
 }
 
-// T-7b last-resort recovery (used only by the prolonged-disconnect watchdog
-// in the .ino, 2WD1M-car parity). Throttled to once per 60 s; a failed
-// re-init (the controller/bluedroid stack can wedge after end()) escalates
-// to a full reboot, which is the only guaranteed recovery.
+// T-7b recovery for a WEDGED BT stack (used only by the prolonged-disconnect
+// watchdog in the .ino). Throttled to once per 60 s.
+//
+// OWNER BUG 2026-10-02 ("the car resets when I switch the wifi router from the
+// app") - ROOT CAUSE, and it was NOT the ROUTERS;USE path (that is cd3158f,
+// separate). Switching the car to the home router takes the phone OFF the
+// car's BT, so `hasClient()` goes false and STAYS false. After
+// BT_HARD_RESTART_MS the watchdog called this, and the old escalation here
+// did `ESP.restart()` when the re-init failed - so the car REBOOTED mid
+// handoff, came back on its own AP, and the switch never completed. Worse:
+// this ran on a 60 s throttle FOREVER, so an unattended car parked on the
+// router rebooted on a loop.
+//
+// THE RULE (F-47): a transport failure must NEVER take down the whole car.
+// The WiFi side (own AP + STA + the app's control path) is what keeps the car
+// reachable and driveable; if BT cannot come back, that is a BT problem to
+// report, not a reason to reset a working car. So:
+//   - no ESP.restart() from here, ever;
+//   - a failed re-init is reported and the car KEEPS RUNNING (the watchdog
+//     re-arms from the .ino, so a later attempt still happens).
 bool BluetoothComm::restart() {
   static unsigned long lastRestartMs = 0;
   unsigned long now = millis();
@@ -29,9 +45,11 @@ bool BluetoothComm::restart() {
   SerialBT.end();
   delay(80);
   if (!begin()) {
-    Serial.println("[BT] FATAL: BT re-init failed - rebooting to recover");
-    delay(500);
-    ESP.restart();
+    // F-47: report, do NOT reset. The car stays on its AP / router and stays
+    // controllable; the watchdog re-arms and we try again later.
+    Serial.println("[BT] WARN: BT re-init failed - continuing without BT "
+                    "(car stays reachable; no reboot)");
+    return false;
   }
   lastActivityMs = millis();
   return true;

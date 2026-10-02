@@ -28,6 +28,20 @@ static ModeManager::Mode lastMode = ModeManager::Mode::BT;
 // re-initialized (restart(), throttled to once per 60 s).
 static unsigned long btLastConnectedOkMs = 0;
 
+// F-47 (owner bug 2026-10-02, "the car resets when I switch the wifi router
+// from the app"): the watchdog below used to treat "no BT client" as "the BT
+// stack is wedged". Those are NOT the same thing. A car parked on its own AP
+// or on the home router with nobody connected over BT is perfectly HEALTHY -
+// and switching the car to the home router is EXACTLY that state (the phone
+// leaves BT to follow the car onto the router). So after BT_HARD_RESTART_MS
+// the watchdog tore the stack down, and the old escalation rebooted the car.
+//
+// The discriminator is not time, it is TRANSITION: only a link that was
+// CONNECTED and then dropped can be a fault. A stack that has never had a
+// client since boot is simply unused. Armed on the first real connection and
+// re-armed by a fresh connection, so a genuine mid-session drop still recovers.
+static bool btEverConnected = false;
+
 void setup() {
   Serial.begin(115200);
   delay(50);
@@ -131,15 +145,19 @@ static void maybeCheckSupplyAndBTWatchdog() {
   }
 #endif
 
-  if (!btComm.connected()) {
+  // F-47: arm the watchdog only on a link that was CONNECTED and then dropped.
+  // A car that has never had a BT client is idle, not wedged - so parking it
+  // on the router (or its own AP) can never trigger a stack teardown.
+  if (btComm.connected()) {
+    btEverConnected = true;
+    btLastConnectedOkMs = 0;
+  } else if (btEverConnected) {
     if (btLastConnectedOkMs == 0) btLastConnectedOkMs = millis();
     else if (millis() - btLastConnectedOkMs > BT_HARD_RESTART_MS) {
       Serial.println("[BT-WD] Hard restart of BT via btComm due to prolonged disconnect");
       btComm.restart();
       btLastConnectedOkMs = millis();
     }
-  } else {
-    btLastConnectedOkMs = 0;
   }
 }
 
