@@ -44,6 +44,8 @@
 // in when the router is absent, so a boot must never leave the car unreachable.
 #define BOOT_STA_TIMEOUT_MS 6000ul
 #define BOOT_STA_MAX_RETRIES 1
+// U-76: how often a DEFERRED mDNS publication is retried once the STA settles.
+#define MDNS_RETRY_INTERVAL_MS 2000ul
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
 #define SCAN_MAX_RESULTS 12
@@ -218,6 +220,12 @@ void advanceRejoinStep();
   // which turns the next occurrence from a hunt into a diagnosis. This is the
   // cheap half of the fix; splitting the passes above is the real one.
   void noteRadioStep(const char* step);
+  // U-76: STA busy = connecting OR connected (DHCP included). While true, no
+  // driver/netif config set is legal - see startOwnAP().
+  bool staBusy() const;
+  // U-76: mDNS deferred until the STA settles, then retried by handle().
+  bool mdnsPending_;
+  unsigned long lastMdnsRetryMs_;
 
   // Remember the router that ACTUALLY associated, so a boot can retry it and a
   // failed switch cannot overwrite a working router with a broken one.

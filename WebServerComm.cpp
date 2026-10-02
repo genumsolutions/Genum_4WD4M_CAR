@@ -625,6 +625,41 @@ bool WebServerComm::showReservedEntry() const {
 
 void WebServerComm::startOwnAP() {
   if (apRunning_) return;
+  // U-76 (2026-10-02): THE ROOT CAUSE, from the owner's breadcrumbs.
+  //
+  //   [RADIO] rejoin/softAP
+  //   [RADIO] rejoin/begin
+  //   E wifi:sta is connecting, cannot set config
+  //   [MDNS] unavailable on this network
+  //   E task_wdt: Task watchdog got triggered ... loopTask (CPU 1)
+  //
+  // `wifi:sta is connecting, cannot set config` is an ESP-IDF REFUSAL: something
+  // tried to CONFIGURE the WiFi driver while the STA was mid-connection. In this
+  // firmware that "something" was one of exactly three calls - `softAPConfig()`,
+  // `softAP()`, or `MDNS.begin()` (which sets the netif hostname, so it counts) -
+  // and every one of them is illegal at that moment. The refusal is not the fatal
+  // part; the fatal part is that `softAP()` against a live association does not
+  // return promptly, so `handle()` sat in it, never fed loopTask, and the 5 s
+  // task watchdog rebooted the car (F-24). `AP_RETRY_INTERVAL_MS` then re-armed
+  // the same call forever.
+  //
+  // THE INVARIANT, which is the actual fix:
+  //
+  //     While the STA is connecting or connected, touch NOTHING that configures
+  //     the driver or the netif. Not softAPConfig(), not softAP(), not
+  //     MDNS.begin().
+  //
+  // That is safe precisely because of T-65: the own hotspot is NEVER torn down
+  // during a network change, so when the STA is busy the beacon is already up and
+  // there is genuinely nothing to do. The old code got this wrong by putting
+  // `softAPConfig()` at the very TOP of this function, ABOVE the U-72 staSharing
+  // guard added below - so the one call that can never be legal while the STA is
+  // busy was the one call that was never guarded.
+  if (staBusy()) {
+    noteRadioStep("skip-softAP/sta-busy");
+    apName_ = apName;  // keep the broadcast id for OLED/JSON even while deferred
+    return;
+  }
   // T-71 (round-11): keep the radio beaconing for the whole webserver session.
   // In WIFI_AP_STA the STA side scans/associates to a saved router; with the
   // default duty-cycling the softAP can blink out right when a phone races to
@@ -656,7 +691,12 @@ void WebServerComm::startOwnAP() {
   // default changes), AP name/channel/openness/clients all unchanged; the OTA
   // default of 192.168.4.1 is left alone entirely.
   const IPAddress apIp(192, 168, 245, 1);
+  // U-76: this config set is now BELOW the staBusy() guard above, deliberately.
+  // It used to be the first statement in the function, which meant it was the
+  // one call in the whole AP path that ran unconditionally - and ESP-IDF refuses
+  // it outright while the STA is connecting.
   if (WiFi.softAPIP() != apIp) {
+    noteRadioStep("softAPConfig");
     WiFi.softAPConfig(apIp,               // car's address on its own network
                       IPAddress(192, 168, 245, 1),   // gateway (the car itself)
                       IPAddress(255, 255, 255, 0));  // /24 — up to ~250 clients
@@ -773,6 +813,8 @@ bool WebServerComm::beginStation() {
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
   giveUpStep_ = GIVEUP_IDLE;
+  mdnsPending_ = false;
+  lastMdnsRetryMs_ = 0;
   if (hasStoredWifi_) {
     Serial.println("Stored router available - join via ROUTERS;USE / WIFICFG (own AP stays default)");
   }
@@ -902,6 +944,19 @@ void WebServerComm::noteRadioStep(const char* step) {
   Serial.println(step);
 }
 
+// U-76: is the STA interface busy? While it is, NOTHING may reconfigure the
+// driver or the netif - see the long note at the top of startOwnAP().
+//
+// WL_CONNECTED is included deliberately, not just WL_CONNECTING: ESP-IDF still
+// refuses config sets during DHCP, i.e. after the association is reported but
+// before the address is there, and "connected" is exactly the window the
+// owner's log caught (`sta is connecting` printed while our code believed the
+// link was up).
+bool WebServerComm::staBusy() const {
+  const wl_status_t s = WiFi.status();
+  return s == WL_CONNECTING || s == WL_CONNECTED;
+}
+
 void WebServerComm::advanceRejoinStep() {
   // U-71: one radio operation per pass. Every branch returns immediately after
   // advancing, so the caller (handle()) never spends more than a single driver
@@ -914,6 +969,12 @@ void WebServerComm::advanceRejoinStep() {
       if (WiFi.getMode() != WIFI_AP_STA) {
         noteRadioStep("rejoin/mode-AP_STA");
         WiFi.mode(WIFI_AP_STA);
+        // U-76: `WiFi.mode()` RESTARTS the driver, which tears the softAP down -
+        // but `apRunning_` was still true, so every later startOwnAP() returned
+        // early at `if (apRunning_) return;` while the beacon was actually DOWN.
+        // That is why the owner's log shows `rejoin/softAP` and then silence: the
+        // AP step did nothing. Never trust apRunning_ across a driver restart.
+        apRunning_ = false;
       }
       rejoinStep_ = REJOIN_STEP_AP;
       return;
@@ -1216,9 +1277,24 @@ void WebServerComm::handle() {
     }
   }
 
-  // U-75: the give-up fallback, one radio call per pass. Never more than one
-  // driver call per loop iteration, so the task watchdog is always fed.
+  // U-76: U-76 gave up the give-up fallback, one blocking radio call per pass.
+  // Never more than one driver call per loop iteration, so the task watchdog is
+  // always fed.
   giveUpStepMachine();
+
+  // U-76: service a mDNS publication that was DEFERRED because the STA was busy.
+  // Without this the deferral would be permanent - the advertisement would simply
+  // never appear on a router the car actually joined, which is the one case it
+  // exists for. Retried on an interval, and only once the STA has settled, so it
+  // can never be the thing that blocks loop().
+  {
+    const unsigned long nowMs = millis();
+    if (mdnsPending_ && !staBusy() &&
+        nowMs - lastMdnsRetryMs_ >= MDNS_RETRY_INTERVAL_MS) {
+      lastMdnsRetryMs_ = nowMs;
+      startMdns();
+    }
+  }
 
   // FIN-40/D1: a softAP() that failed at bring-up (radio busy) is retried with
   // backoff until the beacon is actually up — apRunning_ only turns true on a
@@ -1226,8 +1302,18 @@ void WebServerComm::handle() {
   {
     const unsigned long apNow = millis();
     if (!apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {
-      lastApRetryMs_ = apNow;
-      startOwnAP();
+      // U-76: never re-arm an AP bring-up while the STA is busy. `softAP()` and
+      // `softAPConfig()` are both illegal then, and `softAP()` against a live
+      // association can block long enough to trip the task watchdog - which is
+      // the reboot the owner reported. The retry simply waits for the STA to
+      // settle; nothing is lost, because the beacon is up whenever the STA is not
+      // busy (T-65).
+      if (staBusy()) {
+        lastApRetryMs_ = apNow;  // do not spin: re-check after a full interval
+      } else {
+        lastApRetryMs_ = apNow;
+        startOwnAP();
+      }
     }
   }
 
@@ -1375,6 +1461,19 @@ void WebServerComm::currentIp(char* buf, size_t bufLen) {
 // documented name (the `mdns` transport placeholder in the app already expects
 // `genum-car.local`).
 void WebServerComm::startMdns() {
+  // U-76: `MDNS.begin()` sets the netif hostname, so it is a DRIVER CONFIG SET and
+  // ESP-IDF refuses it while the STA is connecting - which is exactly what the
+  // owner's log caught (`wifi:sta is connecting, cannot set config` immediately
+  // followed by `[MDNS] unavailable on this network`). mDNS is a convenience, not
+  // a safety feature, so it is DEFERRED rather than forced: the flag makes
+  // `handle()` retry it once the STA settles, and by then the app can already
+  // find the car the other way (U-74b sweeps the phone's /24).
+  if (staBusy()) {
+    mdnsPending_ = true;
+    noteRadioStep("defer-mdns/sta-busy");
+    return;
+  }
+  mdnsPending_ = false;
   // Safe to call repeatedly: end() first so a re-publish after a network change
   // does not leak a previous instance.
   MDNS.end();
