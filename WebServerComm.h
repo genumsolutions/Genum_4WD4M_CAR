@@ -39,6 +39,11 @@
 // SCAN_TIMEOUT_MS bounds the wait so a radio that never finishes reports
 // honestly instead of leaving the app waiting. SCAN_MAX_RESULTS caps both the
 // kept list and the JSON fragment so the status buffer stays bounded.
+// U-71: the boot auto-join gets a SHORT window and ONE retry. It must fall back
+// to the car's own hotspot quickly and CERTAINLY: the hotspot is the only way
+// in when the router is absent, so a boot must never leave the car unreachable.
+#define BOOT_STA_TIMEOUT_MS 6000ul
+#define BOOT_STA_MAX_RETRIES 1
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
 #define SCAN_MAX_RESULTS 12
@@ -154,13 +159,37 @@ public:
   // the car's own broadcast id on its hotspot, "" when neither. The only value
   // that may be presented as the current network.
   String joinedSsid() const;
-  /**
-   * U-70: the deferred WiFi.begin(). Set by rejoinNetwork() when it had to
-   * change the radio mode, and consumed by beginStaIfArmed() on a later handle()
-   * pass. Keeping the begin() out of the same tick as WiFi.mode() is what
-   * makes the association actually succeed.
-   */
-  void beginStaIfArmed();
+
+  // ---- U-71 (2026-10-02): the deferred rejoin state machine ------------
+  // (U-70 deferred only the `WiFi.begin()` via a `staBeginPending_` flag; U-71
+  // replaces that entirely, because deferring one call still left `WiFi.mode()`
+  // and `softAP()` running inside the command path.)
+  // rejoinNetwork() does NO radio work; it only arms this, and handle()
+  // advances it with ONE radio call per loop pass. That is what stops a router
+  // switch from occupying loop() long enough to trip the 5 s task watchdog —
+  // and a WDT trip is a reboot (F-24), which is the most plausible cause of
+  // "the car restarted as soon as I tried to access the webpage".
+  enum RejoinStep : uint8_t {
+    REJOIN_STEP_IDLE = 0,
+    REJOIN_STEP_MODE,   // WiFi.mode(WIFI_AP_STA) if needed
+    REJOIN_STEP_AP,     // startOwnAP() — the hotspot stays up throughout
+    REJOIN_STEP_BEGIN,  // WiFi.begin(ssid, pass)
+  };
+  void advanceRejoinStep();
+  uint8_t rejoinStep_;
+
+  // Remember the router that ACTUALLY associated, so a boot can retry it and a
+  // failed switch cannot overwrite a working router with a broken one.
+  void saveLastGoodRouter();
+  void armBootAutoJoin();
+  char lastGoodSsid_[ROUTER_SSID_LEN];
+  char lastGoodPass_[ROUTER_PASS_LEN];
+
+  // Per-attempt association window and the retry cap. Both are shorter for the
+  // boot auto-join than for an explicit user switch, so an unreachable router
+  // never keeps the car off its own hotspot for long (the reason R-16 existed).
+  unsigned long staTimeoutMs_;
+  uint8_t staRetryCap_;
   // R-12: the AP fallback broadcast id (4WDCar_Wifi, T-56) once started;
   // empty before.
   const char* apBroadcastId() const { return apName_.length() > 0 ? apName_.c_str() : ""; }
@@ -275,7 +304,6 @@ private:
     int32_t rssi;
     bool open;
   };
-  bool staBeginPending_;
   bool scanPending_;
   bool scanBusy_;
   unsigned long scanStartMs_;

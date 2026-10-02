@@ -26,7 +26,8 @@ WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
   connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
-  staBeginPending_(false), scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
+  rejoinStep_(REJOIN_STEP_IDLE), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
+  scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
     serverRunning(false), startedAsAP(false), apRunning_(false),
     modeManager(nullptr), pendingModeAtMs(0)
 {
@@ -115,11 +116,24 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
 }
 
 void WebServerComm::loadStoredWifi() {
+  // U-71: the last router that ACTUALLY associated, loaded for the boot auto-join.
+  // Empty until one has worked, and deliberately NOT seeded from storedSsid_ -
+  // 'tried' and 'worked' are different facts.
+  lastGoodSsid_[0] = '\0';
+  lastGoodPass_[0] = '\0';
   Preferences prefs;
   prefs.begin("botcfg", true);
   String ssid = prefs.getString("wifi_ssid", "");
   String pass = prefs.getString("wifi_pass", "");
   prefs.end();
+  // U-71: the last router that ACTUALLY associated. Used by the boot auto-join so a
+  // power-up retries what WORKED, not what was merely requested.
+  prefs.begin("botcfg", false);
+  prefs.getString("last_ok_ssid", lastGoodSsid_, sizeof(lastGoodSsid_));
+  prefs.getString("last_ok_pass", lastGoodPass_, sizeof(lastGoodPass_));
+  prefs.end();
+  lastGoodSsid_[ROUTER_SSID_LEN - 1] = '\0';
+  lastGoodPass_[ROUTER_PASS_LEN - 1] = '\0';
   if (ssid.length() > 0 && ssid.length() <= 32) {
     ssid.toCharArray(storedSsid_, sizeof(storedSsid_));
     pass.toCharArray(storedPass_, sizeof(storedPass_));
@@ -140,6 +154,11 @@ void WebServerComm::loadSavedRouters() {
     savedRouterSsid_[i][0] = '\0';
     savedRouterPass_[i][0] = '\0';
   }
+  // U-71: the last router that ACTUALLY associated, loaded for the boot auto-join.
+  // Empty until one has worked, and deliberately NOT seeded from storedSsid_ -
+  // 'tried' and 'worked' are different facts.
+  lastGoodSsid_[0] = '\0';
+  lastGoodPass_[0] = '\0';
   Preferences prefs;
   prefs.begin("botcfg", true);
   for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
@@ -687,6 +706,10 @@ void WebServerComm::beginAlwaysOn() {
   beginStation();  // WIFI_AP + startOwnAP() + server.begin() + ws.begin()
   WiFi.mode(WIFI_AP_STA);  // ready for explicit router joins without a mode dance
   updateExtraInfo();
+  // U-71: owner request - on power-up try the router that last WORKED; if it is not
+  // in range the car is back on its own hotspot quickly and certainly (the boot
+  // budget is short on purpose - see armBootAutoJoin for why R-16 still matters).
+  armBootAutoJoin();
   FW_LOG("[V2] Web layer always-on: AP=%s ip=192.168.245.1 http=:80 ws=:81\n",
          apName_.c_str());
 }
@@ -729,78 +752,148 @@ bool WebServerComm::beginStation() {
 }
 
 void WebServerComm::rejoinNetwork() {
-  // T-34: re-provisioning while already in ESP_SER. Force off the OLD network
-  // (router or AP fallback), then apply the CURRENT target. Non-blocking -
-  // handle() resolves connectingPending_ exactly like beginStation() does.
+  // U-71 (2026-10-02): THIS FUNCTION NOW DOES NO RADIO WORK AT ALL.
+  //
+  // It used to run mode(WIFI_AP_STA) -> softAP() -> WiFi.begin() synchronously,
+  // in the command path, inside one call. Two separate faults lived in that:
+  //
+  //   a) WiFi.mode() RESTARTS the WiFi driver, so a softAP() and a WiFi.begin()
+  //      in the same tick race a driver that is still initialising - the STA
+  //      fails to associate while the softAP still comes up (U-70).
+  //   b) More seriously: this runs from ModeManager::run() inside loop(). A
+  //      driver restart plus softAP() plus begin() can occupy loop() for long
+  //      enough to trip the 5 s task watchdog - and the WDT's action IS a
+  //      reboot (F-24). That is the most plausible mechanism behind the owner's
+  //      report *"i used the other router switch thing but the car restarted as
+  //      soon as i tried to access the webpage"*: the switch churns the radio in
+  //      the command path, and the very next thing that arrives is an HTTP
+  //      request served by the same driver.
+  //
+  // So the whole sequence is now a STATE MACHINE advanced by handle(), with ONE
+  // radio call per loop pass. loop() returns between steps, the WDT is fed, and
+  // the web server can service a request in between - which is exactly the
+  // window that used to be missing.
+  //
+  // This is F-24/F-60 applied properly: no single blocking operation on the
+  // connection path may be able to take the car down.
   pendingRejoin_ = hasStoredWifi_;
-  WiFi.disconnect(/*wifioff=*/false);
-
-  // U-70 (2026-10-02) - THE JOIN USED TO START IN THE SAME TICK AS A MODE CHANGE.
-  //
-  // The old order was mode(WIFI_AP_STA) -> softAP() -> WiFi.begin(), all inside
-  // one call. On ESP32 `WiFi.mode()` RESTARTS the WiFi driver, so a softAP() and
-  // a WiFi.begin() issued in the same tick race a driver that is still
-  // initialising: the STA reliably fails to associate while the softAP still
-  // comes up. That is exactly the owner's report - the car accepted and
-  // displayed the new router while never actually joining it, and stayed
-  // reachable only on its own hotspot.
-  //
-  // Two conservative changes:
-  //   1. only call `WiFi.mode()` when the radio is NOT already in AP_STA, so the
-  //      common case (already AP_STA, switching routers) does not restart the
-  //      driver at all;
-  //   2. hand `WiFi.begin()` to handle() on the NEXT pass, so the driver has a
-  //      tick to settle after any mode change.
-  if (WiFi.getMode() != WIFI_AP_STA) {
-    WiFi.mode(WIFI_AP_STA);
-    staBeginPending_ = hasStoredWifi_;   // armed; handle() issues the begin()
-  } else {
-    staBeginPending_ = false;
-  }
-
-  // T-65: the own hotspot is never torn down during a network change.
-  startOwnAP();
-  // FIN-40/D2: fresh retry budget for the new target (ROUTERS;USE / WIFICFG).
-  WiFi.setAutoReconnect(false);
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
-  if (hasStoredWifi_) {
-    if (staBeginPending_) {
-      connectingPending_ = false;   // armed only; resolved by beginStaIfArmed()
-    } else {
-      connectingPending_ = true;
-      connectStartMs_ = millis();
-      WiFi.begin(storedSsid_, storedPass_);
-    }
-  } else {
-    connectingPending_ = false;
-    startedAsAP = true;
-  }
-  // Servers are already running in SERVER mode - leave them alone so WS
-  // clients (the app's Remote window) survive the network hand-over. Only
-  // start them if this was somehow invoked outside a running server session.
+  connectingPending_ = false;
+  startedAsAP = true;
+  rejoinStep_ = REJOIN_STEP_MODE;
+  // Servers: not radio work, and they must stay up so an HTTP request that
+  // arrives during the switch is still ANSWERED (the pre-switch socket is what
+  // the app is holding while the car changes networks).
   if (!serverRunning) {
     server.begin();
     serverRunning = true;
     ws.begin();
   }
   updateExtraInfo();
-  FW_LOG_VERBOSE("[WIFICFG] rejoin requested (pendingRejoin_=%d deferred=%d)\n",
-                 pendingRejoin_ ? 1 : 0, staBeginPending_ ? 1 : 0);
+  FW_LOG_VERBOSE("[WIFICFG] rejoin ARMED (step=%d, target=\"%s\")\n",
+                 (int)rejoinStep_, hasStoredWifi_ ? storedSsid_ : "");
 }
 
-void WebServerComm::beginStaIfArmed() {
-  // U-70: the deferred `WiFi.begin()` from rejoinNetwork(). Called from handle()
-  // on a LATER pass, never from the command path, so the radio has settled after
-  // any `WiFi.mode()` call. Clears its own arm either way, so it cannot fire
-  // twice or leak into an unrelated join.
-  if (!staBeginPending_) return;
-  staBeginPending_ = false;
-  if (!hasStoredWifi_) return;
-  connectingPending_ = true;
-  connectStartMs_ = millis();
-  WiFi.begin(storedSsid_, storedPass_);
-  FW_LOG_VERBOSE("[WIFICFG] STA begin issued for \"%s\"\n", storedSsid_);
+void WebServerComm::advanceRejoinStep() {
+  // U-71: one radio operation per pass. Every branch returns immediately after
+  // advancing, so the caller (handle()) never spends more than a single driver
+  // call inside one loop iteration.
+  switch (rejoinStep_) {
+    case REJOIN_STEP_IDLE:
+      return;
+
+    case REJOIN_STEP_MODE:
+      if (WiFi.getMode() != WIFI_AP_STA) {
+        WiFi.mode(WIFI_AP_STA);
+      }
+      rejoinStep_ = REJOIN_STEP_AP;
+      return;
+
+    case REJOIN_STEP_AP:
+      // T-65: the own hotspot is never torn down during a network change, so
+      // the phone keeps a way in for the whole switch.
+      startOwnAP();
+      rejoinStep_ = REJOIN_STEP_BEGIN;
+      return;
+
+    case REJOIN_STEP_BEGIN:
+      rejoinStep_ = REJOIN_STEP_IDLE;
+      if (!hasStoredWifi_) {
+        connectingPending_ = false;
+        startedAsAP = true;
+        updateExtraInfo();
+        return;
+      }
+      connectingPending_ = true;
+      connectStartMs_ = millis();
+      WiFi.begin(storedSsid_, storedPass_);
+      FW_LOG_VERBOSE("[WIFICFG] STA begin issued for \"%s\"\n", storedSsid_);
+      return;
+  }
+}
+
+// U-71 (2026-10-02): the owner's request - *"save the last connected router
+// configs for the power restart too if that router is in the range to connect if
+// not goes back to esps own hottspot"*.
+//
+// `storedSsid_` is the router we were ASKED to join and is written to NVS the
+// moment `ROUTERS;USE` stores it - BEFORE any association is attempted. So a
+// FAILED switch overwrote the good router with a bad one, and a boot that
+// trusted `storedSsid_` would dutifully retry the router that had just failed.
+//
+// `lastGoodSsid_` / `lastGoodPass_` record the router that ACTUALLY associated.
+// They are written only from the connect-success path, and they are what a boot
+// auto-join uses. "What we tried" and "what worked" are now separate facts.
+void WebServerComm::saveLastGoodRouter() {
+  if (!hasStoredWifi_ || !storedSsid_[0]) return;
+  if (strcmp(lastGoodSsid_, storedSsid_) == 0 &&
+      strcmp(lastGoodPass_, storedPass_) == 0) {
+    return;  // unchanged - do not churn NVS on every reconnect
+  }
+  strncpy(lastGoodSsid_, storedSsid_, ROUTER_SSID_LEN - 1);
+  lastGoodSsid_[ROUTER_SSID_LEN - 1] = '\0';
+  strncpy(lastGoodPass_, storedPass_, ROUTER_PASS_LEN - 1);
+  lastGoodPass_[ROUTER_PASS_LEN - 1] = '\0';
+  Preferences prefs;
+  prefs.begin("botcfg", false);
+  prefs.putString("last_ok_ssid", lastGoodSsid_);
+  prefs.putString("last_ok_pass", lastGoodPass_);
+  prefs.end();
+  FW_LOG_VERBOSE("[WIFICFG] last-good router remembered: \"%s\"\n", lastGoodSsid_);
+}
+
+void WebServerComm::armBootAutoJoin() {
+  // U-71: on power-up, try the router that last WORKED - and only that one.
+  //
+  // The budget is deliberately SHORT. This reverses R-16/T-64 ("the own AP is THE
+  // default network; a stored router is joined ONLY on explicit request"), which
+  // the owner has now overridden - but the reason that rule existed still stands:
+  // an unreachable router must never keep the car off its own hotspot, because
+  // the hotspot is the only way in when the router is not there. So the boot
+  // attempt gets ONE association window (BOOT_STA_TIMEOUT_MS) and then settles
+  // AP-only immediately. The full retry budget is reserved for an EXPLICIT user
+  // switch, where the user is waiting and watching.
+  //
+  // `saveLastGoodRouter()` is what fills these, so a router that has never
+  // connected is never auto-joined - there is no point burning the boot window on
+  // something that has already failed once.
+  if (!lastGoodSsid_[0]) {
+    FW_LOG_VERBOSE("[WIFICFG] boot: no last-good router, staying on own hotspot\n");
+    return;
+  }
+  FW_LOG("[WIFICFG] boot: will try last-good router \"%s\" (short budget)\n",
+         lastGoodSsid_);
+  // Adopt it as the active target for this attempt only. The saved-routers
+  // registry and `storedSsid_` are untouched, so an explicit switch still wins.
+  strncpy(storedSsid_, lastGoodSsid_, ROUTER_SSID_LEN - 1);
+  storedSsid_[ROUTER_SSID_LEN - 1] = '\0';
+  strncpy(storedPass_, lastGoodPass_, ROUTER_PASS_LEN - 1);
+  storedPass_[ROUTER_PASS_LEN - 1] = '\0';
+  hasStoredWifi_ = true;
+  staTimeoutMs_ = BOOT_STA_TIMEOUT_MS;
+  staRetryCap_ = BOOT_STA_MAX_RETRIES;
+  rejoinNetwork();
 }
 void WebServerComm::stop() {
   FW_LOG_VERBOSE("DBG: stop() called, serverRunning=%d\n", serverRunning ? 1 : 0);
@@ -871,9 +964,15 @@ void WebServerComm::handle() {
     }
   }
 
-  // U-70: issue any begin() that rejoinNetwork() deferred, so it lands a tick
-  // after a WiFi.mode() rather than racing the driver restart.
-  beginStaIfArmed();
+  // U-71: ONE step of the rejoin state machine per pass. This replaces the old
+
+  // synchronous mode/softAP/begin sequence that ran inside the COMMAND path,
+
+  // where a driver restart + softAP + begin could occupy loop() long enough to
+
+  // trip the 5 s task watchdog - and a WDT trip is a reboot (F-24).
+
+  advanceRejoinStep();
 
   // D3 (U-68): drive the car-side scan from the loop, never from the command
   // path. runScanIfDue kicks a non-blocking pass once the settle delay has
@@ -892,9 +991,16 @@ void WebServerComm::handle() {
       // R-16/pronto: the moment the STA truth changes, push STATE so the
       // remote + app mirrors (SSID/AP/IP rows) update same-second instead of
       // waiting up to STATE_INTERVAL_MS.
+      // U-71: this association WORKED, so it becomes the router a power-up will
+      // try. Written only here - never on request - so a failed switch cannot
+      // overwrite a working router with a broken one.
+      saveLastGoodRouter();
+      // A short boot budget must not follow us into normal operation.
+      staTimeoutMs_ = WIFI_STA_TIMEOUT_MS;
+      staRetryCap_ = STA_MAX_RETRIES;
       if (modeManager) modeManager->sendState();
       if (modeManager) modeManager->resetFailsafe();
-    } else if (millis() - connectStartMs_ > WIFI_STA_TIMEOUT_MS) {
+    } else if (millis() - connectStartMs_ > staTimeoutMs_) {
       connectingPending_ = false;
       // T-65: the own hotspot is already broadcasting — it simply IS the
       // network now (no 8 s hidden-window, no separate softAP hand-over).
@@ -945,7 +1051,7 @@ void WebServerComm::handle() {
     // a later ROUTERS;USE / WIFICFG / mode re-entry starts STA with a fresh
     // budget. No drive/protocol/failsafe behaviour is touched.
     unsigned long now = millis();
-    if (hasStoredWifi_ && staRetryCount_ < STA_MAX_RETRIES) {
+    if (hasStoredWifi_ && staRetryCount_ < staRetryCap_) {
       if (now - lastWifiRetryMs_ >= WIFI_RETRY_INTERVAL_MS) {
         lastWifiRetryMs_ = now;
         staRetryCount_++;
