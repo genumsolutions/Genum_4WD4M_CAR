@@ -176,6 +176,57 @@ Verdict: **RC-PENDING** — awaiting the owner's bench round.
 
 Verdict: **RC-PENDING** — awaiting the owner's bench round.
 
+## Round 3 — U-67 router-switch reset + one-go switch (T24–T26, 2026-10-02, READY — NOT YET FLASHED) ⭐ RUN FIRST
+
+> Owner bench 2026-10-02: *"the 4wd4m car is resetting when the wifi router is switched from the
+> app and the car is not always switching properly… the car doesnt go switch the router in one go
+> propely."* Source on `main` through `26d41d5`, **Arduino CI ✓ `37001533166`** (1,746,294 B /
+> 55% of `huge_app`). **These are the rows for the reported bug — run them BEFORE T21–T23.**
+> They are the SAME flash: flash `main` once for Round 3 + Round 2 + Round 1's pending OLED row.
+>
+> ⚠ **T22 is NOT this bug.** `cd3158f` fixed `ROUTERS;USE` on an *unknown* router rebooting the
+> car. The reset reported here was a different path (the BT watchdog) and was still live on the
+> board. If T24 reproduces after the flash, the flash did not take.
+
+### T24 — ⭐ the car does NOT reset when switching to the home router (`26d41d5`, F-47)
+
+- [ ] Connect over the car's AP **or** BT, then switch the car to the home router
+      (`ROUTERS;USE;<ssid>` from the app, or the car's web page).
+- [ ] **The critical row:** leave the car completely alone for **3+ minutes** (past
+      `BT_HARD_RESTART_MS` = 120 s) with **no** Bluetooth client attached. The car must stay UP on
+      the router — OLED keeps the router SSID + its real IP, and it still answers on the router.
+- [ ] An **unattended** car parked on the router for ~10 minutes must **not** reboot on a ~60 s
+      loop. (Old binary: reboots repeatedly here — `restart()`'s `ESP.restart()` escalation.)
+- [ ] A genuine mid-session BT drop **still** recovers: connect a phone over BT, walk out of
+      range / kill BT, come back within ~2 min → the BT stack re-inits (`[BT-WD] Hard restart` on
+      the serial log) and advertises again. The watchdog is now armed only on a link that was
+      connected and then dropped.
+
+### T25 — ⭐ the switch completes in ONE go (`26d41d5`)
+
+- [ ] From the car's own AP, send `ROUTERS;USE;<home-router>` and then **do nothing** — no app
+      interaction at all. The car must end up ON the router by itself.
+- [ ] Serial log shows at most one `WiFi STA: first attempt timed out - retrying` per attempt
+      (the retry budget), and then `WiFi connected, IP: <router ip>` — the switch must NOT stop
+      after a single failed association (the old code gave up at 8 s and never retried).
+- [ ] A router that is genuinely unreachable still **settles AP-only** after the capped budget
+      (`WiFi STA gave up (router unreachable) - AP-only mode`) and the car's own hotspot stays
+      joinable throughout (FIN-40/D2: the beacon must never blank long enough to lose the phone).
+- [ ] After a successful retry the car pushes STATE promptly — the app must not sit on
+      "getting an address" for a car that is already on the router (this needed the
+      `connectingPending_` re-arm; without it a successful retry was invisible).
+
+### T26 — no regression in the rest of the network behaviour
+
+- [ ] With nothing stored, `ROUTERS;USE;<own ap>` still returns to the own network and the
+      settle path is immediate (no retry loop when there is no target).
+- [ ] Router reachable → the car still joins and reports its DHCP address in the STATUS JSON
+      (`"connected":true`, a non-gateway `ip`) — the retry path must not delay or suppress it.
+- [ ] Drive commands, failsafe safe-stop and the OLED are untouched by this round (no
+      protocol/drive/failsafe change was made).
+
+Verdict: **RC-PENDING** — not flashed.
+
 ## Round 2 — OLED names + ROUTERS;USE + web-mode fixes (T21–T23, 2026-10-01→02, READY — NOT YET FLASHED)
 
 > Source on `main` through `dfda326`, CI ✓ `36909403120`. **A bench flash is required** —

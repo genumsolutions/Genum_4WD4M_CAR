@@ -36,6 +36,12 @@ rows **U-67-1..4** in `genumsolutions-app/mobile/TESTING.md`, of which **U-67-3/
 the one-go switch) are the firmware rows and CANNOT pass until this is flashed.** Run them FIRST —
 if the flash did not take they reproduce and every later router row is meaningless. The car-side
 rows to add alongside: the two above plus the existing **T21–T23**.
+**SHIPPED (owner go given 2026-10-02 for the firmware push):** `26d41d5` (fix) · `3f080c2`
+(TRACKS), pushed `030726f..3f080c2`; **Arduino CI ✓ `37001533166`** — 1,746,294 B flash (**55%**
+of the 3 MB `huge_app` partition) · 69,604 B SRAM global (21%). App half: `bfe1cda`/`7919d5c`,
+CI ✓ `37000785055`, OTA ✓ `37000785239` published (group `75dc154a`), live manifest =
+`Short update (7919d5c…)`. **Both halves are now on the board's owners' side: FLASH the car, and
+close+reopen the app ×2.**
 
 **Resume point (2026-10-01→02, integration session with the app — firmware changed, NOT yet flashed):**
 
