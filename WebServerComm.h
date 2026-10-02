@@ -237,6 +237,27 @@ public:
   // Public wrapper to refresh extra info immediately
   void refreshExtraInfo();
 
+  // ---- U-74 (2026-10-02): mDNS advertisement --------------------------
+  // The car advertises itself as `genum-car.local` on whatever network it is
+  // on, re-publishing on every network change. This exists because of a
+  // STRUCTURAL consequence of AP_STA, not a UI bug: the softAP and the STA
+  // share one radio and therefore one channel, so when the car joins a router
+  // its hotspot MOVES to that router's channel and the phone's hotspot link
+  // drops. With no link the app has no address for the car, so the drive deck
+  // cannot open. mDNS is what makes the car findable BY NAME once the phone is
+  // on the router - the alternative being the user reading an IP off the OLED
+  // and typing it.
+  //
+  // NOTE for the app side: React Native cannot resolve a `.local` name without a
+  // NATIVE MODULE, and a native module cannot be delivered by an OTA - it needs
+  // a new APK. The advertisement is therefore the prerequisite half; the
+  // resolver is queued behind that APK (see the app ledger). Until then the
+  // phone can still reach the car by the address the OLED shows.
+  static constexpr const char* MDNS_HOSTNAME = "genum-car";
+  void startMdns();
+  void stopMdns();
+  bool mdnsRunning_;
+
 private:
   void handleRoot();
   void handleMove(const char* cmd);

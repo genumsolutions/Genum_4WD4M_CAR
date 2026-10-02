@@ -26,7 +26,7 @@ WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
   connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
-  rejoinStep_(REJOIN_STEP_IDLE), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
+  mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
   scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
     serverRunning(false), startedAsAP(false), apRunning_(false),
     modeManager(nullptr), pendingModeAtMs(0)
@@ -700,6 +700,12 @@ void WebServerComm::startOwnAP() {
     return;
   }
   apRunning_ = true;
+  apRunning_ = true;
+  apName_ = apName;
+  // U-74: advertise by name. Re-published on every network change, so the
+  // advertisement is never stale - see startMdns() for why the drive deck cannot
+  // open on the router without a way to FIND the car.
+  startMdns();
   apName_ = apName;
   Serial.print("Own AP active: ");
   Serial.println(apName);
@@ -1024,6 +1030,9 @@ void WebServerComm::handle() {
       // try. Written only here - never on request - so a failed switch cannot
       // overwrite a working router with a broken one.
       saveLastGoodRouter();
+      // U-74: the car is now on a DIFFERENT network with a different address, so
+      // re-publish rather than leave an advertisement pointing at the old one.
+      startMdns();
       // A short boot budget must not follow us into normal operation.
       staTimeoutMs_ = WIFI_STA_TIMEOUT_MS;
       staRetryCap_ = STA_MAX_RETRIES;
@@ -1245,6 +1254,57 @@ void WebServerComm::currentIp(char* buf, size_t bufLen) {
   }
 }
 
+// U-74 (2026-10-02): ADVERTISE THE CAR BY NAME ON WHATEVER NETWORK IT IS ON.
+//
+// Why this exists, from the owner: *"the drive deck doesnt open when on other
+// router is selected"*. The chain is not a UI bug, it is structural:
+//
+//   1. The phone is joined to the car's OWN hotspot (192.168.245.x) and talking
+//      to the car at 192.168.245.1.
+//   2. The car joins the home router. In AP_STA the softAP and the STA share
+//      ONE radio and therefore ONE channel, so the hotspot MOVES to the router's
+//      channel. U-72 stopped the car fighting that, but the consequence is
+//      unavoidable and correct: the phone's hotspot link drops.
+//   3. With no link, the app has no address for the car. It cannot reach the car
+//      on the router, because the router gave the car a DHCP lease the app has
+//      never been told. So nothing opens.
+//
+// The user can read the address off the OLED, but that is a manual step in the
+// middle of a "just works" flow, and the phone cannot resolve a `.local` name
+// without a native module (which needs a new APK). Advertising with mDNS means
+// that the moment an APK with a resolver lands, the car is findable BY NAME on
+// the router with no configuration - and, importantly, the advertisement
+// re-publishes itself every time the car changes network, so it is never stale.
+//
+// The hostname is deliberately NOT the AP name: `4WDCar_Wifi` contains an
+// underscore, which is not legal in a strict mDNS hostname. `genum-car` is the
+// documented name (the `mdns` transport placeholder in the app already expects
+// `genum-car.local`).
+void WebServerComm::startMdns() {
+  // Safe to call repeatedly: end() first so a re-publish after a network change
+  // does not leak a previous instance.
+  MDNS.end();
+  if (MDNS.begin(MDNS_HOSTNAME) != 0) {
+    FW_LOG("[MDNS] unavailable on this network\n");
+    return;
+  }
+  // Advertise BOTH ports the app actually uses: HTTP for the car's web page and
+  // status, WS for the drive link.
+  MDNS.addService("http", "tcp", 80);
+  MDNS.addService("ws", "tcp", 81);
+  // The instance name is what a phone's Bonjourjour/mDNS browser shows, so put
+  // the real AP/broadcast name in it rather than the hostname.
+  MDNS.setInstanceName(apName_.length() ? apName_.c_str() : MDNS_HOSTNAME);
+  mdnsRunning_ = true;
+  FW_LOG("[MDNS] advertising %s.local (http:80 ws:81)\n", MDNS_HOSTNAME);
+}
+
+void WebServerComm::stopMdns() {
+  if (!mdnsRunning_) return;
+  MDNS.end();
+  mdnsRunning_ = false;
+  FW_LOG("[MDNS] stopped\n");
+}
 void WebServerComm::updateExtraInfo() {
   if (!modeManager) return;
   char extra[128];
