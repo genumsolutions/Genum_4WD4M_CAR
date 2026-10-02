@@ -423,6 +423,12 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     // So the scan is started ASYNCHRONOUSLY and the result is collected in
     // handle(). The reply is the honest acknowledgement; the RESULT arrives as
     // its own line, exactly like the saved-network list does.
+    startScan();
+    snprintf(reply, sizeof(reply), "ROUTERS;SCAN;STARTED");
+  } else {
+    snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Syntax");
+  }
+
   lastWifiReply_ = reply;
   return true;
 }
