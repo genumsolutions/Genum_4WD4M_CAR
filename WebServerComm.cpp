@@ -26,7 +26,7 @@ WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
   connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
-  scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
+  staBeginPending_(false), scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
     serverRunning(false), startedAsAP(false), apRunning_(false),
     modeManager(nullptr), pendingModeAtMs(0)
 {
@@ -730,26 +730,53 @@ bool WebServerComm::beginStation() {
 
 void WebServerComm::rejoinNetwork() {
   // T-34: re-provisioning while already in ESP_SER. Force off the OLD network
-  // (router or AP fallback), then apply the CURRENT target. Non-blocking —
+  // (router or AP fallback), then apply the CURRENT target. Non-blocking -
   // handle() resolves connectingPending_ exactly like beginStation() does.
   pendingRejoin_ = hasStoredWifi_;
   WiFi.disconnect(/*wifioff=*/false);
+
+  // U-70 (2026-10-02) - THE JOIN USED TO START IN THE SAME TICK AS A MODE CHANGE.
+  //
+  // The old order was mode(WIFI_AP_STA) -> softAP() -> WiFi.begin(), all inside
+  // one call. On ESP32 `WiFi.mode()` RESTARTS the WiFi driver, so a softAP() and
+  // a WiFi.begin() issued in the same tick race a driver that is still
+  // initialising: the STA reliably fails to associate while the softAP still
+  // comes up. That is exactly the owner's report - the car accepted and
+  // displayed the new router while never actually joining it, and stayed
+  // reachable only on its own hotspot.
+  //
+  // Two conservative changes:
+  //   1. only call `WiFi.mode()` when the radio is NOT already in AP_STA, so the
+  //      common case (already AP_STA, switching routers) does not restart the
+  //      driver at all;
+  //   2. hand `WiFi.begin()` to handle() on the NEXT pass, so the driver has a
+  //      tick to settle after any mode change.
+  if (WiFi.getMode() != WIFI_AP_STA) {
+    WiFi.mode(WIFI_AP_STA);
+    staBeginPending_ = hasStoredWifi_;   // armed; handle() issues the begin()
+  } else {
+    staBeginPending_ = false;
+  }
+
   // T-65: the own hotspot is never torn down during a network change.
-  WiFi.mode(WIFI_AP_STA);
   startOwnAP();
   // FIN-40/D2: fresh retry budget for the new target (ROUTERS;USE / WIFICFG).
   WiFi.setAutoReconnect(false);
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
   if (hasStoredWifi_) {
-    connectingPending_ = true;
-    connectStartMs_ = millis();
-    WiFi.begin(storedSsid_, storedPass_);
+    if (staBeginPending_) {
+      connectingPending_ = false;   // armed only; resolved by beginStaIfArmed()
+    } else {
+      connectingPending_ = true;
+      connectStartMs_ = millis();
+      WiFi.begin(storedSsid_, storedPass_);
+    }
   } else {
     connectingPending_ = false;
     startedAsAP = true;
   }
-  // Servers are already running in SERVER mode — leave them alone so WS
+  // Servers are already running in SERVER mode - leave them alone so WS
   // clients (the app's Remote window) survive the network hand-over. Only
   // start them if this was somehow invoked outside a running server session.
   if (!serverRunning) {
@@ -758,9 +785,23 @@ void WebServerComm::rejoinNetwork() {
     ws.begin();
   }
   updateExtraInfo();
-  FW_LOG_VERBOSE("[WIFICFG] rejoin requested (pendingRejoin_=%d)\n", pendingRejoin_ ? 1 : 0);
+  FW_LOG_VERBOSE("[WIFICFG] rejoin requested (pendingRejoin_=%d deferred=%d)\n",
+                 pendingRejoin_ ? 1 : 0, staBeginPending_ ? 1 : 0);
 }
 
+void WebServerComm::beginStaIfArmed() {
+  // U-70: the deferred `WiFi.begin()` from rejoinNetwork(). Called from handle()
+  // on a LATER pass, never from the command path, so the radio has settled after
+  // any `WiFi.mode()` call. Clears its own arm either way, so it cannot fire
+  // twice or leak into an unrelated join.
+  if (!staBeginPending_) return;
+  staBeginPending_ = false;
+  if (!hasStoredWifi_) return;
+  connectingPending_ = true;
+  connectStartMs_ = millis();
+  WiFi.begin(storedSsid_, storedPass_);
+  FW_LOG_VERBOSE("[WIFICFG] STA begin issued for \"%s\"\n", storedSsid_);
+}
 void WebServerComm::stop() {
   FW_LOG_VERBOSE("DBG: stop() called, serverRunning=%d\n", serverRunning ? 1 : 0);
 
@@ -790,6 +831,33 @@ bool WebServerComm::isRunning() const { return serverRunning; }
 bool WebServerComm::hasWsClients() { return ws.connectedClients() > 0; }
 
 bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; }
+// U-70 (2026-10-02): the CURRENT network, as opposed to the stored target.
+//
+// The bug this fixes is the owner's 2026-10-02 report: *"the car is displaying
+// the new router in its oled but not switching actually to that new router
+// network and the car still show the website only on its own esp hotspot"*.
+// `storedSsid()` is written the moment `ROUTERS;USE` stores the pair — BEFORE
+// any association is attempted — and the STATE line's `SSID=` field used it.
+// So the car announced the router it had been *asked* to join while sitting on
+// its own hotspot, and nothing in the system could tell the difference. The app
+// then read that as "on the router" and the phone looked for it there.
+//
+// Three states, three honest answers:
+//   associated to a router -> that router
+//   on its own hotspot     -> its own broadcast id
+//   neither                -> "" (say nothing rather than guess)
+// Returned BY VALUE on purpose: `WiFi.SSID()` returns a temporary String, and
+// handing back its c_str() would leave the caller holding a pointer into freed
+// memory — the classic Arduino String trap, and it would have shown up as
+// garbage network names rather than an obvious crash.
+String WebServerComm::joinedSsid() const {
+  if (WiFi.status() == WL_CONNECTED) {
+    const String s = WiFi.SSID();
+    if (s.length() > 0) return s;
+  }
+  if (apRunning_ && apName_.length() > 0) return String(apName_);
+  return String("");
+}
 
 void WebServerComm::handle() {
   if (serverRunning) server.handleClient();
@@ -802,6 +870,10 @@ void WebServerComm::handle() {
       pendingModeAtMs = 0;
     }
   }
+
+  // U-70: issue any begin() that rejoinNetwork() deferred, so it lands a tick
+  // after a WiFi.mode() rather than racing the driver restart.
+  beginStaIfArmed();
 
   // D3 (U-68): drive the car-side scan from the loop, never from the command
   // path. runScanIfDue kicks a non-blocking pass once the settle delay has
@@ -1256,7 +1328,19 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // AP broadcast id — the app shows both in the ESP_SER deck. T-64: when
   // nothing is stored, the car's OWN network (4WDCar_Wifi) IS the
   // network — the compile-time secrets.h fallback is never joined nor named.
-  const char* ssidOut = hasStoredWifi_ ? storedSsid_ : "";
+  // U-70 (2026-10-02): the JSON `ssid` is the network the car is ACTUALLY on.
+  // It used to be the stored target, which is written the moment `ROUTERS;USE`
+  // stores the pair and BEFORE any association is attempted — so a failed switch
+  // told the app "on HomeNet" while the car was still on its own hotspot, and the
+  // phone then looked for it on a network it had never reached. The owner's
+  // report: *"the car is displaying the new router in its oled but not switching
+  // actually to that new router network and the car still show the website only
+  // on its own esp hotspot."* `want` carries the requested target, so a switch
+  // in progress is visible instead of indistinguishable from a finished one.
+  const String joinedSsidStr = joinedSsid();
+  const char* ssidOut = joinedSsidStr.c_str();
+  const char* wantOut =
+    (hasStoredWifi_ && joinedSsidStr != storedSsid_) ? storedSsid_ : "";
   const char* apOut = apName_.length() > 0 ? apName_.c_str() : "";
   // T-49: saved-router names for the app/website (names only — passwords never
   // leave the car; W-14).
@@ -1288,6 +1372,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
        "\"min_speed\":%d,"
        "\"max_speed\":%d,"
        "\"ssid\":\"%s\","
+       "\"want\":\"%s\","
        "\"ap\":\"%s\","
        "\"id\":\"%s\","
        "\"networks\":[%s],"
@@ -1309,6 +1394,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
      static_cast<int>(MIN_SPEED),
      static_cast<int>(MAX_SPEED),
      ssidOut,
+     wantOut,
      apOut,
      boardId,
      networks,

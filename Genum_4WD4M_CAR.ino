@@ -14,6 +14,7 @@
 #include "WebServerComm.h"
 #include <Arduino.h>
 #include "esp_task_wdt.h"
+#include "esp_system.h"   // U-70: esp_reset_reason() — why did the car boot?
 
 L298NControl motor;
 BluetoothComm btComm;
@@ -45,6 +46,42 @@ static bool btEverConnected = false;
 void setup() {
   Serial.begin(115200);
   delay(50);
+
+  // U-70 (2026-10-02): say WHY the car is booting.
+  //
+  // The owner reported "the car restarts when the app directs to cars webpage"
+  // — with no other symptom and no way to tell a watchdog abort from a stack
+  // smash from a brownout from an intentional reset. Every one of those looks
+  // identical from the outside ("it restarted"), which is why the report could
+  // not be acted on: the cause is printed on the serial line at the exact moment
+  // it happens, and nobody had been reading it.
+  //
+  // `esp_reset_reason()` is latched by the ROM before our code runs, so this
+  // always describes THIS boot. A non-power-on reason is announced loudly,
+  // because that is the case worth noticing.
+  {
+    const esp_reset_reason_t why = esp_reset_reason();
+    const char* label = "unknown";
+    switch (why) {
+      case ESP_RST_POWERON:  label = "power-on"; break;
+      case ESP_RST_EXT:      label = "external pin"; break;
+      case ESP_RST_SW:       label = "software restart"; break;
+      case ESP_RST_PANIC:    label = "PANIC (crash/exception)"; break;
+      case ESP_RST_INT_WDT:  label = "interrupt watchdog"; break;
+      case ESP_RST_TASK_WDT: label = "TASK WATCHDOG (loop hung >5s)"; break;
+      case ESP_RST_WDT:      label = "other watchdog"; break;
+      case ESP_RST_DEEPSLEEP:label = "deep sleep wake"; break;
+      case ESP_RST_BROWNOUT: label = "BROWNOUT (undervoltage)"; break;
+      case ESP_RST_SDIO:     label = "SDIO"; break;
+      default: break;
+    }
+    Serial.printf("[BOOT] reset reason: %d (%s)\n", (int)why, label);
+    if (why != ESP_RST_POWERON && why != ESP_RST_EXT && why != ESP_RST_DEEPSLEEP) {
+      // The line that matters: it means the car restarted on its own.
+      Serial.println("[BOOT] *** UNSOLICITED RESTART - see the reason above ***");
+      Serial.println("[BOOT] *** if it says TASK WATCHDOG, loop() blocked; PANIC means a crash ***");
+    }
+  }
 
   // F-24: esp32 core 3.x task watchdog — reconfigure FIRST (the core
   // pre-initializes the TWDT), loopTask ONLY (idle_core_mask = 0; subscribing

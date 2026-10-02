@@ -140,7 +140,27 @@ public:
   // True when runtime credentials have been stored via WIFICFG.
   bool hasStoredWifi() const { return hasStoredWifi_; }
   // SSID currently stored ("" when none) — safe to show in the app.
+  //
+  // U-70 (2026-10-02): THIS IS THE ROUTER WE ASKED FOR, NOT THE ONE WE ARE ON.
+  // Reporting it as "the network the car is on" is a lie the moment a join
+  // fails - exactly what the owner saw: the car displayed the new router's name
+  // while it never left its own hotspot. Anything that claims to describe the
+  // CURRENT network must use joinedSsid() instead (U-70 rule 1).
+  //
+  // The two are different questions and must stay separate: "which router did
+  // the user ask for" vs "which router are we on".
   const char* storedSsid() const { return storedSsid_; }
+  // The network the car is ACTUALLY on: the joined STA SSID when associated,
+  // the car's own broadcast id on its hotspot, "" when neither. The only value
+  // that may be presented as the current network.
+  String joinedSsid() const;
+  /**
+   * U-70: the deferred WiFi.begin(). Set by rejoinNetwork() when it had to
+   * change the radio mode, and consumed by beginStaIfArmed() on a later handle()
+   * pass. Keeping the begin() out of the same tick as WiFi.mode() is what
+   * makes the association actually succeed.
+   */
+  void beginStaIfArmed();
   // R-12: the AP fallback broadcast id (4WDCar_Wifi, T-56) once started;
   // empty before.
   const char* apBroadcastId() const { return apName_.length() > 0 ? apName_.c_str() : ""; }
@@ -255,6 +275,7 @@ private:
     int32_t rssi;
     bool open;
   };
+  bool staBeginPending_;
   bool scanPending_;
   bool scanBusy_;
   unsigned long scanStartMs_;

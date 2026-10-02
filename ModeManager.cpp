@@ -477,7 +477,19 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // (instanceForWs may be null pre-setup(); guarded.)
   {
     WebServerComm* ws = WebServerComm::instance();  // may be null pre-setup
-    if (ws && ws->storedSsid()[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";SSID=%s", ws->storedSsid());
+    // U-70 (2026-10-02): SSID= is the network the car is ACTUALLY ON, not the
+    // one it was asked to join. It used to be `storedSsid()`, which is written
+    // the moment ROUTERS;USE stores the pair and BEFORE any association is
+    // attempted - so a failed switch announced the new router while the car sat
+    // on its own hotspot, and neither the remote nor the app could tell. The
+    // target the user asked for still ships, as a SEPARATE field (WANT=) so a
+    // switch in progress is visible and honest instead of being invisible.
+    {
+      const String joined = ws ? ws->joinedSsid() : String("");
+      if (joined.length() > 0) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";SSID=%s", joined.c_str());
+      const char* want = ws ? ws->storedSsid() : "";
+      if (want[0] && joined != want) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";WANT=%s", want);
+    }
     if (ws && ws->apBroadcastId()[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";AP=%s", ws->apBroadcastId());
     char ip[32] = "";
     if (ws) ws->currentIp(ip, sizeof(ip));
