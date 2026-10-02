@@ -1,3 +1,51 @@
+**U-71 (2026-10-02) - FINISHES THE INTERRUPTED U-70 WORK. Owner: *"i used the other router switch
+thing but the car restarted as soon as i tried to access the webpage"* · *"save the last connected
+router configs for the power restart too if that router is in the range to connect if not goes back
+to esps own hottspot"* · *"remember old setting in the database"*.** The owner asked whether the
+previous round had been interrupted: **yes** - U-70 deferred only `WiFi.begin()`, and the boot
+auto-join and the last-good persistence had not been started. All of it is now done.
+
+**1. THE RESTART - THE STRONGEST EXPLANATION YET, AND IT IS A REAL DEFECT.** U-70 deferred only the
+`begin()`. **`WiFi.mode()` and `softAP()` were still running synchronously inside `rejoinNetwork()`,
+which is called from `ModeManager::run()` INSIDE `loop()`.** On ESP32 `WiFi.mode()` RESTARTS the WiFi
+driver; a driver restart plus `softAP()` plus `begin()` can occupy `loop()` long enough to trip the
+**5 s task watchdog - and the WDT's action IS a reboot (F-24)**. That fits the report exactly: the
+switch churns the radio in the command path, and the very next thing to arrive is an HTTP request
+served by that same driver. `rejoinNetwork()` now does **NO RADIO WORK AT ALL** - it only arms a
+state machine that `handle()` advances with **one radio call per loop pass**
+(`REJOIN_STEP_MODE` -> `REJOIN_STEP_AP` -> `REJOIN_STEP_BEGIN`). `loop()` returns between steps, the
+WDT is fed, and the web server can **answer** a request in between - which is exactly the window that
+used to be missing. U-70's `staBeginPending_` flag is **removed**, not layered on top of: U-71
+supersedes it. *I am not claiming the restart is fixed until U-70-4 has been run - but this is now a
+mechanism with an explanation rather than a mystery, and the reset-reason line will confirm or refute
+it.*
+
+**2. THE CAR REMEMBERS THE ROUTER THAT WORKED, NOT THE ONE IT WAS ASKED FOR.** `storedSsid_` is
+written to NVS the moment `ROUTERS;USE` stores the pair - **before any association is attempted** - so
+a FAILED switch overwrote a working router with a broken one, and a boot that trusted it would
+dutifully retry the router that had just failed. New `lastGoodSsid_` / `lastGoodPass_` (NVS
+`last_ok_ssid` / `last_ok_pass`) are written **only from the connect-success path**. *"What we tried"*
+and *"what worked"* are now separate facts, and only the second survives a power cycle.
+
+**3. BOOT AUTO-JOIN, DELIBERATELY BOUNDED. `armBootAutoJoin()` runs at the end of
+`beginAlwaysOn()`.** ⚠ **THIS REVERSES R-16/T-64** ("the own AP is THE default network; a stored
+router is joined ONLY on explicit request") - the owner has now overridden that ruling, and it is
+recorded here rather than quietly done. **The reason the rule existed still stands, so the override is
+bounded:** the boot attempt gets `BOOT_STA_TIMEOUT_MS` (6 s) and `BOOT_STA_MAX_RETRIES` (**1**), then
+settles AP-only immediately. The full retry budget stays reserved for an **explicit** user switch,
+where the user is watching. An unreachable router therefore cannot keep the car off its own hotspot
+for more than a few seconds - and the hotspot is the **only way in** when the router is absent. A
+router that has never once connected is never auto-joined, so the boot window is never spent on
+something already known to fail. The budget is per-attempt state (`staTimeoutMs_`, `staRetryCap_`) and
+restores to normal the instant an association succeeds.
+
+Unchanged: the saved-router registry, the protocol, safe-stop, the scan, and the AP itself.
+
+**Ship evidence:** car `7ba6152` - **Arduino CI ✓ `37035295780`**, 69,764 B SRAM (21%, +112 B).
+App side of the same report is `d495839` (remembering CONFIRMED router changes in AsyncStorage and the
+Supabase `car_profiles` row - a real gap U-68 introduced, where the user's most common action,
+switching a router, was never saved at all). Device rows: `genumsolutions-app/mobile/TESTING.md`
+**U-71-1..3**. **NOT flashed yet.**
 **U-70 (2026-10-02) - THE CAR ANNOUNCED THE ROUTER IT WAS ASKED TO JOIN, NOT THE ONE IT WAS ON.**
 Owner bench: *"the car is displaying the new router in its oled but not switching actually to that new
 router network and the car still show the website only on its own esp hotspot. and doesnt show to new
