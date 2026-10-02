@@ -1,5 +1,42 @@
 # NEXT-SESSION — Genum_4WD4M_CAR
 
+**⚠️ U-67 (2026-10-02, owner bench) — THE ROUTER-SWITCH RESET IS FIXED, AND IT WAS NOT
+`cd3158f`. ROOT CAUSE: the BT watchdog, not `ROUTERS;USE`.** Owner, verbatim: "the 4wd4m car is
+resetting when the wifi router is switched from the app and the car is not always switching
+properly… the car doesnt go switch the router in one go propely." Two separate firmware bugs, both
+real, neither the one the ledgers predicted:
+
+1. **THE RESET — `BluetoothComm::restart()` + the .ino watchdog.** `restart()` ended a failed
+   re-init with **`ESP.restart()`**, and the .ino armed the watchdog on **"no BT client"** rather
+   than on "a client that dropped". Switching the car to the home router takes the phone OFF the
+   car's BT, so `hasClient()` goes false and STAYS false; after `BT_HARD_RESTART_MS` (120 s) the
+   watchdog fired, tore bluedroid down, and the escalation rebooted the car **mid-handoff**. It came
+   back on its own AP and the switch never completed. Worse than a switch bug: the throttle is
+   60 s, so an **unattended car parked on the router rebooted on a loop**. Fixed: no
+   `ESP.restart()` from the BT path ever again (a failed re-init is reported and the car KEEPS
+   RUNNING on AP/router — it stays reachable and driveable), and the watchdog arms only on a link
+   that was CONNECTED and then dropped (`btEverConnected`): "never had a client since boot" is
+   idle, not wedged. **FAILSAFES F-47: a transport failure must never take down the whole car.**
+   *Flashing the previously-committed firmware does NOT fix this — `cd3158f` never touched it.*
+2. **"NOT ALWAYS SWITCHING / DOESN'T DO IT IN ONE GO" — `WebServerComm::handle()`.** The 8 s
+   `WIFI_STA_TIMEOUT_MS` was treated as the WHOLE switch: on timeout it cleared `pendingRejoin_`
+   and set `startedAsAP`, which made the retry branch (`else if (pendingRejoin_ || !startedAsAP &&
+   …)`) **unreachable** — so `STA_MAX_RETRIES` never ran and ONE flaky association failed the
+   switch **permanently**, the car silently left on its own AP. Fixed: the timeout hands OFF to
+   that existing capped budget (up to 6 more attempts) and only the spent budget settles AP-only
+   (the cap still holds, so an unreachable router cannot blank the softAP beacon forever —
+   FIN-40/D2 intact). Each retry also re-arms `connectingPending_` with its own 8 s window: that
+   branch is an `else if` behind `if (connectingPending_)`, so without re-arming, a successful
+   retry was **invisible** (no `updateExtraInfo`/`sendState` — the app sat on "getting an address"
+   while the car was already on the router) and `pendingRejoin_` stayed set, so the branch kept
+   yanking a WORKING association down every 10 s.
+
+**Bench:** app side is U-67 (one standard switch confirm — `genumsolutions-app` `bfe1cda`); device
+rows **U-67-1..4** in `genumsolutions-app/mobile/TESTING.md`, of which **U-67-3/4 (the reset and
+the one-go switch) are the firmware rows and CANNOT pass until this is flashed.** Run them FIRST —
+if the flash did not take they reproduce and every later router row is meaningless. The car-side
+rows to add alongside: the two above plus the existing **T21–T23**.
+
 **Resume point (2026-10-01→02, integration session with the app — firmware changed, NOT yet flashed):**
 
 Three firmware fixes landed for the live-integration round, all CI green, none on the board:
