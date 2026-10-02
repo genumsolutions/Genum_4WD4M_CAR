@@ -1,3 +1,44 @@
+**U-70 (2026-10-02) - THE CAR ANNOUNCED THE ROUTER IT WAS ASKED TO JOIN, NOT THE ONE IT WAS ON.**
+Owner bench: *"the car is displaying the new router in its oled but not switching actually to that new
+router network and the car still show the website only on its own esp hotspot. and doesnt show to new
+router"* + *"the car restarts when the app directs to cars webpage"*.
+
+**1. THE CAR LIED, AND THAT IS WHY THE SECOND SYMPTOM WAS INVISIBLE.** `storedSsid()` is written the
+moment `ROUTERS;USE` stores the pair - **before any association is attempted** - and both the STATE
+line's `SSID=` and the JSON `ssid` used it. A FAILED switch therefore announced the new router while
+the car sat on its own hotspot, and nothing could tell the difference. **The owner's own observation
+was the lie, not the success it looked like.** The OLED itself was already truthful (it reads
+`WiFi.SSID()` through `extraInfo`); it was the **app-facing** fields that lied, which is exactly why
+the two disagreed. Now `SSID=` / `ssid` is the new `joinedSsid()` (joined STA SSID, else the own
+broadcast id, else empty), and the requested target ships **separately** as `WANT=` / `"want"` so a
+switch in progress is visible instead of indistinguishable from a finished one. *"Which router did
+the user ask for"* and *"which router are we on"* are different questions and must stop sharing one
+field.
+
+**2. THE JOIN STARTED IN THE SAME TICK AS A MODE CHANGE.** `rejoinNetwork()` did
+`mode(WIFI_AP_STA)` -> `softAP()` -> `WiFi.begin()` inside one call. On ESP32 **`WiFi.mode()`
+RESTARTS the WiFi driver**, so a `softAP()` and a `WiFi.begin()` issued in the same tick race a
+driver that is still initialising: the STA fails to associate while the softAP still comes up —
+precisely *"accepted and displayed the new router, never actually joined it, still reachable only on
+its own hotspot"*. Fixed conservatively: `WiFi.mode()` is now called **only when the radio is not
+already `AP_STA`** (so switching routers — the common case — never restarts the driver at all), and
+`WiFi.begin()` is handed to `handle()` on the **next** pass via `staBeginPending_` /
+`beginStaIfArmed()`, so the driver has a tick to settle. Retry budget, the AP, safe-stop and the
+protocol are untouched.
+
+**3. THE RESTART IS INSTRUMENTED, NOT FIXED.** *"the car restarts when the app directs to cars
+webpage"* could not be acted on: a watchdog abort, a stack smash, a brownout and an intentional
+reset all look identical from outside, and it cannot be reproduced on the bench. Rather than guess,
+`setup()` now prints **`esp_reset_reason()` on every boot** and shouts when the reason was not
+power-on/external/deep-sleep. **That is what turns the next occurrence into an answer: `TASK
+WATCHDOG` means `loop()` blocked, `PANIC` means a crash, `BROWNOUT` means undervoltage.** Read the
+serial line at 115200 and paste it — do not record the restart as fixed or as not-reproducible until
+that line exists. (`TESTING.md` U-70-4 in the app repo is the row for it.)
+
+**Ship evidence:** car `13a406f`, **Arduino CI ✓ `37033364835`**, 69,772 B SRAM (21%, −8 B). App side
+of the same report is `b21fed5` (the Bluetooth scan list — bounded scrolling window, hidden whenever
+any link is up). Device rows: `genumsolutions-app/mobile/TESTING.md` **U-70-1..4**; **U-70-1/2 need
+this flash, U-70-3 is app-only.** NOT flashed yet.
 **✅ U-68 PHASE 3 SHIPPED 2026-10-02 — THE CAR'S NETWORK LAYER REBUILT. Arduino CI ✓ `37012141471`
 (1,748,602 B = 55% of the 3 MB `huge_app`, 69,772 B SRAM = 21%). NOT FLASHED YET.** Three defects
 the app could not work around, all on the connection/provisioning path:
