@@ -26,7 +26,7 @@ bool BluetoothComm::begin() {
 // this ran on a 60 s throttle FOREVER, so an unattended car parked on the
 // router rebooted on a loop.
 //
-// THE RULE (F-47): a transport failure must NEVER take down the whole car.
+// THE RULE (F-60): a transport failure must NEVER take down the whole car.
 // The WiFi side (own AP + STA + the app's control path) is what keeps the car
 // reachable and driveable; if BT cannot come back, that is a BT problem to
 // report, not a reason to reset a working car. So:
@@ -45,7 +45,7 @@ bool BluetoothComm::restart() {
   SerialBT.end();
   delay(80);
   if (!begin()) {
-    // F-47: report, do NOT reset. The car stays on its AP / router and stays
+    // F-60: report, do NOT reset. The car stays on its AP / router and stays
     // controllable; the watchdog re-arms and we try again later.
     Serial.println("[BT] WARN: BT re-init failed - continuing without BT "
                     "(car stays reachable; no reboot)");

@@ -28,7 +28,7 @@ static ModeManager::Mode lastMode = ModeManager::Mode::BT;
 // re-initialized (restart(), throttled to once per 60 s).
 static unsigned long btLastConnectedOkMs = 0;
 
-// F-47 (owner bug 2026-10-02, "the car resets when I switch the wifi router
+// F-60 (owner bug 2026-10-02, "the car resets when I switch the wifi router
 // from the app"): the watchdog below used to treat "no BT client" as "the BT
 // stack is wedged". Those are NOT the same thing. A car parked on its own AP
 // or on the home router with nobody connected over BT is perfectly HEALTHY -
@@ -145,7 +145,7 @@ static void maybeCheckSupplyAndBTWatchdog() {
   }
 #endif
 
-  // F-47: arm the watchdog only on a link that was CONNECTED and then dropped.
+  // F-60: arm the watchdog only on a link that was CONNECTED and then dropped.
   // A car that has never had a BT client is idle, not wedged - so parking it
   // on the router (or its own AP) can never trigger a stack teardown.
   if (btComm.connected()) {

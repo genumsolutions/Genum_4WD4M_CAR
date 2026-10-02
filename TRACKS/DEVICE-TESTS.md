@@ -188,7 +188,7 @@ Verdict: **RC-PENDING** — awaiting the owner's bench round.
 > car. The reset reported here was a different path (the BT watchdog) and was still live on the
 > board. If T24 reproduces after the flash, the flash did not take.
 
-### T24 — ⭐ the car does NOT reset when switching to the home router (`26d41d5`, F-47)
+### T24 — ⭐ the car does NOT reset when switching to the home router (`26d41d5`, F-60)
 
 - [ ] Connect over the car's AP **or** BT, then switch the car to the home router
       (`ROUTERS;USE;<ssid>` from the app, or the car's web page).

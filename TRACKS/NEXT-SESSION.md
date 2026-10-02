@@ -16,7 +16,7 @@ real, neither the one the ledgers predicted:
    `ESP.restart()` from the BT path ever again (a failed re-init is reported and the car KEEPS
    RUNNING on AP/router — it stays reachable and driveable), and the watchdog arms only on a link
    that was CONNECTED and then dropped (`btEverConnected`): "never had a client since boot" is
-   idle, not wedged. **FAILSAFES F-47: a transport failure must never take down the whole car.**
+   idle, not wedged. **FAILSAFES F-60: a transport failure must never take down the whole car.**
    *Flashing the previously-committed firmware does NOT fix this — `cd3158f` never touched it.*
 2. **"NOT ALWAYS SWITCHING / DOESN'T DO IT IN ONE GO" — `WebServerComm::handle()`.** The 8 s
    `WIFI_STA_TIMEOUT_MS` was treated as the WHOLE switch: on timeout it cleared `pendingRejoin_`
