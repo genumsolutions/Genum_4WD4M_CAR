@@ -657,7 +657,6 @@ void WebServerComm::startOwnAP() {
   // busy was the one call that was never guarded.
   if (staBusy()) {
     noteRadioStep("skip-softAP/sta-busy");
-    apName_ = apName;  // keep the broadcast id for OLED/JSON even while deferred
     return;
   }
   // T-71 (round-11): keep the radio beaconing for the whole webserver session.
@@ -947,14 +946,33 @@ void WebServerComm::noteRadioStep(const char* step) {
 // U-76: is the STA interface busy? While it is, NOTHING may reconfigure the
 // driver or the netif - see the long note at the top of startOwnAP().
 //
-// WL_CONNECTED is included deliberately, not just WL_CONNECTING: ESP-IDF still
-// refuses config sets during DHCP, i.e. after the association is reported but
-// before the address is there, and "connected" is exactly the window the
-// owner's log caught (`sta is connecting` printed while our code believed the
-// link was up).
+// Written as an ALLOW-LIST of the settled states rather than a deny-list of the
+// busy ones, for two reasons:
+//
+//   - This core's `wl_status_t` has no `WL_CONNECTING` at all (Arduino CI caught
+//     that), so "connecting" cannot be named directly. It is covered by
+//     `connectingPending_`, which we set the moment we issue `WiFi.begin()`.
+//   - Anything this core adds later, or any transition state we have not
+//     enumerated, must default to BUSY. Being wrong in that direction only defers
+//     an AP bring-up by one retry interval; being wrong the other way is the
+//     watchdog reboot this whole change exists to stop.
+//
+// WL_CONNECTED counts as busy on purpose: ESP-IDF keeps refusing config sets
+// through DHCP, which is exactly the window the owner's log caught - our code
+// believed the link was up while the driver said "connecting".
 bool WebServerComm::staBusy() const {
-  const wl_status_t s = WiFi.status();
-  return s == WL_CONNECTING || s == WL_CONNECTED;
+  if (connectingPending_) return true;
+  switch (WiFi.status()) {
+    case WL_IDLE_STATUS:
+    case WL_NO_SSID_AVAIL:
+    case WL_SCAN_COMPLETED:
+    case WL_CONNECT_FAILED:
+    case WL_DISCONNECTED:
+    case WL_CONNECTION_LOST:
+      return false;  // settled, and not currently on a router
+    default:
+      return true;   // WL_CONNECTED + any unknown/transition state
+  }
 }
 
 void WebServerComm::advanceRejoinStep() {
