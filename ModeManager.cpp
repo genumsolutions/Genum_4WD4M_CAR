@@ -10,7 +10,6 @@
 #include <Arduino.h>
 #include <string.h>
 #include <ctype.h>
-#include "WebServerComm.h"
 #include "TwoWD1M.h"
 
 static uint32_t defaultNow() { return millis(); }

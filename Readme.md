@@ -1,4 +1,4 @@
-Version 1.0.0
+Version 1.0.2
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -16,14 +16,14 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.0.0` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.0.2` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
 Every token stays selectable and is announced via
 `CAPS;4WD4M:LIVE;ESP_SER:CS;…;2WD1M:CS` (device order, no trailing `;`).
 
-| Token | Display | Avail (v1.0.0) | Notes |
+| Token | Display | Avail (v1.0.2) | Notes |
 |---|---|---|---|
 | 4WD4M | 4WD4M | **LIVE** | the single drive mode — over **Bluetooth AND Wi-Fi** |
 | ESP_SER | Server (ESP_SER) | CS | retired as a mode in v2 (was the donor's Wi-Fi drive mode) |
@@ -36,14 +36,14 @@ Legacy alias `BT`/`BLUETOOTH` → 4WD4M still accepted (fleet convention).
 
 - **Wi-Fi is an always-on connection/setup channel, never a mode**: AP WebServer + WebSocket
   run from boot (non-blocking) regardless of active mode; STA joins stored routers with
-  auto-rejoin.
+  auto-rejoin. **(Shipped — Phase 1 landed; see TRACKS/TODO.md P1-2.)**
 - **Drive over both transports in 4WD4M** — the donor's rule "Wi-Fi drive happens in ESP_SER"
   is retired here. Same line protocol (`\n`-terminated), same `handleCommand()` funnel, same
   `STATE`/`CAPS`/`NACK`/`NETW` responses, JSON-over-WS telemetry kept.
 - **Setup over both transports**: `WIFICFG;<ssid>;<pass>` + `ROUTERS;ADD|USE|DEL|CLEAR`
   (max 6 routers, NVS `botcfg`) work over Bluetooth **and** over the AP WebSocket.
-- Phase 1 of `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md` implements this; until that
-  phase lands, this repo compiles and behaves as the renamed donor baseline.
+- Phase 1 of `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md` **has landed** — the
+  always-on web layer, dual-transport drive and dual-transport provisioning are live behavior.
 
 ## 5. Materials / Pins / Libraries
 Same bill of materials and wiring as the donor hardware (the 4WD4M testbed IS the former
@@ -58,7 +58,7 @@ OLED (I2C), Li-ion pack. Pins in `Config.h`. Libraries: WebSockets 2.7.2, U8g2, 
 | Board | ESP32 Dev Module (`esp32:esp32:esp32`, core 3.3.11) |
 | Partition | **`huge_app` REQUIRED** (same as donor) |
 | Flash baud | 115200 |
-| Baseline build | donor 1.8.4 measured 1,740,754 B (55%) / RAM 69,492 B (21%) — v1.0.0 figures land with the Phase-1 CI run |
+| Baseline build | donor 1.8.4 measured 1,740,754 B (55%) / RAM 69,492 B (21%) — current figures reported by the CI compile gate |
 | Build tool | `arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app .` |
 | NVS namespace | `botcfg` (wifi_ssid/wifi_pass, mode/speed) |
 | CI | `.github/workflows/arduino-ci.yml` — compile gate + deltas report, secrets-free |
@@ -73,6 +73,14 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.0.2 (2026-10-03, U-77)** — task-watchdog reboot class eliminated: WS stalled-client
+  heartbeat (server pings + drops non-responders before their TCP buffer can wedge a
+  broadcast), total-bounded root-page write + per-write HTTP send cap, mDNS begin()
+  success/failure condition un-inverted (mDNS could never advertise), retry-branch radio
+  breadcrumbs, last-good router no longer wiped by the registry load (boot auto-join works
+  again), stopMdns() wired into the shutdown path.
+- **1.0.1 (R1 round 1)** — OLED link-context line (BT paired vs Wi-Fi mode + RSSI);
+  app-side R1 flicker/timeout fixes.
 - **1.0.0 (2026-09-28)** — fresh baseline from `Genum_WIRELESS_CAR` 1.8.4 (`d0bf8c0`):
   identity rename (BT `4WD CAR` · AP `4WDCar_Wifi` · AP 192.168.245.1/24 · FW_NAME `4WD4M Car`),
   fresh git history. v2 re-architecture (always-on Wi-Fi channel, Wi-Fi drive in 4WD4M, ESP_SER/

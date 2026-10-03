@@ -117,19 +117,19 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
 }
 
 void WebServerComm::loadStoredWifi() {
-  // U-71: the last router that ACTUALLY associated, loaded for the boot auto-join.
-  // Empty until one has worked, and deliberately NOT seeded from storedSsid_ -
-  // 'tried' and 'worked' are different facts.
+  // U-77: ONE read-only NVS open. This used to be two separate opens of the
+  // same namespace (the second one pointlessly WRITABLE) with a duplicated
+  // comment block - same reads, twice the NVS traffic.
+  //
+  // U-71: the last router that ACTUALLY associated, loaded for the boot
+  // auto-join. Empty until one has worked, and deliberately NOT seeded from
+  // storedSsid_ - 'tried' and 'worked' are different facts.
   lastGoodSsid_[0] = '\0';
   lastGoodPass_[0] = '\0';
   Preferences prefs;
   prefs.begin("botcfg", true);
   String ssid = prefs.getString("wifi_ssid", "");
   String pass = prefs.getString("wifi_pass", "");
-  prefs.end();
-  // U-71: the last router that ACTUALLY associated. Used by the boot auto-join so a
-  // power-up retries what WORKED, not what was merely requested.
-  prefs.begin("botcfg", false);
   prefs.getString("last_ok_ssid", lastGoodSsid_, sizeof(lastGoodSsid_));
   prefs.getString("last_ok_pass", lastGoodPass_, sizeof(lastGoodPass_));
   prefs.end();
@@ -155,11 +155,13 @@ void WebServerComm::loadSavedRouters() {
     savedRouterSsid_[i][0] = '\0';
     savedRouterPass_[i][0] = '\0';
   }
-  // U-71: the last router that ACTUALLY associated, loaded for the boot auto-join.
-  // Empty until one has worked, and deliberately NOT seeded from storedSsid_ -
-  // 'tried' and 'worked' are different facts.
-  lastGoodSsid_[0] = '\0';
-  lastGoodPass_[0] = '\0';
+  // U-77: NO last-good wipe here. loadSavedRouters() used to clear
+  // lastGoodSsid_/lastGoodPass_ and never re-read them, so every boot the
+  // registry load DESTROYED what loadStoredWifi() had just loaded - and
+  // armBootAutoJoin() then always saw an empty last-good router, silently
+  // disabling the owner's U-71 boot auto-join (U-77 device log: no
+  // "[WIFICFG] boot:" line on a car with a working last-good router).
+  // loadStoredWifi() is the single owner of the last-good state.
   Preferences prefs;
   prefs.begin("botcfg", true);
   for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
@@ -740,13 +742,11 @@ void WebServerComm::startOwnAP() {
     return;
   }
   apRunning_ = true;
-  apRunning_ = true;
   apName_ = apName;
   // U-74: advertise by name. Re-published on every network change, so the
   // advertisement is never stale - see startMdns() for why the drive deck cannot
   // open on the router without a way to FIND the car.
   startMdns();
-  apName_ = apName;
   Serial.print("Own AP active: ");
   Serial.println(apName);
 }
@@ -1102,6 +1102,10 @@ void WebServerComm::stop() {
   ws.disconnect();
   FW_LOG_VERBOSE("DBG: WebSocket closed\n");
 
+  // U-77: stop() is the shutdown path - the mDNS advertisement belongs to the
+  // network layer it advertised, so it must go down with it (stopMdns() was
+  // defined but never called).
+  stopMdns();
   WiFi.disconnect();
   if (apRunning_) WiFi.softAPdisconnect(true);
   apRunning_ = false;
@@ -1264,7 +1268,12 @@ void WebServerComm::handle() {
         // spacing; WIFI_RETRY_INTERVAL_MS is only the floor.
         connectingPending_ = true;
         connectStartMs_ = now;
+        // U-77: this branch had the only silent radio calls left — a hang here
+        // produced a WDT reboot with no breadcrumb (U-75 rule: name the step
+        // BEFORE it runs).
+        noteRadioStep("retry/disconnect");
         WiFi.disconnect();
+        noteRadioStep("retry/begin");
         WiFi.begin(storedSsid_, storedPass_);
       }
     } else if (hasStoredWifi_ && !staGiveUpLogged_) {
@@ -1495,7 +1504,12 @@ void WebServerComm::startMdns() {
   // Safe to call repeatedly: end() first so a re-publish after a network change
   // does not leak a previous instance.
   MDNS.end();
-  if (MDNS.begin(MDNS_HOSTNAME) != 0) {
+  if (MDNS.begin(MDNS_HOSTNAME) == 0) {
+    // U-77: 0 is MDNS.begin() FAILURE. This condition used to be inverted
+    // (`!= 0`), so a SUCCESSFUL publication was reported as "unavailable" and
+    // abandoned before addService() — mDNS could literally never advertise.
+    // A genuine failure is not re-armed: it is logged once and the car stays
+    // reachable by IP (mDNS is a convenience, not a safety feature).
     FW_LOG("[MDNS] unavailable on this network\n");
     return;
   }
@@ -1549,6 +1563,19 @@ void WebServerComm::setupWebSocket() {
   ws.onEvent([](uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
     if (instanceForWs) instanceForWs->handleWebSocketEvent(num, type, payload, length);
   });
+  // U-77 (2026-10-03): STALLED-CLIENT HEARTBEAT — the fix for the last
+  // un-breadcrumbed watchdog reboot. broadcastStatus() runs every second to
+  // every client; a phone that stalls (screen off, app killed without a
+  // close, link orphaned by a channel hop mid-switch) stops draining TCP, the
+  // socket buffer fills in ~20-30 s, and the next broadcast write BLOCKS
+  // inside WebSocketsServer past the 5 s task watchdog — reboot, with no
+  // breadcrumb (owner log 2026-10-03: WDT ~29 s after the rejoin began,
+  // exactly the buffer-fill time). With the heartbeat the server pings every
+  // 3 s and drops a client after two missed pongs (~8-9 s), so a staller is
+  // GONE long before its buffers can wedge a write. New clients inherit the
+  // settings (WebSockets 2.7.2), so this one call covers the whole uptime.
+  ws.enableHeartbeat(WS_HEARTBEAT_PING_MS, WS_HEARTBEAT_PONG_TIMEOUT_MS,
+                     WS_HEARTBEAT_DROP_AFTER);
 }
 
 void WebServerComm::handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
@@ -1632,12 +1659,61 @@ void WebServerComm::broadcastStatus() {
 }
 
 // --- HTTP handlers ---
+
+// U-77: cap every write of the CURRENT request's socket. WebServer's default
+// socket send timeout is the core's 3 s connect default, so a stalled client
+// turned every chunk of a response into a multi-second block inside loop().
+// 500 ms per write keeps each handler bounded; the root page additionally
+// gets a TOTAL budget (serveRootBounded).
+void WebServerComm::armHttpGuard() {
+  NetworkClient& c = server.client();
+  c.setNoDelay(true);
+  c.setTimeout(HTTP_WRITE_TIMEOUT_MS);
+}
+
+// U-77: the ~18 kB root page with a TOTAL write budget. `server.send_P` had
+// NO total bound: to a slow-but-moving client (weak signal right after a
+// network switch — the owner's "car restarted as soon as I tried to access
+// the webpage") chunk after chunk blocked loop() past the 5 s task watchdog
+// even though no single write exceeded its timeout. Here: headers via
+// server.send() with the exact Content-Length, then the body written in
+// bounded chunks; if the total budget or the connection runs out the page
+// arrives truncated — the client is dead anyway, and a truncated page beats
+// a rebooted car.
+void WebServerComm::serveRootBounded() {
+  armHttpGuard();
+  const size_t pageLen = strlen_P(PAGE_HTML);
+  server.setContentLength(pageLen);
+  server.send(200, "text/html; charset=utf-8", "");
+  NetworkClient& c = server.client();
+  const unsigned long start = millis();
+  size_t off = 0;
+  char chunk[512];
+  while (off < pageLen) {
+    if (millis() - start > HTTP_BODY_BUDGET_MS) {
+      FW_LOG("[HTTP] root page aborted (client too slow): %u/%u bytes\n",
+             static_cast<unsigned>(off), static_cast<unsigned>(pageLen));
+      break;
+    }
+    if (!c.connected()) break;
+    const size_t n = (pageLen - off < sizeof(chunk)) ? (pageLen - off) : sizeof(chunk);
+    memcpy_P(chunk, PAGE_HTML + off, n);
+    const size_t w = c.write((const uint8_t*)chunk, n);
+    if (w == 0) {
+      yield();  // write window closed; the total budget still bounds us
+      continue;
+    }
+    off += w;
+  }
+}
+
 void WebServerComm::handleRoot() {
   FW_LOG_VERBOSE("DBG: HTTP GET / received\n");
-  server.send_P(200, "text/html; charset=utf-8", PAGE_HTML);
+  serveRootBounded();
 }
 
 void WebServerComm::handleMove(const char* cmd) {
+  armHttpGuard();  // U-77: bounded writes on every HTTP response
   if (modeManager) {
     modeManager->handleCommand(cmd, ModeManager::CmdSource::WIRE);
     queuePush(cmd);
@@ -1654,6 +1730,7 @@ void WebServerComm::handleMove(const char* cmd) {
 }
 
 void WebServerComm::handleSpeed() {
+  armHttpGuard();  // U-77
   String sval = server.arg("val");
   if (sval.length() == 0) {
     server.send(400, "application/json", "{\"ok\":false,\"message\":\"missing val\"}");
@@ -1672,6 +1749,7 @@ void WebServerComm::handleSpeed() {
 }
 
 void WebServerComm::handleMode() {
+  armHttpGuard();  // U-77
   String sval = server.arg("val");
   if (sval.length() == 0) {
     server.send(400, "application/json", "{\"ok\":false,\"message\":\"missing val\"}");
@@ -1689,6 +1767,7 @@ void WebServerComm::handleMode() {
 }
 
 void WebServerComm::handleStatus() {
+  armHttpGuard();  // U-77
   char buf[1200];
   buildStatusJson(buf, sizeof(buf));
   server.send(200, "application/json", buf);
@@ -1696,6 +1775,7 @@ void WebServerComm::handleStatus() {
 
 void WebServerComm::handleNotFound() {
   FW_LOG_VERBOSE("DBG: HTTP NotFound for URI: %s\n", server.uri().c_str());
+  armHttpGuard();  // U-77
   server.send(404, "text/plain", "Not found");
 }
 

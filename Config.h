@@ -7,7 +7,7 @@
 
 // ---- T-31 project identity (single source; boot splash + docs) ----
 #define FW_NAME    "4WD4M Car"
-#define FW_VERSION "1.0.1"  // v1.0.1 (R1 round 1): OLED gains a link-context line (BT paired vs Wi-Fi mode + RSSI), and the app-side R1 flicker/timeout fixes ship alongside. Baseline was v1.0.0 (fresh repo from Genum_WIRELESS_CAR 1.8.4 @ d0bf8c0; renamed identity: BT "4WD CAR" / AP 4WDCar_Wifi / AP 192.168.245.1/24)
+#define FW_VERSION "1.0.2"  // v1.0.2 (U-77): task-watchdog reboots eliminated — WS stalled-client heartbeat, total-bounded root-page write, per-write HTTP send cap, mDNS success/failure condition un-inverted (mDNS could never advertise), retry-branch breadcrumbs. Baseline was v1.0.0 (fresh repo from Genum_WIRELESS_CAR 1.8.4 @ d0bf8c0; renamed identity: BT "4WD CAR" / AP 4WDCar_Wifi / AP 192.168.245.1/24)
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 
 #include <stdint.h>

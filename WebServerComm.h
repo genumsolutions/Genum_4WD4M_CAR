@@ -46,6 +46,22 @@
 #define BOOT_STA_MAX_RETRIES 1
 // U-76: how often a DEFERRED mDNS publication is retried once the STA settles.
 #define MDNS_RETRY_INTERVAL_MS 2000ul
+// U-77 (2026-10-03): stalled-client guards — the last two ways loop() could
+// still be blocked past the 5 s task watchdog. The WS status broadcast runs
+// EVERY SECOND to every client; a phone that stalls (screen off, app killed
+// without a close, or its link orphaned by a channel hop) stops draining TCP
+// and the next broadcasts fill the socket buffer until a write BLOCKS —
+// inside WebSocketsServer, with no breadcrumb, past 5 s, = reboot. The
+// heartbeat makes the server PING each client and drop it after two missed
+// pongs, so a staller is gone long before its buffers can wedge a write.
+// The HTTP guard bounds each write (SO_SNDTIMEO) and the whole root-page
+// body by a total budget, so even a request from a slow-but-moving client
+// (weak signal right after a network switch) can never occupy loop() for 5 s.
+#define WS_HEARTBEAT_PING_MS 3000ul
+#define WS_HEARTBEAT_PONG_TIMEOUT_MS 1000ul
+#define WS_HEARTBEAT_DROP_AFTER 2
+#define HTTP_WRITE_TIMEOUT_MS 500ul
+#define HTTP_BODY_BUDGET_MS 3000ul
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
 #define SCAN_MAX_RESULTS 12
@@ -315,6 +331,15 @@ private:
   void handleStatus();
   void handleNotFound();
   void buildStatusJson(char* buf, size_t bufLen);
+
+  // U-77: bounded HTTP serving. armHttpGuard() caps every write of the
+  // CURRENT request's socket (SO_SNDTIMEO); serveRootBounded() additionally
+  // caps the TOTAL time spent writing the ~18 kB page body, so a stalled or  // crawling client can never hold loop() past the task watchdog. On a
+  // hopeless link the page arrives truncated — the client is dead anyway,
+  // and a truncated page beats a rebooted car.
+
+  void armHttpGuard();
+  void serveRootBounded();
 
   void setupWebSocket();
   void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);

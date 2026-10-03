@@ -1,3 +1,48 @@
+**U-77 (2026-10-03) - THE WATCHDOG REBOOT CLASS IS CLOSED. Owner log: TWO MORE `reset reason: 6
+(TASK WATCHDOG, loop hung >5s)` reboots, ~92-97 s after boot, WITH the U-75 breadcrumbs exhausted.**
+Both hangs left NO radio breadcrumb, so the blocker was not a radio call - it was the two remaining
+UN-BOUNDED blocking paths in loop(), both client-write paths, both now proven against the installed
+sources (WebSockets 2.7.2 + arduino-esp32 3.3.12):
+
+1. **WS stalled-client broadcast** (the ~29 s gap in the owner log is the TCP buffer-fill time):
+   `broadcastStatus()` runs EVERY SECOND to every client; a phone that stalls (screen off, app
+   killed without a close, or its link orphaned by the AP channel hop mid-switch - U-74) stops
+   draining TCP. `WebSockets::write()` retries until `WEBSOCKETS_TCP_TIMEOUT` (5 s) of no progress
+   and each inner `tcp->write()` itself blocks on the full lwIP buffer (core default socket send
+   timeout 3 s) - one stalled client = loop() blocked 5-8 s = WDT = reboot, no breadcrumb.
+   **Fix: `ws.enableHeartbeat(3000, 1000, 2)`** in `setupWebSocket()` (supported by 2.7.2 server
+   side, new clients inherit it): a staller is pinged and dropped in ~8-9 s, long before its
+   buffers can wedge a write.
+2. **HTTP root-page send had NO total bound**: `server.send_P(PAGE_HTML)` (~18 kB) to a
+   slow-but-moving client (weak signal right after a network switch - the owner's "restarted as
+   soon as I tried to access the webpage") blocked loop() chunk after chunk past 5 s even with
+   every single write under the 3 s default. **Fix: `serveRootBounded()`** - exact Content-Length
+   headers, then the body in 512 B chunks with a 500 ms per-write socket cap
+   (`armHttpGuard()`, applied to EVERY HTTP handler) and a 3 s TOTAL budget; a hopeless client
+   gets a truncated page (it is dead anyway) instead of a rebooted car.
+3. **mDNS could NEVER advertise - inverted condition.** `if (MDNS.begin(...) != 0)` treats
+   SUCCESS (non-zero) as failure: printed "[MDNS] unavailable" and returned before addService(),
+   while a REAL failure fell through to addService(). Now `== 0` = failure, honestly logged once.
+4. **Boot auto-join was silently dead.** `loadSavedRouters()` wiped `lastGoodSsid_` right after
+   `loadStoredWifi()` had loaded it from NVS and never re-read - `armBootAutoJoin()` always saw an
+   empty last-good router (owner log boot 1: no `[WIFICFG] boot:` line). Registry load no longer
+   touches last-good state; `loadStoredWifi()` is its single owner (and now ONE read-only NVS open
+   instead of two, one needlessly writable).
+5. **Retry-branch radio calls got breadcrumbs** (`[RADIO] retry/disconnect` / `retry/begin`) - they
+   were the last silent radio calls; a hang there would have been another breadcrumb-less reboot.
+6. **stopMdns() was dead code** - now called from stop(). Duplicate `apRunning_ = true;` in
+   startOwnAP() removed. Version -> 1.0.2, Readme synced (was stale at 1.0.0).
+
+**Verification:** all edited sources pass the xtensa-esp32-elf-g++ `-fsyntax-only` gate against
+core 3.3.12 + WebSockets 2.7.2 (adapted from the build/v2 compile_commands.json). CI compile gate
+runs on push. **Bench:** flash `main` (huge_app), then repeat the owner's repro: switch car to home
+router from the app, phone follows onto the router, open the webpage. Expect: NO reboot, and on a
+radio event the `[RADIO] ...` breadcrumbs name every step. If a WDT ever fires again the last
+breadcrumb names the step (U-75 rule now covers 100% of radio calls). Stale cross-machine
+`build/` artifacts removed from the working tree (gitignored anyway).
+
+---
+
 **U-71 (2026-10-02) - FINISHES THE INTERRUPTED U-70 WORK. Owner: *"i used the other router switch
 thing but the car restarted as soon as i tried to access the webpage"* · *"save the last connected
 router configs for the power restart too if that router is in the range to connect if not goes back
