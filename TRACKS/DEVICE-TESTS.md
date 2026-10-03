@@ -3,6 +3,41 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## U-79 round — webserver mode gone, transport power policy, page fixes (2026-10-03, `abb7297`, CI ✓)
+
+> Flash `abb7297` (huge_app) FIRST. The app side needs the U-80 OTA (d97d6f1): force-close +
+> reopen the app ×2. Full plan: genumsolutions-app `guide/PLAN-2026-10-03-U79-U80-ONE-WIFI-SETUP.md`.
+
+- [ ] **U-79-1 — the trap is gone.** Open the car's web page → the mode dropdown has NO
+      "ESP32 (WS)" / "ESP32 (CLIENT)" options; the remaining coming-soon modes are DISABLED and
+      say "(coming soon)". Driving after opening the dropdown can no longer park the car in a
+      dead mode (the `[MODE] set 4WD4M -> ESP32(WEBSERVER)` serial line from the owner log must
+      never appear again).
+- [ ] **U-79-2 — one Wi-Fi setup.** Sending `ESP_SER` / `ESP_CLI` (webpage console or BT) gets a
+      `NACK;E=UNKNOWN_MODE` and the car STAYS in 4WD4M.
+- [ ] **U-79-3 — power policy, idle.** Car with no client: Bluetooth advertising AND 4WDCar_Wifi
+      up simultaneously (BT visible on the phone; hotspot visible in WiFi scan).
+- [ ] **U-79-4 — power policy, one client.** Connect the app over WiFi → serial
+      `[POWER] Bluetooth off - web client active` and BT disappears from the phone's scan.
+      Then connect a BT-only client instead → `[POWER] Wi-Fi off - Bluetooth client active`.
+- [ ] **U-79-5 — power policy, drop.** Disconnect everything → within ~3 s
+      `[POWER] Bluetooth advertising` + `[POWER] Wi-Fi up`, both reachable again.
+- [ ] **U-79-6 — boot prefers last-used transport.** Last session on Wi-Fi + power-cycle →
+      `[WIFICFG] boot: will try last-good router "…"` and it rejoins. Last session on BT +
+      power-cycle → `[BOOT] Last used: Bluetooth - staying on hotspot + BT` and NO router hop.
+- [ ] **U-79-7 — router fallback of last resort.** Router OFF + power-cycle → back on
+      4WDCar_Wifi within seconds (one 6 s window, U-71 semantics unchanged).
+- [ ] **U-79-8 — page: speed slider drag-safe.** Drag the slider SLOWLY for >1 s — the thumb
+      never jumps back mid-drag; on release the value sticks (the 1 s status sync must not
+      fight the finger).
+- [ ] **U-79-9 — page: one place for networks.** The router dropdown lists the saved routers +
+      "＋ Add router…"; adding sends WIFICFG (stores AND switches); on switch the page shows
+      "Switching… reconnects when this phone joins <ssid>" and the WS link drop is expected,
+      then reconnects once the phone follows.
+- [ ] **U-79-10 — no regression of the U-77 watchdog class.** Repeat the original repro
+      (switch router, open webpage immediately): NO reboot; reset reason stays power-on.
+
+
 ## ⭐ MASTER RUN — one bench session, everything outstanding (2026-09-30, RC-PENDING)
 
 > **Owner instruction 2026-09-30: finish all the code first, run the device tests at the end, as
