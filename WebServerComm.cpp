@@ -1428,7 +1428,40 @@ int WebServerComm::peek() {
   return static_cast<int>(cur[readPos]);
 }
 
-size_t WebServerComm::write(const char* buf, size_t len) { return len; }
+// U-81 (2026-10-03): THIS WAS A SINK — `return len;` accepted every byte and
+// threw it away. It is the reason the owner's report was "the new home router
+// is not there".
+//
+// `comm_` IS this object (`Genum_4WD4M_CAR.ino:190` -> `setComm(&webServerComm)`),
+// and every text line ModeManager produces goes through here:
+//   ModeManager.cpp:535  STATE;...;REPLY=<the router/wifi answer>
+//   ModeManager.cpp:545  CAPS;...        (the availability map)
+//   ModeManager.cpp:555  NETW;...        (saved-router names, the BT shape)
+//   ModeManager.cpp:566  SCAN;...        (nearby networks)
+//   ModeManager.cpp:841  NACK;E=UNKNOWN_MODE;ARG=<token>
+//
+// So over WiFi the entire text protocol was unreachable, and with it every
+// router acknowledgement. The owner-visible chain was:
+//   add a router -> the car stores it and queues ROUTERS;ADDED -> that answer is
+//   written to this void -> the car then joins the new network -> the WS link
+//   drops -> the 1 s JSON `networks` frame cannot arrive either. The new router
+//   therefore appeared NOWHERE: not in the app's list, not in its saved prefs.
+//   A switch was the same silence, 6 s later, as a timeout. A refused mode was
+//   the same silence, as a ~2.5 s lie and a silent snap-back.
+//
+// Bluetooth was unaffected because `auxComm_` is `btComm`, whose write() really
+// writes SerialBT - which is exactly why this read as a WiFi-only fault.
+//
+// `broadcastTXT` is SAFE for loop(): WebSocketsServer buffers the payload into
+// each client's send buffer and returns; the TCP flush happens in the library's
+// own loop. A stalled client therefore cannot block here, and the U-77
+// heartbeat (enableHeartbeat(3000,1000,2)) drops a non-draining client long
+// before its buffer can grow. That is the whole reason U-77 added it.
+size_t WebServerComm::write(const char* buf, size_t len) {
+  if (!buf || len == 0) return 0;
+  ws.broadcastTXT(buf, len);
+  return len;
+}
 
 bool WebServerComm::send(const char* msg) {
   if (!msg || !serverRunning) return false;
@@ -1680,6 +1713,19 @@ void WebServerComm::armHttpGuard() {
 // bounded chunks; if the total budget or the connection runs out the page
 // arrives truncated — the client is dead anyway, and a truncated page beats
 // a rebooted car.
+//
+// U-81 (2026-10-03): the truncation was HONEST Content-Length + a SHORT body,
+// and then the handler simply returned. The browser had been promised N bytes
+// and had received fewer, so it sat waiting for the rest until its own
+// timeout — a page that loads as a blank/hanging document, which is exactly
+// the "the webpage is not functioning properly" report. Two changes:
+//   1. the budget is now HTTP_BODY_BUDGET_MS = 6 s (was 3 s). The per-write cap
+//      (500 ms) plus the yield() below are what actually keep loop() safe, so
+//      the total wall-clock budget was never the thing protecting the watchdog;
+//      3 s was simply tight enough to truncate on an ordinary phone.
+//   2. on ANY short write we CLOSE the socket, so the client is told "this
+//      response ended" immediately instead of hanging on a promise the car
+//      will never keep.
 void WebServerComm::serveRootBounded() {
   armHttpGuard();
   const size_t pageLen = strlen_P(PAGE_HTML);
@@ -1704,6 +1750,13 @@ void WebServerComm::serveRootBounded() {
       continue;
     }
     off += w;
+  }
+  // A short body after an honest Content-Length leaves the browser waiting for
+  // bytes that will never arrive. End the response instead of hanging it.
+  if (off < pageLen && c.connected()) {
+    // We are about to break a promise made in a header we already sent. Close
+    // the connection so the client stops waiting for bytes that will never come.
+    c.stop();
   }
 }
 

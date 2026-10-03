@@ -383,6 +383,60 @@ Rows (rows 1–10 carried into the v1.0.1 round above; this v1.0.0 round is clos
       `FAILSAFE_TIMEOUT_MS` = 2000 ms. Do not re-add an ESTOP control without a firmware ruling.
 - [ ] T8 — 100-command burst over WS; packet loss % recorded
 - [ ] T9 — old-car regression: donor WIRELESS car still pairs/drives as before (untouched repo proof)
-- [ ] T10 — CAPS shows `4WD4M:LIVE`, `ESP_SER:CS`, `ESP_CLI:CS`; app marks the CS ones Coming Soon
+- [ ] T10 — ~~CAPS shows `4WD4M:LIVE`, `ESP_SER:CS`, `ESP_CLI:CS`~~ → **STALE ROW, rewritten
+      2026-10-03 (U-81):** U-79 REMOVED `ESP_SER`/`ESP_CLI` from `MODE_REGISTRY` outright, so the
+      car no longer emits them **in any state** — not `CS`, not `WIP`. The correct expectation is
+      now **absence**: `CAPS;4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS`,
+      with no `ESP_SER` key at all. The app half of U-81 reads that absence as `GONE` and must
+      show the two website modes as "Not on this car" and refuse to send them. **Test:**
+      (a) `REQ_CAPS` returns exactly the 7 keys above; (b) the app greys out EspWebServer /
+      EspWebClient and cannot select them; (c) an OLD car still announcing `ESP_SER:LIVE` /
+      `ESP_CLI:WIP` keeps both modes selectable — that is the fleet-parity half and is the row
+      most likely to regress.
 
 Verdict: RC-PASS / RC-FAIL → snag round numbering per fleet convention.
+
+---
+
+## U-81 (2026-10-03) — the WiFi text protocol was a sink
+
+**F-61 applies to every row here: CI compiles, it does not prove behaviour.** U-81's entire
+finding is that a green Arduino build shipped a `write()` that threw every byte away, and no
+test in any repo could see it. Flash before believing any of this.
+
+- [ ] U81-1 — **the root cause, directly.** Open the page on the car AP (Wi-Fi), DevTools →
+      WebSocket frames → Messages. Send `REQ_CAPS` from the console. **A `CAPS;…` text frame must
+      appear.** Before U-81 the frame never existed: `WebServerComm::write()` returned `len`
+      without sending. This is THE row; the rest are consequences of it.
+- [ ] U81-2 — **router add over Wi-Fi, end to end.** App → add a home router → the page/car show
+      it immediately (`ROUTERS;ADDED;<ssid>`), then the car joins it and the socket drops. Join
+      the same network and reopen: **the router is in the list.** Before U-81 the ack was
+      discarded, the socket died, and the router appeared nowhere.
+- [ ] U81-3 — **no phantom `STARTED` router.** After any scan, the saved list contains only real
+      SSIDs. `ROUTERS;SCAN;STARTED` must never be persisted as a router named `STARTED`.
+- [ ] U81-4 — router **switch** over Wi-Fi: `ROUTERS;USED;<ssid>` arrives, the U-80
+      "join <ssid> on this phone" notice appears, and the saved list gains the router.
+- [ ] U81-5 — **refusals are reported as refusals.** Force each one and confirm the page and the
+      app both show the car's own reason, never a success: `ROUTERS;FULL`, `Reserved`
+      (the car's own AP name), `Password too long`, `SSID length`, `Not saved:<ssid>`.
+- [ ] U81-6 — **a refused mode is visible.** Tap EspWebServer (or any mode this car lacks): the
+      car answers `NACK;E=UNKNOWN_MODE;ARG=…`, the app says "not supported by this car" and the
+      mode display **rolls back** instead of lying until the next `MODE=` frame.
+- [ ] U81-7 — **Bluetooth unaffected.** Repeat U81-5/6 over BT: `auxComm_` already really wrote to
+      `SerialBT`, so this must still work. A regression here means the NACK fan-out
+      (`ModeManager.cpp:841`) double-sent or leaked.
+- [ ] U81-8 — **the root page loads completely.** Load `http://192.168.245.1` on a phone. The page
+      must render fully and quickly, never a blank/hanging document. This row covers both halves
+      of the fix: the budget is now 6 s, and a short body now CLOSES the socket instead of leaving
+      the browser waiting on a `Content-Length` the car will never honour. Repeat ~10× on a phone
+      that has just joined the AP (worst case for a cold TCP window).
+- [ ] U81-9 — **watchdog.** While loading the page repeatedly, confirm no reboot and no
+      `Brownout`/`Task WDT` in the serial log. The per-write cap (500 ms) + `yield()` is what
+      protects loop(), not the total budget.
+- [ ] U81-10 — **old-car regression (do not skip).** A pre-U-79 car must still show all 9 modes
+      selectable, still pair over BT, and still drive. U-81 changed the app's availability
+      resolver; a car that sends no `CAPS` line must keep the fleet fallback.
+- [ ] U81-11 — 100-command burst over WS again (T8) with the text protocol live, to confirm
+      `broadcastTXT` in `loop()` cannot stall under load.
+
+Verdict: **RC-PENDING** — needs a flash.

@@ -98,6 +98,66 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
 
   <script>
     let ws, lastS=0, lastNetSig='';
+    // U-81: render the car's own answer, in the car's own vocabulary, and never
+    // invent a success. `ROUTERS;ADDED;x` / `WIFICFG;OK;x` are confirmations;
+    // `ROUTERS;FULL` / `…;Reserved` / `…;Password too long` / `…;SSID length`
+    // / `…;Syntax` / `…;Not saved` are refusals and are shown AS refusals.
+    // A NACK means the car did not accept the mode that was just tapped.
+    function note(txt, good){
+      var el = document.getElementById('note');
+      if(!el) return;
+      el.innerText = txt;
+      el.style.color = good ? '#0a7a4a' : '#b3261e';
+    }
+    function handleTextLine(raw){
+      var l = raw.trim();
+      if(!l) return;
+      // NACK;E=UNKNOWN_MODE;ARG=<token>
+      if(l.indexOf('NACK;') === 0 || l.indexOf('NACK:') === 0){
+        var arg = (l.split(/[;:]/)[2] || '').replace(/^ARG=/,'');
+        note('The car refused mode "' + (arg || '?') + '" - not supported by this car.', false);
+        return;
+      }
+      // STATE;...;REPLY=<the answer to what this page asked>
+      var eq = l.indexOf('REPLY=');
+      if(eq < 0) return;
+      var r = l.slice(eq + 6).trim();
+      if(!r) return;
+      if(r.indexOf('ROUTERS;ADDED;') === 0){
+        // Only a SAVE is confirmed here. The firmware confirms a switch with
+        // ROUTERS;USED, so this must not claim one - the page would be telling
+        // the user their phone is about to change networks on a promise.
+        note('Saved on the car: ' + r.slice(14) + '.', true);
+        return;
+      }
+      if(r.indexOf('ROUTERS;USED;') === 0){
+        note('Car switched to ' + r.slice(13) + '.', true);
+        return;
+      }
+      if(r.indexOf('ROUTERS;CLEARED') === 0){ note('All saved routers cleared.', true); return; }
+      if(r.indexOf('ROUTERS;DELETED;') === 0){ note('Removed ' + r.slice(16) + '.', true); return; }
+      if(r.indexOf('ROUTERS;SCAN;STARTED') === 0){ note('Scanning for networks...', true); return; }
+      if(r.indexOf('ROUTERS;FULL') === 0){
+        note('The car already has 6 routers - delete one first.', false); return;
+      }
+      if(r.indexOf('ROUTERS;ERROR;') === 0){
+        // The reason is the last field and is already human-readable
+        // (Reserved / Password too long / SSID length / Syntax). `Not saved:x`
+        // carries a colon and the name; read it as a sentence, not as
+        // "refused: Not saved:x".
+        var why = r.slice(14);
+        var colon = why.indexOf(':');
+        if(/^not saved/i.test(why) && colon >= 0){
+          note('The car has not saved ' + why.slice(colon + 1).trim() + ' yet.', false);
+          return;
+        }
+        note('Car refused: ' + why, false); return;
+      }
+      if(r.indexOf('WIFICFG;OK;') === 0){ note('Saved on the car: ' + r.slice(11), true); return; }
+      if(r.indexOf('WIFICFG;') === 0){ note('Car refused: ' + r.slice(8), false); return; }
+      // A whole router list rides REPLY= too; the 1 s JSON networks array is
+      // what actually repaints the dropdown, so there is nothing to say.
+    }
     function initWebSocket(){
       ws = new WebSocket("ws://" + window.location.hostname + ":81/");
       ws.onopen = () => {
@@ -113,6 +173,15 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         setTimeout(initWebSocket, 3000);
       };
       ws.onmessage = (evt) => {
+        // U-81: the car now also sends TEXT lines on this socket — the STATE
+        // line (with the router/WiFi answer in REPLY=), CAPS;, NETW;, SCAN; and
+        // NACK;E=UNKNOWN_MODE. That egress was a sink until U-81, so every
+        // answer this page asked for was discarded by the car and the page
+        // could only ever guess. Text first, JSON second.
+        if (typeof evt.data === 'string' && evt.data.charAt(0) !== '{') {
+          handleTextLine(evt.data);
+          return;
+        }
         try {
           let j = JSON.parse(evt.data);
           if(j.status){
@@ -346,6 +415,16 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
              (appended by the rebuild script, which owns the option list). -->
       </select>
     </div>
+
+    <!-- U-81: the CAR'S ANSWER to what this page asked it to do.
+         Before this the page sent WIFICFG / ROUTERS;USE and simply printed
+         "Switching…", which is a promise, not a fact: a REFUSED add (registry
+         FULL, a reserved name, an over-long password/SSID) and a success looked
+         identical, and the 1 s status JSON overwrote the text every second so
+         even the promise was gone. The car answers `…;REPLY=<line>` on the
+         STATE line (ModeManager.cpp:535) and `NACK;E=…` for a refused mode;
+         handleTextLine() below consumes both (F-62). -->
+    <p id='note' class='small' role='status' aria-live='polite'></p>
 
     <!-- ROUND-11 (T-69): the stage holds the data SIDES + the control cross.
          Portrait: both ribbons render above the D-pad; landscape: they flank it. -->

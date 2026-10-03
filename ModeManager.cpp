@@ -835,9 +835,18 @@ void ModeManager::setModeFromString(const char* modeStr) {
   // R-4: explicit fleet NACK so the hand-held remote / app surface
   // "Not supported by car" instead of a silent no-op (mixed-pair case:
   // e.g. new remote sending the renamed 4WD4M token to a legacy car).
-  if (comm_ && comm_->connected()) {
+  //
+  // U-81: fan it out over EVERY connected transport, the same way sendState()
+  // does (ModeManager.cpp:459-468). It used to go to `comm_` only, behind a
+  // `comm_->connected()` guard — so a token that arrived over BLUETOOTH was
+  // refused in silence whenever the web transport had no client, and the user
+  // watched the app show the wrong mode for MODE_CHANGE_GRACE_MS and then snap
+  // back with no message. The refusal must reach the link that sent the token.
+  {
     char nack[96];
     snprintf(nack, sizeof(nack), "NACK;E=UNKNOWN_MODE;ARG=%s\n", modeStr);
-    comm_->write(nack, strlen(nack));
+    if (comm_ && comm_->connected()) comm_->write(nack, strlen(nack));
+    if (auxComm_ && auxComm_ != comm_ && auxComm_->connected())
+      auxComm_->write(nack, strlen(nack));
   }
 }

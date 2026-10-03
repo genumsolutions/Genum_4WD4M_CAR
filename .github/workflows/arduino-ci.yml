@@ -22,6 +22,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  page-js:
+    # U-81: the setup page's HTML+JS lives in a C++ raw string, so the compiler
+    # never looks at it. This job does — it parses the inline script and runs the
+    # reply handler against the firmware's real strings, asserting that a
+    # refusal is never rendered as a success. Kept separate from `compile` so a
+    # page bug and a build break are reported as different failures.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: The page's JavaScript parses and tells the truth
+        run: node tools/check-webpage-js.mjs
+
   compile:
     runs-on: ubuntu-latest
     steps:
