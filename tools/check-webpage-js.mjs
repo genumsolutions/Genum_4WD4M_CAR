@@ -500,3 +500,111 @@ if (bad) {
   process.exit(1);
 }
 console.log("\nPASS: the page reports the car's answers honestly");
+
+// ---- 8. the AP power policy must never be able to strand the car ---------
+//
+// U-86: the car parks its setup beacon while it is healthy on a router, to save
+// power. The whole risk of that is a car that cannot be set up again, so the
+// order of operations is the contract. These checks read the firmware source
+// rather than the page, because that is where the radio work lives.
+const fw = fs.readFileSync(
+  path.join(here, "..", "WebServerComm.cpp"),
+  "utf8",
+);
+const hdr = fs.readFileSync(path.join(here, "..", "WebServerComm.h"), "utf8");
+
+const policy = /void WebServerComm::updateApPowerPolicy\(\)\s*\{[\s\S]*?\n\}/.exec(
+  fw,
+);
+if (!policy) {
+  console.error("FAIL: updateApPowerPolicy() is missing from WebServerComm.cpp");
+  process.exit(1);
+}
+const body = policy[0];
+
+// Park only once the STA is genuinely up. Matched on the assignment, not the
+// comparison, so this cannot be satisfied by a decoy elsewhere in the function.
+const staGuard = /const bool staUp\s*=\s*\(\s*WiFi\.status\(\)\s*==\s*WL_CONNECTED\s*\)/;
+if (!staGuard.test(body)) {
+  console.error(
+    "FAIL: the beacon could be parked without checking the STA is connected",
+  );
+  bad++;
+}
+// Grace period, so a router that drops again straight away cannot flap it.
+if (!/AP_PARK_GRACE_MS/.test(body)) {
+  console.error(
+    "FAIL: the beacon is parked with no grace period — a flapping router " +
+      "would tear the beacon down and up repeatedly",
+  );
+  bad++;
+}
+// Park with softAPdisconnect ONLY. `WiFi.mode()` restarts the driver, which is
+// what caused the U-75 watchdog reboot; it must never appear on this path.
+if (/WiFi\.mode\s*\(/.test(body)) {
+  console.error(
+    "FAIL: the power policy calls WiFi.mode() — that is a full driver restart " +
+      "and is the documented cause of the task-watchdog reboot",
+  );
+  bad++;
+}
+// ...and the disconnect must not take the STA down with it. `wifioff` defaults
+// to false, so an omitted or falsy argument is the correct, safe form; only an
+// explicit `true` is dangerous.
+const dis = /WiFi\.softAPdisconnect\(([^;]*?)\);/.exec(body);
+if (!dis) {
+  console.error("FAIL: the policy never calls softAPdisconnect — nothing is parked");
+  bad++;
+} else if (/true/.test(dis[1])) {
+  console.error(
+    "FAIL: softAPdisconnect(true) would drop the router association too — " +
+      "parking the beacon must leave the STA up",
+  );
+  bad++;
+}
+// If the association goes, the beacon must come back. This is the single most
+// important property: it is what makes parking safe at all.
+// Scope the search to the !staUp branch itself, so a startOwnAP() further down
+// the function cannot stand in for the restore-on-disconnect.
+const staDown = /if\s*\(!staUp\)\s*\{([\s\S]*?)\n  \}/.exec(body);
+if (!staDown || !/startOwnAP\(\)/.test(staDown[1])) {
+  console.error(
+    "FAIL: losing the router does not restore the beacon — a parked car could " +
+      "never be set up again",
+  );
+  bad++;
+}
+if (!/AP_PARK_GRACE_MS\s+\d+ul/.test(hdr)) {
+  console.error("FAIL: AP_PARK_GRACE_MS is not defined as a compile-time constant");
+  bad++;
+}
+// The give-up fallback must clear the parked flag, or the beacon would be
+// running while the code believed it was down.
+// Scope to the GIVEUP_AP case body so an unrelated apParked_/startOwnAP() pair
+// elsewhere in the file cannot satisfy this.
+const giveUp = /case GIVEUP_AP:([\s\S]*?)break;/.exec(fw);
+if (!giveUp) {
+  console.error("FAIL: the GIVEUP_AP fallback case is missing");
+  bad++;
+} else if (
+  !/apParked_\s*=\s*false/.test(giveUp[1]) ||
+  !/startOwnAP\(\)/.test(giveUp[1])
+) {
+  console.error(
+    "FAIL: the give-up fallback does not clear apParked_ and restart the " +
+      "beacon — the power policy would believe the beacon is down while it " +
+      "is up, and the car would have no setup path",
+  );
+  bad++;
+}
+if (!bad) {
+  console.log(
+    "PASS: the beacon can only be parked while the car is reachable on a " +
+      "router, and is restored the moment that stops being true",
+  );
+}
+
+if (bad) {
+  console.error(`\n${bad} check(s) FAILED`);
+  process.exit(1);
+}

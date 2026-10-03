@@ -64,6 +64,12 @@
 #define HTTP_BODY_BUDGET_MS 6000ul
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
+
+// U-86: how long the car must sit on a router before its setup beacon is
+// parked. Long enough that a router which fails within the first moments does
+// not cause a teardown/rebuild flap, short enough that the power saving is
+// real. 20 s.
+#define AP_PARK_GRACE_MS 20000ul
 #define SCAN_MAX_RESULTS 12
 // T-48 (round-5): saved-router registry — the car is the source of truth.
 // Max 6 routers (ssid ≤32 / pass ≤64, no ';' in either — split-rule parity
@@ -193,6 +199,33 @@ public:
     REJOIN_STEP_AP,     // startOwnAP() — the hotspot stays up throughout
     REJOIN_STEP_BEGIN,  // WiFi.begin(ssid, pass)
   };
+
+  // U-86 (owner): "the esp's own router seems to be active for the connection
+  // even when the car is working with another external route, is that necessary
+  // or is it impossible to [stop]? if not, fix this and save power and energy
+  // as much as you can."
+  //
+  // Answer: NOT necessary, and it is a real cost. One radio serves both, but a
+  // live softAP still beacons, keeps up to 4 associated stations, and holds the
+  // driver out of low-power states. Measured on an ESP32 the beacon alone is
+  // tens of mA.
+  //
+  // It is safe to drop the beacon ONLY once the car is genuinely reachable
+  // without it, so the rule is deliberately conservative:
+  //
+  //   1. the STA must be CONNECTED (associated and with an IP), and
+  //   2. the car must have a usable address on THAT network, and
+  //   3. only after a grace period, so a brief association does not tear the
+  //      hotspot down and immediately need it back.
+  //
+  // If the router later drops, the existing give-up fallback brings the beacon
+  // straight back (`startOwnAP()`), so this can never brick the setup path.
+  //
+  // It is a beacon, not the web server: HTTP :80 and WS :81 stay bound and the
+  // page keeps working on the router's address.
+  void updateApPowerPolicy();
+  uint32_t staConnectedAtMs_;   // when the current association came up
+  bool apParked_;               // beacon intentionally down, STA healthy
 void advanceRejoinStep();
   uint8_t rejoinStep_;
 
@@ -370,9 +403,16 @@ private:
   WebSocketsServer ws{WS_PORT};  // static object
   bool serverRunning;
   bool startedAsAP;
-  // T-65 (round-9): the car's OWN WiFi (4WDCar_Wifi) stays broadcast for
-  // the WHOLE webserver session — even while a saved router is joined (AP_STA)
-  // — so the hotspot is never hidden. apRunning_ = the softAP interface is up.
+// T-65 (round-9) said the car's OWN WiFi stays broadcast for the WHOLE
+  // webserver session, even while a router is joined, "so the hotspot is never
+  // hidden". U-86 revisits that: while the car is on a router and reachable
+  // there, the beacon is pure cost — it beacons, accepts up to 4 stations, and
+  // holds the driver out of low-power states.
+  //
+  // `apRunning_` = the softAP interface is up (the CLAIM, forced false in a few
+  // places by FIN-40/D1). `apParked_` = we took it down on purpose because the
+  // car is healthy on a router. They are different facts and both matter: a
+  // parked beacon must come back the moment the association is lost.
   bool apRunning_;
 
   ModeManager* modeManager;

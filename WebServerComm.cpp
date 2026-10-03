@@ -27,7 +27,7 @@ WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
   connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
-  mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
+  mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), staConnectedAtMs_(0), apParked_(false), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
   scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
     serverRunning(false), startedAsAP(false), apRunning_(false),
     modeManager(nullptr), pendingModeAtMs(0)
@@ -898,6 +898,65 @@ void WebServerComm::rejoinNetwork() {
 // Every branch returns immediately after advancing, so `handle()` spends at
 // most ONE driver call per loop iteration and returns, feeding the WDT and
 // giving the web server a chance to answer a request in between.
+// U-86: park the setup beacon while the car is healthy on a router.
+//
+// Owner asked whether the car's own AP can stop broadcasting once it is on an
+// external router. It can, and the safety argument is short: the beacon is the
+// setup path, so it is only dropped when the car is ALREADY reachable without
+// it, and the existing give-up fallback restores it the moment the router goes
+// away. Worst case is one dropped connection, never a car that cannot be set up.
+//
+// Deliberately NOT one blocking call per step here, because this is only ever
+// softAPdisconnect()/softAP() — no `WiFi.mode()` driver restart, which is the
+// call that caused the U-75 watchdog reboot. `softAPdisconnect` alone leaves the
+// STA association and the driver up.
+void WebServerComm::updateApPowerPolicy() {
+  const bool staUp = (WiFi.status() == WL_CONNECTED);
+  const unsigned long nowMs = millis();
+
+  if (!staUp) {
+    // Router gone or never joined: the beacon is the fallback, so make sure it
+    // is up. `startOwnAP()` is idempotent and already retried by handle().
+    staConnectedAtMs_ = 0;
+    apParked_ = false;
+    if (!apRunning_) startOwnAP();
+    return;
+  }
+
+  // Track when THIS association came up. Re-armed on every drop so the grace
+  // period always runs after a real transition, never mid-session.
+  if (staConnectedAtMs_ == 0) staConnectedAtMs_ = nowMs;
+
+  if (apParked_) {
+    // Parked already. Restore the beacon if the association is no longer
+    // trustworthy (no lease, or the grace period is somehow stale).
+    if (storedSsid_[0] == '\0') {
+      apParked_ = false;
+      if (!apRunning_) startOwnAP();
+    }
+    return;
+  }
+
+  if (!apRunning_) {
+    // Beacon is already down but we never parked it (a softAP failure). Leave
+    // it alone rather than fighting the radio.
+    return;
+  }
+
+  // Conditions 1 and 2 are now known true: STA connected, and there is a stored
+  // SSID. Wait out the grace period so a router that drops again in the first
+  // few seconds does not cause a teardown/rebuild flap.
+  if (nowMs - staConnectedAtMs_ < AP_PARK_GRACE_MS) return;
+
+  if (storedSsid_[0] == '\0') return;
+
+  // One call, and it does not restart the driver.
+  WiFi.softAPdisconnect(/*wifioff=*/false);
+  apRunning_ = false;
+  apParked_ = true;
+  Serial.println("[POWER] router up - car hotspot beacon parked (page still on the router)");
+}
+
 void WebServerComm::giveUpStepMachine() {
   switch (giveUpStep_) {
     case GIVEUP_IDLE:
@@ -924,6 +983,10 @@ void WebServerComm::giveUpStepMachine() {
       noteRadioStep("giveup/softAP");
       apRunning_ = false;
       startOwnAP();
+      // U-86: the beacon is back, so it is no longer parked. Without this the
+      // power policy would believe the beacon is still down while it is up, and
+      // the next association would skip the grace period.
+      apParked_ = false;
       giveUpStep_ = GIVEUP_IDLE;
       Serial.println("WiFi STA gave up (router unreachable) - AP-only mode");
       updateExtraInfo();
@@ -1000,7 +1063,13 @@ void WebServerComm::advanceRejoinStep() {
     case REJOIN_STEP_AP:
       // T-65: the own hotspot is never torn down during a network change, so
       // the phone keeps a way in for the whole switch.
+      //
+      // U-86: that guarantee is now scoped. During the switch the beacon stays
+      // up (the car is mid-network-change and needs the fallback); once the new
+      // router holds for AP_PARK_GRACE_MS, updateApPowerPolicy() parks it again.
+      // So the beacon is up when it matters and down when it does not.
       noteRadioStep("rejoin/softAP");
+      apParked_ = false;   // this switch brought the beacon back on purpose
       startOwnAP();
       rejoinStep_ = REJOIN_STEP_BEGIN;
       return;
@@ -1109,6 +1178,11 @@ void WebServerComm::stop() {
   WiFi.disconnect();
   if (apRunning_) WiFi.softAPdisconnect(true);
   apRunning_ = false;
+  // U-86: everything is down, so nothing is "parked" — it was stopped. Otherwise
+  // a later begin() would start with apParked_ true and the power policy would
+  // refuse to bring the beacon back up.
+  apParked_ = false;
+  staConnectedAtMs_ = 0;
 
   startedAsAP = false;
   queueClear();
@@ -1152,6 +1226,12 @@ String WebServerComm::joinedSsid() const {
 void WebServerComm::handle() {
   if (serverRunning) server.handleClient();
   ws.loop();
+
+  // U-86: park the setup beacon once the car is genuinely reachable on a
+  // router. Cheap (no radio work unless the state actually flips) and it is
+  // the single biggest available power win. Runs FIRST so a router that drops
+  // gets its beacon back before anything else is attempted.
+  updateApPowerPolicy();
 
   if (pendingModeBuf[0] != '\0') {
     unsigned long now = millis();
