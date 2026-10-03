@@ -145,6 +145,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
+sandbox.location = { hostname: "192.168.245.1", host: "192.168.245.1" };
 vm.createContext(sandbox);
 new vm.Script(js, { filename: "WebPage-inline.js" }).runInContext(sandbox);
 
@@ -369,6 +370,128 @@ if (!bad) {
   console.log(
     `PASS: setMode() puts an accepted token on the wire for all ` +
       `${pageOptions.length} modes, and nothing for the empty option`,
+  );
+}
+
+// ---- 7. the mode list must NOT be rewritten on every 1 Hz frame ----------
+//
+// U-83: the JSON handler used to reassign o.text and o.disabled for every
+// option on every frame. Writing to an <option> while its popup is open makes
+// the browser dismiss it, so the page's mode chooser flickered and taps missed.
+// Count real writes: two identical frames must produce zero, and the guard must
+// hold while the dropdown is open.
+if (typeof sandbox.initWebSocket !== "function") {
+  console.error("FAIL: initWebSocket is not callable");
+  process.exit(1);
+}
+let sock = null;
+const RealWS = sandbox.WebSocket;
+sandbox.WebSocket = function (url) {
+  sock = { url, close() {}, send() {}, readyState: 1 };
+  return sock;
+};
+sandbox.WebSocket.OPEN = 1;
+
+const writes = { n: 0 };
+const counting = (o, key) => {
+  let v = o[key];
+  Object.defineProperty(o, key, {
+    get: () => v,
+    set: (x) => {
+      writes.n++;
+      v = x;
+    },
+    configurable: true,
+  });
+};
+
+// Real option nodes, but writes are counted.
+const mOpts = pageOptions.map((o) => {
+  const node = {
+    value: o.value,
+    disabled: false,
+    text: o.label,
+    getAttribute: (n) => (n === "data-canon" ? o.canon : n === "data-label" ? o.label : null),
+  };
+  counting(node, "text");
+  counting(node, "disabled");
+  return node;
+});
+const mForWs = el("m");
+mForWs.value = "";
+mForWs.options = mOpts;
+el("s").value = "200";
+const rSel = el("r");
+rSel.options = [{ value: "", text: "" }];
+
+sandbox.initWebSocket();
+const onmsg = sock && sock.onmessage;
+if (typeof onmsg !== "function") {
+  console.error("FAIL: initWebSocket did not install an onmessage handler");
+  process.exit(1);
+}
+
+const frame = JSON.stringify({
+  status: "Stopped",
+  mode: "4WD4M",
+  mode_name: "4WD4M",
+  speed: 200,
+  caps: "4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS",
+  connected: true,
+  ip: "192.168.1.100",
+  signal: 60,
+  ssid: "HomeNet",
+  uptime_ms: 61000,
+  free_heap: 120000,
+});
+
+// First frame applies the registry; later identical frames must be inert.
+onmsg({ data: frame });
+const afterFirst = writes.n;
+onmsg({ data: frame });
+onmsg({ data: frame });
+const afterRepeats = writes.n;
+if (afterRepeats !== afterFirst) {
+  console.error(
+    `FAIL: identical frames rewrote the mode list ` +
+      `${afterRepeats - afterFirst} more time(s) - this is the flicker`,
+  );
+  bad++;
+}
+
+// A real registry change must still be applied.
+writes.n = 0;
+onmsg({
+  data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+    caps: "4WD4M:LIVE;PATH:LIVE;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS",
+    connected: true, uptime_ms: 62000 }),
+});
+if (writes.n === 0) {
+  console.error("FAIL: a genuine CAPS change was ignored - the list is now stale");
+  bad++;
+}
+
+// And the dropdown must not be touched while the user has it open.
+sandbox.document.activeElement = mForWs;
+writes.n = 0;
+onmsg({
+  data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+    caps: "4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS",
+    connected: true, uptime_ms: 63000 }),
+});
+if (writes.n !== 0) {
+  console.error(
+    `FAIL: the mode list was rewritten ${writes.n} time(s) while the ` +
+      `dropdown was open - that closes the popup and eats the tap`,
+  );
+  bad++;
+}
+sandbox.document.activeElement = null;
+sandbox.WebSocket = RealWS;
+if (bad === 0) {
+  console.log(
+    "PASS: the mode list is written once per real change, never per frame, " +
+      "and never while open",
   );
 }
 

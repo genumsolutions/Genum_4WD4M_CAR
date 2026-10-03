@@ -97,7 +97,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
   </style>
 
   <script>
-    let ws, lastS=0, lastNetSig='';
+    let ws, lastS=0, lastNetSig='', lastCapsSig='';
     // U-81: render the car's own answer, in the car's own vocabulary, and never
     // invent a success. `ROUTERS;ADDED;x` / `WIFICFG;OK;x` are confirmations;
     // `ROUTERS;FULL` / `…;Reserved` / `…;Password too long` / `…;SSID length`
@@ -199,13 +199,29 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                 var kv = p.split(':'); if (kv[0]) caps[kv[0]] = kv[1];
               });
               var msel = document.getElementById('m');
-              for (var i = 0; i < msel.options.length; i++) {
-                var o = msel.options[i], canon = o.getAttribute('data-canon');
-                if (!canon) continue;
-                var st = caps[canon];
-                var live = (st === 'LIVE');
-                o.disabled = !live;
-                o.text = o.getAttribute('data-label') + (live ? '' : ' (coming soon)');
+              // U-83: the mode list is rebuilt ONLY when the registry actually
+              // changes, and never while the dropdown is open.
+              //
+              // This loop used to reassign o.text and o.disabled on every 1 Hz
+              // frame. Writing to an <option> while its popup is open makes the
+              // browser dismiss the popup, so the list flickered and taps landed
+              // on the wrong row - the owner saw a mode chooser that could not
+              // be used. The saved-router list below already guarded this with a
+              // signature + activeElement check; the mode list did not, so the
+              // one control that matters most was the one that fought the user.
+              // Each write is also now conditional, so an unchanged registry
+              // touches nothing at all.
+              var csig = j.caps + '\u001f' + msel.options.length;
+              if (msel && csig !== lastCapsSig && document.activeElement !== msel) {
+                lastCapsSig = csig;
+                for (var i = 0; i < msel.options.length; i++) {
+                  var o = msel.options[i], canon = o.getAttribute('data-canon');
+                  if (!canon) continue;
+                  var live = (caps[canon] === 'LIVE');
+                  var txt = o.getAttribute('data-label') + (live ? '' : ' (coming soon)');
+                  if (o.disabled === live) o.disabled = !live;
+                  if (o.text !== txt) o.text = txt;
+                }
               }
             }
             document.getElementById('conn').innerText=(j.connected === true || j.connected === 'true') ? 'Connected' : 'Disconnected';
