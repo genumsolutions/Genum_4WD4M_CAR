@@ -2,7 +2,7 @@
 
 // =====================================================================
 // Genum_4WD4M_CAR — multimode 4WD4M car firmware (ESP32 + L298N)
-// File: ModeManager.h — mode engine: 9-mode registry, single command path
+// File: ModeManager.h — mode engine: mode registry, single command path
 //       (T-1), failsafe, STATE/CAP=STUB/NACK broadcast, per-mode
 //       availability (LIVE/WIP/CS) + transport-aware drive gate
 // Property of GENUM SOLUTIONS PVT. LTD.
@@ -18,8 +18,6 @@ class ModeManager {
 public:
   enum class Mode : uint8_t {
     BT = 0,
-    SERVER,
-    CLIENT,
     PATH,
     OBS_US,
     OBS_IR,
@@ -28,6 +26,15 @@ public:
     M2WD1M,   // D-2: 2WD1M-compat tank steer (signed SPD + SERVO)
     MODE_LAST
   };
+  // U-79 (2026-10-03, owner ruling): ESP_SER / ESP_CLI are REMOVED from the
+  // registry entirely. The Wi-Fi web layer is the always-on connection
+  // channel (v2 R-4) — a "webserver mode" token was a SECOND Wi-Fi setup
+  // that only ever rendered COMING SOON and gated drive (the owner's
+  // "webpage controls stopped working": the page had switched the car into
+  // the stub). No token, no trap. Legacy wire aliases for them are gone too;
+  // sending one now earns a NACK;UNKNOWN_MODE. NVS parity: old stored mode
+  // indices 1/2 (SERVER/CLIENT) now name CS modes, which applyBootState()
+  // already refuses — donor-era NVS cannot restore them.
 
   static constexpr int MODE_COUNT = static_cast<int>(Mode::MODE_LAST);
 

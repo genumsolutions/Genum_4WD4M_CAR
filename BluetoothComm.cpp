@@ -10,7 +10,22 @@
 bool BluetoothComm::begin() {
   // Advertised name matches the fleet docs/app test notes ("BT connect as
   // 4WD CAR" — guide RESUME HERE). Keep in sync with CATALOG.md.
-  return SerialBT.begin("4WD CAR");
+  // U-79: idempotent — the transport power policy stops/starts this at will.
+  if (started_) return true;
+  started_ = SerialBT.begin("4WD CAR");
+  if (started_) lastActivityMs = millis();
+  return started_;
+}
+
+// U-79 (2026-10-03): deliberate power-down while a web client is active.
+// Owner ruling: one transport connected -> the other turns off to save
+// power. begin() brings it back; connected() reports false while stopped so
+// the rest of the system sees an honest "no BT client".
+void BluetoothComm::stop() {
+  if (!started_) return;
+  SerialBT.end();
+  started_ = false;
+  Serial.println("[BT] stopped (power save - a web client is active)");
 }
 
 // T-7b recovery for a WEDGED BT stack (used only by the prolonged-disconnect
@@ -95,7 +110,7 @@ void BluetoothComm::flush() {
 }
 
 bool BluetoothComm::connected() {
-  return SerialBT.hasClient();
+  return started_ && SerialBT.hasClient();
 }
 
 // All command parsing lives in ModeManager::handleCommand() (T-1 single

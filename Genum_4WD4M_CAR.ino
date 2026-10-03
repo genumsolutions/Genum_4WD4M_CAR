@@ -15,6 +15,7 @@
 #include <Arduino.h>
 #include "esp_task_wdt.h"
 #include "esp_system.h"   // U-70: esp_reset_reason() — why did the car boot?
+#include <Preferences.h>  // U-79: last-used transport persistence
 
 L298NControl motor;
 BluetoothComm btComm;
@@ -42,6 +43,43 @@ static unsigned long btLastConnectedOkMs = 0;
 // client since boot is simply unused. Armed on the first real connection and
 // re-armed by a fresh connection, so a genuine mid-session drop still recovers.
 static bool btEverConnected = false;
+
+// ===== U-79 (2026-10-03): TRANSPORT POWER POLICY (owner ruling) ==========
+//  - IDLE (no client on anything): Bluetooth AND Wi-Fi (hotspot; router per
+//    boot preference) both broadcast until the user picks one.
+//  - A client on ONE transport switches the OTHER off (power save). The
+//    transport the client is using is never touched.
+//  - When that connection goes away, both broadcast again after a short
+//    grace period — the car is always reachable somehow.
+//  - Boot/resume prefer the LAST USED transport: Wi-Fi last -> auto-join the
+//    last good router (short budget, hotspot fallback of last resort);
+//    Bluetooth last -> stay on hotspot + BT, no router hop.
+enum class LastTransport : uint8_t { WIFI = 0, BT = 1 };
+static LastTransport lastTransport = LastTransport::WIFI;
+static bool webUp = false;   // web layer (AP + HTTP/WS + router join) is up
+static bool btUp = false;    // Bluetooth SPP is up
+static bool transportsIdle = false;
+static unsigned long transportsIdleSinceMs = 0;
+constexpr unsigned long TRANSPORT_GRACE_MS = 3000;
+
+static void saveLastTransport(LastTransport t) {
+  lastTransport = t;
+  Preferences prefs;
+  prefs.begin("botcfg", false);
+  prefs.putUChar("last_transport", static_cast<uint8_t>(t));
+  prefs.end();
+}
+
+static void loadLastTransport() {
+  Preferences prefs;
+  prefs.begin("botcfg", true);
+  const uint8_t v = prefs.getUChar("last_transport",
+                                   static_cast<uint8_t>(LastTransport::WIFI));
+  prefs.end();
+  lastTransport = (v == static_cast<uint8_t>(LastTransport::BT))
+                      ? LastTransport::BT
+                      : LastTransport::WIFI;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -146,8 +184,20 @@ void setup() {
   // transports are wired permanently (comm_ = web, auxComm_ = BT) and polled
   // every loop(). No mode-based comm swapping exists anymore.
   webServerComm.beginAlwaysOn();
+  webUp = true;
+  btUp = true;
   modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
   modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
+  // U-79: boot network preference. Wi-Fi was the transport the user LAST
+  // used -> try the last good router (short budget; the own hotspot is the
+  // fallback of last resort). Bluetooth was last -> skip the router hop
+  // entirely; hotspot + BT are already broadcasting.
+  loadLastTransport();
+  if (lastTransport == LastTransport::WIFI) {
+    webServerComm.armBootAutoJoin();
+  } else {
+    Serial.println("[BOOT] Last used: Bluetooth - staying on hotspot + BT (router join skipped)");
+  }
   lastMode = modeManager.getMode();
 }
 
@@ -185,15 +235,20 @@ static void maybeCheckSupplyAndBTWatchdog() {
   // F-60: arm the watchdog only on a link that was CONNECTED and then dropped.
   // A car that has never had a BT client is idle, not wedged - so parking it
   // on the router (or its own AP) can never trigger a stack teardown.
-  if (btComm.connected()) {
-    btEverConnected = true;
-    btLastConnectedOkMs = 0;
-  } else if (btEverConnected) {
-    if (btLastConnectedOkMs == 0) btLastConnectedOkMs = millis();
-    else if (millis() - btLastConnectedOkMs > BT_HARD_RESTART_MS) {
-      Serial.println("[BT-WD] Hard restart of BT via btComm due to prolonged disconnect");
-      btComm.restart();
-      btLastConnectedOkMs = millis();
+  // U-79: the whole watchdog is gated on btUp — while BT is deliberately OFF
+  // (web client active, power policy) a "prolonged disconnect" is the POLICY,
+  // not a wedged stack, and must never trigger a restart that would undo it.
+  if (btUp) {
+    if (btComm.connected()) {
+      btEverConnected = true;
+      btLastConnectedOkMs = 0;
+    } else if (btEverConnected) {
+      if (btLastConnectedOkMs == 0) btLastConnectedOkMs = millis();
+      else if (millis() - btLastConnectedOkMs > BT_HARD_RESTART_MS) {
+        Serial.println("[BT-WD] Hard restart of BT via btComm due to prolonged disconnect");
+        btComm.restart();
+        btLastConnectedOkMs = millis();
+      }
     }
   }
 }
@@ -213,19 +268,64 @@ void loop() {
 
   ModeManager::Mode current = modeManager.getMode();
   if (current != lastMode) {
-    // v2: drive-mode changes no longer touch transports or the web layer.
-    // ESP_SER/ESP_CLI are CS stubs (the car renders COMING SOON); the Wi-Fi
-    // truth for those tokens rides extraInfo_ so the OLED/STATE stay honest.
+    // U-79: drive-mode changes no longer touch transports or the web layer.
+    // The retired ESP_SER/ESP_CLI branches are gone with the modes themselves;
+    // extraInfo refreshes every second from handle() regardless.
     lastMode = current;
-    if (current == ModeManager::Mode::SERVER || current == ModeManager::Mode::CLIENT) {
-      webServerComm.refreshExtraInfo();  // SSID/AP/IP rows for the retired-mode frames
-    }
   }
 
   // v2: the web layer is ALWAYS-ON — handle() runs unconditionally every
   // loop (HTTP + WS + STA/AP resolution + 1 s JSON broadcast). The donor's
   // `if (webServerComm.isRunning())` mode-gate is retired.
   webServerComm.handle();
+
+  // ===== U-79: transport power arbitration ============================
+  // One client on one transport switches the OTHER off; when nothing is
+  // connected for longer than the grace period, both broadcast again. The
+  // transport WITH a client is never touched, so a live control path can
+  // never be yanked out from under the user.
+  {
+    const bool btClient = btComm.connected();
+    const bool webClient = webServerComm.hasWsClients();
+    if (btClient && !webClient) {
+      if (webUp) {
+        webServerComm.stop();
+        webUp = false;
+        saveLastTransport(LastTransport::BT);
+        Serial.println("[POWER] Wi-Fi off - Bluetooth client active");
+      }
+      transportsIdle = false;
+    } else if (webClient && !btClient) {
+      if (btUp) {
+        btComm.stop();
+        btUp = false;
+        saveLastTransport(LastTransport::WIFI);
+        Serial.println("[POWER] Bluetooth off - web client active");
+      }
+      transportsIdle = false;
+    } else if (!btClient && !webClient) {
+      if (!transportsIdle) {
+        transportsIdle = true;
+        transportsIdleSinceMs = millis();
+      } else if (millis() - transportsIdleSinceMs >= TRANSPORT_GRACE_MS) {
+        if (!btUp) {
+          btUp = btComm.begin();  // idempotent; true = advertising again
+          if (btUp) Serial.println("[POWER] Bluetooth advertising (no client)");
+        }
+        if (!webUp) {
+          webServerComm.beginAlwaysOn();
+          webUp = true;
+          if (lastTransport == LastTransport::WIFI) {
+            webServerComm.armBootAutoJoin();  // short budget; hotspot fallback
+          }
+          Serial.println("[POWER] Wi-Fi up (no client)");
+        }
+        transportsIdle = false;
+      }
+    } else {
+      transportsIdle = false;  // both connected: leave both alone
+    }
+  }
 
   // T-7b/T-7c (2WD1M-car parity): prolonged BT disconnect → hard-restart the
   // BT stack; low battery (when a divider is wired) or critically low heap →

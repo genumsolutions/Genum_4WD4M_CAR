@@ -1,3 +1,87 @@
+**U-79 (2026-10-03) - THE WEBSERVER MODE IS GONE + TRANSPORT POWER POLICY. Owner: *"remove the
+webserver mode of the car totally ... the car doesnt have the double setup for the wifi setup"* ·
+*"all the networks at one place ... the default hotspot is the last option"* · *"broadcast both
+bluetooth and the wifi until user selects one and turn off the other to save power ... if one
+method is connected utilize things with the car"*. Owner questions answered: tokens removed
+FULLY (not hidden); boot = last-used transport; app discovery = automatic (app repo).
+
+1. **THE "WEBPAGE CONTROLS STOPPED WORKING" MYSTERY — SOLVED BY THE OWNER'S OWN SERIAL LOG.**
+   The U-77 breadcrumbs showed `[MODE] set 4WD4M -> ESP32(WEBSERVER)`: the page's mode dropdown
+   (which offered the retired ESP_SER token) parked the car in a COMING SOON stub — and stubs gate
+   drive AND `#<n>` speed. That is the "double Wi-Fi setup": an always-on web layer PLUS a dead
+   webserver mode that only ever broke things. Per the ruling, ESP_SER/ESP_CLI are DELETED:
+   registry rows, Mode enum values, legacy ESP_SERVER/ESP_CLIENT aliases (now → NACK;UNKNOWN_MODE),
+   and both page dropdown options. NVS parity is safe: old stored mode bytes 1/2 now name CS modes,
+   which applyBootState() already refuses → 4WD4M.
+2. **TRANSPORT POWER POLICY (the .ino owns it; transports never gated by mode):** IDLE = Bluetooth
+   AND Wi-Fi broadcast (hotspot + router per boot preference); a client on ONE transport turns the
+   OTHER off (3 s grace before a re-enable, and never the transport in use); when that connection
+   drops, both come back. Last-used transport persists in NVS (`botcfg/last_transport`): boot and
+   every resume call `armBootAutoJoin()` ONLY when Wi-Fi was last used (last-good router, short
+   budget, hotspot as the fallback of last resort); Bluetooth-last boots on hotspot + BT with NO
+   router hop. `armBootAutoJoin()` moved OUT of beginAlwaysOn() for exactly this. The BT
+   hard-restart watchdog (T-7b) is gated on `btUp` — a deliberate power-down is policy, not a
+   wedged stack, and must never be "repaired" by re-enabling BT under an active web client.
+3. **WEBPAGE (WebPage.h):** mode dropdown gated by the car's CAPS map (non-LIVE = disabled,
+   "(coming soon)" — a tap can never kill drive again); speed slider no longer fights the 1 s
+   status sync while dragging (explicit interaction flag + 1.5 s tail — the old
+   `document.activeElement` guard misses on touch, where the range is often NOT focused during a
+   drag); router dropdown = ONE place (saved routers + own hotspot from car truth) plus an
+   "Add router…" entry that sends WIFICFG (stores AND switches) with an honest "Switching…" note —
+   the link drop during a switch is EXPECTED (hotspot channel hop) and the page now says so and
+   reconnects automatically.
+4. **Verified:** compile gate (xtensa-esp32-elf-g++ -fsyntax-only, core 3.3.12 + WebSockets 2.7.2)
+   green on ModeManager, WebServerComm, BluetoothComm, Oled_1_3, and the .ino as C++.
+
+**Bench:** flash 1.0.3 (huge_app). Expect on serial: boot preference line
+(`[BOOT] Last used: Bluetooth - staying on hotspot + BT` or the `[WIFICFG] boot:` join line),
+`[POWER] Bluetooth off - web client active` the moment the webpage/app-over-WiFi connects, and
+`[POWER] Wi-Fi off - Bluetooth client active` the moment an SPP client connects. Drive from the
+webpage must NEVER die from a mode tap again — no dead mode exists to tap.
+
+---
+
+**U-79 (2026-10-03) - THE WEBSERVER MODE IS GONE + TRANSPORT POWER POLICY. Owner: *"remove the
+webserver mode of the car totally ... so that the car doesnt have the double setup for the wifi
+setup"* · *"all the networks at one place ... the default hotspot is the last option"* · *"broadcast
+both bluetooth and the wifi until user selects one and turn off the other to save power"* · plus
+the device evidence: `[MODE] set 4WD4M -> ESP32(WEBSERVER)` in the serial log — the webpage's mode
+dropdown had parked the car in the retired CS stub, which gates ALL drive commands ("COMING SOON").
+That is the "webpage controls stopped working" report, root-caused.** Version -> 1.0.3.
+
+1. **ESP_SER / ESP_CLI REMOVED FROM THE REGISTRY (owner ruling, ask_user answered "Remove tokens
+   fully").** `Mode::SERVER`/`Mode::CLIENT` deleted from the enum, the registry, and the legacy
+   `ESP_SERVER`/`ESP_CLIENT` alias branches in setModeFromString — sending one now earns
+   `NACK;E=UNKNOWN_MODE` instead of booting a dead mode. NVS parity is free: old stored indices 1/2
+   now name CS modes, which applyBootState() already refuses (donor-era NVS cannot restore them).
+   The mode dropdown on the page lost both options. **Old cars keep these modes — this ruling is
+   4WD4M-only; the app stays caps-driven (parseCapsBody) so nothing breaks fleet-wide.**
+2. **TRANSPORT POWER POLICY (owner ruling, verbatim):** idle (no client anywhere) = Bluetooth AND
+   Wi-Fi both broadcast until the user picks one; a client on ONE transport switches the OTHER off
+   (`BluetoothComm::stop()` added — SerialBT.end(); begin() is idempotent and brings it back; the
+   web layer uses the existing stop()/beginAlwaysOn()); when that connection goes away both return
+   after a 3 s grace. The transport WITH a client is never touched. The BT hard-restart watchdog is
+   gated on `btUp` — a policy-induced BT absence can never trigger the F-60 restart.
+3. **BOOT/RESUME PREFER THE LAST USED TRANSPORT** (NVS `botcfg/last_transport`, new):
+   Wi-Fi last -> armBootAutoJoin() runs (last-good router, short budget, own hotspot as the
+   fallback of last resort — U-71 semantics kept); Bluetooth last -> the router hop is SKIPPED
+   (`[BOOT] Last used: Bluetooth`). armBootAutoJoin() therefore no longer fires unconditionally
+   from beginAlwaysOn() — beginAlwaysOn() is now also the power-policy RESUME path and the .ino
+   decides per last-used transport.
+4. **WEBPAGE (WebPage.h):** mode dropdown is gated by the car's CAPS map (non-LIVE -> disabled +
+   "(coming soon)", so a tap can never kill drive again); the speed slider no longer fights the
+   1 s status sync while dragging (explicit drag flag + 1.5 s tail — the old focus guard misses on
+   touch, where the range is often not document.activeElement mid-drag: the "speed control not
+   working properly" report); the router dropdown is ONE place for every network — saved routers
+   (REQ_NETW) + an "Add router…" entry that sends WIFICFG (stores AND switches); switching shows an
+   honest "Switching… … this page reconnects when this phone joins <ssid>" note (the AP link drop
+   during a channel hop is EXPECTED, U-74).
+5. Compile gate: all five touched sources pass xtensa-esp32-elf-g++ -fsyntax-only (core 3.3.12 +
+   WebSockets 2.7.2; NetworkClientSecure is the 3.3.12 header dir WebSockets' WiFiClientSecure.h
+   include resolves through). CI runs on push.
+
+---
+
 **U-77 (2026-10-03) - THE WATCHDOG REBOOT CLASS IS CLOSED. Owner log: TWO MORE `reset reason: 6
 (TASK WATCHDOG, loop hung >5s)` reboots, ~92-97 s after boot, WITH the U-75 breadcrumbs exhausted.**
 Both hangs left NO radio breadcrumb, so the blocker was not a radio call - it was the two remaining

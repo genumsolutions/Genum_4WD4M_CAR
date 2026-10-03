@@ -38,8 +38,6 @@ static TwoWD1M g_2wd1mHandler;
 const ModeManager::ModeEntry ModeManager::MODE_REGISTRY[ModeManager::MODE_COUNT] = {
   //                     token     display             sgn   auto  drive avail       btDrive
   { Mode::BT,      "4WD4M",   "4WD4M",            false, false, true,  ModeAvail::LIVE, true  },
-  { Mode::SERVER,  "ESP_SER", "ESP32(WEBSERVER)", false, false, true,  ModeAvail::CS,   false },
-  { Mode::CLIENT,  "ESP_CLI", "ESP32(WEBCLIENT)", false, false, false, ModeAvail::CS,   false },
   { Mode::PATH,    "PATH",    "PATH",             false, true,  false, ModeAvail::CS,   false },
   { Mode::OBS_US,  "OBS_US",  "OBSTACLE(US)",     false, true,  false, ModeAvail::CS,   false },
   { Mode::OBS_IR,  "OBS_IR",  "OBSTACLE(IR)",     false, true,  false, ModeAvail::CS,   false },
@@ -824,20 +822,14 @@ void ModeManager::setModeFromString(const char* modeStr) {
     return;
   }
 
-  if (strcasecmp(modeStr, "ESP_SERVER") == 0) {
-    setMode(Mode::SERVER);
-    return;
-  }
-  if (strcasecmp(modeStr, "ESP_CLIENT") == 0) {
-    setMode(Mode::CLIENT);
-    return;
-  }
   if (strcasecmp(modeStr, "MANUAL") == 0) {
     setMode(Mode::MANUAL);
     return;
   }
 
-  // Unknown mode: show on OLED
+  // Unknown mode: show on OLED. U-79: ESP_SER / ESP_CLI (and their
+  // ESP_SERVER/ESP_CLIENT aliases) now land here — an explicit NACK instead
+  // of silently booting a dead COMING SOON mode.
   snprintf(statusText_, STATUS_TEXT_LEN, "Unknown mode: %s", modeStr);
   if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), modeToString(currentMode_), extraInfo_);
   // R-4: explicit fleet NACK so the hand-held remote / app surface

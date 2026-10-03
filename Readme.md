@@ -1,4 +1,4 @@
-Version 1.0.2
+Version 1.0.3
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -26,8 +26,8 @@ Every token stays selectable and is announced via
 | Token | Display | Avail (v1.0.2) | Notes |
 |---|---|---|---|
 | 4WD4M | 4WD4M | **LIVE** | the single drive mode — over **Bluetooth AND Wi-Fi** |
-| ESP_SER | Server (ESP_SER) | CS | retired as a mode in v2 (was the donor's Wi-Fi drive mode) |
-| ESP_CLI | Client (ESP_CLI) | CS | retired as a mode in v2 |
+| ESP_SER | Server (ESP_SER) | **REMOVED (U-79)** | was retired to CS in v2; deleted entirely in 1.0.3 — the Wi-Fi web layer is always-on and is the ONLY Wi-Fi setup |
+| ESP_CLI | Client (ESP_CLI) | **REMOVED (U-79)** | was retired to CS in v2; deleted entirely in 1.0.3 |
 | PATH / OBS_US / OBS_IR / MAN / AUTO / 2WD1M | — | CS | fleet roadmap, unchanged |
 
 Legacy alias `BT`/`BLUETOOTH` → 4WD4M still accepted (fleet convention).
@@ -73,6 +73,14 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.0.3 (2026-10-03, U-79)** — **webserver mode REMOVED** (ESP_SER/ESP_CLI gone from the registry,
+  page and NACK path — the Wi-Fi web layer is the only Wi-Fi setup, no second one to fall into);
+  **transport power policy**: idle = Bluetooth + Wi-Fi both broadcast, a client on one turns the
+  other off, a drop brings both back (3 s grace); boot/resume prefer the LAST USED transport
+  (Wi-Fi → last-good router, hotspot as the fallback of last resort; Bluetooth → hotspot + BT).
+  Page: mode dropdown gated by the car's CAPS (a tap can never park the car in a coming-soon mode),
+  speed slider no longer fights the 1 s status sync while dragging, "Add router…" (WIFICFG stores
+  + switches) and an honest "Switching…" note on the expected link drop.
 - **1.0.2 (2026-10-03, U-77)** — task-watchdog reboot class eliminated: WS stalled-client
   heartbeat (server pings + drops non-responders before their TCP buffer can wedge a
   broadcast), total-bounded root-page write + per-write HTTP send cap, mDNS begin()

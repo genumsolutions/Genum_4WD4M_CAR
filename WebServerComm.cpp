@@ -781,10 +781,10 @@ void WebServerComm::beginAlwaysOn() {
   beginStation();  // WIFI_AP + startOwnAP() + server.begin() + ws.begin()
   WiFi.mode(WIFI_AP_STA);  // ready for explicit router joins without a mode dance
   updateExtraInfo();
-  // U-71: owner request - on power-up try the router that last WORKED; if it is not
-  // in range the car is back on its own hotspot quickly and certainly (the boot
-  // budget is short on purpose - see armBootAutoJoin for why R-16 still matters).
-  armBootAutoJoin();
+  // U-79: the boot auto-join (armBootAutoJoin) is NO LONGER fired from here.
+  // This function now also runs on the U-79 power-policy RESUME path (idle ->
+  // Wi-Fi back up), and whether the router join runs is the .ino's decision
+  // (last-used transport: Wi-Fi -> join, Bluetooth -> stay on hotspot).
   FW_LOG("[V2] Web layer always-on: AP=%s ip=192.168.245.1 http=:80 ws=:81\n",
          apName_.c_str());
 }

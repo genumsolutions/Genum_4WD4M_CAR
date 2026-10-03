@@ -19,6 +19,9 @@ public:
   BluetoothComm& operator=(const BluetoothComm&) = delete;
 
   bool begin() override;
+  // U-79: power policy — deliberately take BT down while a web client is
+  // active. begin() is idempotent, so a later begin() brings it back.
+  void stop();
   bool restart();
   size_t available() override;
   int read() override;
@@ -33,5 +36,6 @@ public:
 
 private:
   BluetoothSerial SerialBT;
+  bool started_ = false;
   unsigned long lastActivityMs = 0;
 };

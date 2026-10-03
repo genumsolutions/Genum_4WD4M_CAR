@@ -102,10 +102,16 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       ws = new WebSocket("ws://" + window.location.hostname + ":81/");
       ws.onopen = () => {
         document.getElementById("conn").innerText="Connected";
+        switchNote = '';
         sendCmd("S");
         sendCmd("REQ_NETW");
       };
-      ws.onclose = () => { document.getElementById("conn").innerText="Disconnected"; setTimeout(initWebSocket, 3000); };
+      ws.onclose = () => {
+        // U-79: during a router switch the drop is EXPECTED (the hotspot moves
+        // to the router's channel). Say so instead of a bare "Disconnected".
+        document.getElementById("conn").innerText = switchNote || "Disconnected";
+        setTimeout(initWebSocket, 3000);
+      };
       ws.onmessage = (evt) => {
         try {
           let j = JSON.parse(evt.data);
@@ -113,6 +119,26 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             document.getElementById('status').innerText=j.status;
             document.getElementById('mode').innerText=j.mode_name || j.mode;
             syncMode(j.mode);   // F-57: keep the dropdown equal to car truth
+            // U-79: the car's CAPS map is the single truth for what is
+            // selectable. A mode that is not LIVE (WIP/CS) is DISABLED here,
+            // so a tap can never park the car in a coming-soon mode and
+            // silently kill the drive controls. ESP_SER/ESP_CLI are gone
+            // from the registry entirely and simply never appear.
+            if (typeof j.caps === 'string') {
+              var caps = {};
+              j.caps.split(';').forEach(function (p) {
+                var kv = p.split(':'); if (kv[0]) caps[kv[0]] = kv[1];
+              });
+              var msel = document.getElementById('m');
+              for (var i = 0; i < msel.options.length; i++) {
+                var o = msel.options[i], canon = o.getAttribute('data-canon');
+                if (!canon) continue;
+                var st = caps[canon];
+                var live = (st === 'LIVE');
+                o.disabled = !live;
+                o.text = o.getAttribute('data-label') + (live ? '' : ' (coming soon)');
+              }
+            }
             document.getElementById('conn').innerText=(j.connected === true || j.connected === 'true') ? 'Connected' : 'Disconnected';
             syncSpeed(j.speed);
             document.getElementById('ip').innerText=j.ip || '--';
@@ -140,6 +166,12 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                     if(n===cur) o.selected=true;
                     sel.add(o);
                   });
+                  // U-79: the add-new-network entry, rebuilt with the list
+                  // (kept OUT of the static markup so the diff-rebuild owns
+                  // every option after the placeholder).
+                  var add=document.createElement('option');
+                  add.value='__add__'; add.text='＋ Add router…';
+                  sel.add(add);
                 }
               }
             }
@@ -181,6 +213,13 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     // moved the number, leaving the thumb at its stale position). The 100..255
     // car floor and the 5-step grid are kept. Not fighting the user: JSON sync
     // is skipped while the slider itself is being dragged (focused).
+    // U-79: the 1 s status broadcast used to snap the thumb back to the
+    // car's LAST reported speed while the user was still dragging — on touch
+    // devices the range input is often NOT document.activeElement during a
+    // drag, so the old focus guard missed and the slider fought the user
+    // ("speed control not working properly"). An explicit interaction flag
+    // (plus a short tail) is the guard that actually holds.
+    var speedDragging = false, lastDragAt = 0;
     function syncSpeed(sp){
       let v = parseInt(sp, 10);
       if(isNaN(v)) return;
@@ -190,7 +229,8 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       var s = document.getElementById('s');
       var speedEl = document.getElementById('speed');
       if(speedEl) speedEl.innerText = v;
-      if(s && document.activeElement !== s) s.value = v;
+      if(s && !speedDragging && (Date.now() - lastDragAt) > 1500 &&
+         document.activeElement !== s) s.value = v;
     }
     function setSpeed(){
       var now=Date.now();
@@ -222,9 +262,28 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         }
       }
     }
+    // U-79: ONE place for every network. The dropdown already lists the
+    // saved routers (car truth via REQ_NETW). "Add router…" stores a new
+    // pair with WIFICFG — which SAVES and switches in one command — and the
+    // switching note tells the user what happens to this page when the car
+    // hops networks (the hotspot link drops by design; the page reconnects
+    // automatically once the phone follows the car onto the router).
+    var switchNote = '';
     function setRouter(){
       let sel = document.getElementById('r');
-      if(sel && sel.value) sendCmd("ROUTERS;USE;"+sel.value);
+      if(!sel || !sel.value) return;
+      if(sel.value === '__add__'){
+        let ssid = prompt('Router name (SSID):');
+        if(!ssid){ sel.value=''; return; }
+        let pass = prompt('Router password (leave empty for an open network):', '') || '';
+        sendCmd('WIFICFG;'+ssid+';'+pass);
+        switchNote = 'Saving + switching to '+ssid+'… this page reconnects when this phone joins '+ssid+'.';
+      } else {
+        sendCmd('ROUTERS;USE;'+sel.value);
+        switchNote = 'Switching to '+sel.value+'… this page reconnects when this phone joins '+sel.value+'.';
+      }
+      document.getElementById('conn').innerText = 'Switching…';
+      sel.value = '';
     }
     window.onload=function(){
       setTimeout(initWebSocket, 300);  // T-51: 300 ms WS startup delay (avoids reconnect burst)
@@ -243,7 +302,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       var r = document.getElementById('r');
       if(r) r.addEventListener('change', setRouter);
       var s = document.getElementById('s');
-      if(s) s.addEventListener('input', function(){ setSpeed(); });
+      if(s){
+        s.addEventListener('input', function(){ speedDragging = true; lastDragAt = Date.now(); setSpeed(); });
+        s.addEventListener('change', function(){ setSpeed(); speedDragging = false; lastDragAt = Date.now(); });
+      }
     };
   </script>
 </head>
@@ -265,18 +327,23 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
              here is all that is needed for it to sync. Legacy aliases on the
              wire (MODE_BT -> 4WD4M, MODE_ESP_SERVER -> ESP_SER) live in
              ModeManager::setModeFromString and are NOT repeated here. -->
-        <option value='MODE_BT'        data-canon='4WD4M'>4WD4M</option>
-        <option value='MODE_ESP_SERVER' data-canon='ESP_SER'>ESP32 (WS)</option>
-        <option value='MODE_ESP_CLIENT' data-canon='ESP_CLI'>ESP32 (CLIENT)</option>
-        <option value='MODE_PATH'      data-canon='PATH'>PATH</option>
-        <option value='MODE_OBS_US'    data-canon='OBS_US'>OBS-US</option>
-        <option value='MODE_OBS_IR'    data-canon='OBS_IR'>OBS-IR</option>
-        <option value='MODE_MANUAL'    data-canon='MAN'>MANUAL</option>
-        <option value='MODE_AUTO'      data-canon='AUTO'>AUTO</option>
-        <option value='MODE_2WD1M'     data-canon='2WD1M'>2WD1M</option>
+        <!-- U-79: ESP32 (WS) / ESP32 (CLIENT) are REMOVED — the webserver
+             mode is gone from the car (no second Wi-Fi setup to fall into).
+             The remaining non-LIVE modes are DISABLED at runtime from the
+             car's CAPS map, so a dropdown tap can never kill drive. -->
+        <option value='MODE_BT' data-canon='4WD4M' data-label='4WD4M'>4WD4M</option>
+        <option value='MODE_PATH'      data-canon='PATH'    data-label='PATH'>PATH</option>
+        <option value='MODE_OBS_US'    data-canon='OBS_US'  data-label='OBS-US'>OBS-US</option>
+        <option value='MODE_OBS_IR'    data-canon='OBS_IR'  data-label='OBS-IR'>OBS-IR</option>
+        <option value='MODE_MANUAL'    data-canon='MAN'     data-label='MANUAL'>MANUAL</option>
+        <option value='MODE_AUTO'      data-canon='AUTO'    data-label='AUTO'>AUTO</option>
+        <option value='MODE_2WD1M'     data-canon='2WD1M'   data-label='2WD1M'>2WD1M</option>
       </select>
       <select id='r'>
         <option value='' disabled selected>— Select router —</option>
+        <!-- U-79: ONE place for every network — the car fills this with the
+             saved routers + its own hotspot, plus an "Add router…" entry
+             (appended by the rebuild script, which owns the option list). -->
       </select>
     </div>
 
