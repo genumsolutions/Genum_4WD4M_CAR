@@ -494,3 +494,71 @@ asserted a contract from one side of a handshake and only read the half I
 already had open. The device answered in one probe. Verify the mechanism exists
 before reporting the defect â€” and when a grep for a literal comes back empty,
 that is evidence the encoding is indirect, not evidence the code is missing.
+
+---
+
+## Bench run 2026-10-03 — car flashed, U-81 root cause verified on the device
+
+Hardware: ESP32-D0WDQ6 rev 1.1, MAC `08:b6:1f:98:2f:f4`, CH340 on **COM8**, 4 MB flash.
+Built `esp32:esp32:esp32:PartitionScheme=huge_app` with core **3.3.11** (the CI pin).
+Firmware `4d5d6bc`, **1,797,518 bytes (57% of huge_app)**, hash verified on write.
+
+**The flash was confirmed against the build, not assumed.** The app partition was read back off
+the car and hashed:
+
+    built   FB3D3B46391524BA5DA799916B7F810A95672EFC75AB2F954CDF98665B366200
+    on-car  FB3D3B46391524BA5DA799916B7F810A95672EFC75AB2F954CDF98665B366200
+
+**NVS survived the partition change.** `nvs@0x9000` is byte-identical between the old
+app0+app1 OTA table and the huge_app table, so nothing was lost:
+`[BOOT] Restored mode=4WD4M`, `[BOOT] Restored speed=230`,
+`will try last-good router "nijandangal_2.4"`. A backup was taken before flashing.
+
+Automated over `ws://192.168.1.100:81/` — **12/12 passed**:
+
+| row | check | result |
+|---|---|---|
+| U81-1 | `CAPS;` frame arrives over WiFi | PASS — `CAPS;4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS` |
+| U81-2 | `STATE;` frame arrives over WiFi | PASS — `STATE;MODE=4WD4M;SPD=230;TRIM=0;STATUS=Stopped;SSID=nijandangal_2.4;…` |
+| U81-3 | saved routers listed | PASS — `NETW;4WDCar_Wifi;Esp;nijandangal_2.4` |
+| U81-4 | telemetry JSON complete | PASS — `mode=4WD4M spd=230 rssi=-57 ip=192.168.1.100` |
+| F-62 | refuses a mode this car dropped | PASS — `NACK;E=UNKNOWN_MODE;ARG=ESP_SER` |
+| F-62 | refuses an unknown command | PASS — `NACK;E=UNKNOWN_MODE;ARG=NOT_A_COMMAND` |
+| U82-1 | `MODE_PATH` switches the car | PASS — mode became `PATH` |
+| U82-1 | bare `PATH` switches the car | PASS — mode became `PATH` |
+| U82-1 | `4WD4M` switches the car | PASS |
+| U82-2 | speed command honoured | PASS — `speed=150` |
+| U81-8 | drive commands accepted, no wedge | PASS — 15 frames still flowing after F/S/B/S |
+| — | car restored to `4WD4M`, speed 230 | PASS |
+
+U81-1 is the one that mattered: it is the root cause. Before the fix the car returned **nothing**
+over WiFi. These frames are the proof the sink is gone.
+
+Root page over HTTP: **25,116 bytes, HTTP 200**, containing `handleTextLine`, `ROUTERS;USED;`, and
+all four U-83 markers (`lastCapsSig`, both conditional writes, the open-guard). So the page served
+by the car is the page in this repo.
+
+### Still NOT verified — needs a human
+
+Do not read the table above as U-81 being closed. These need eyes or hardware this bench lacks:
+
+- [ ] U81-5 / U81-6 — **Bluetooth SPP.** Needs a paired phone. The `auxComm_` NACK fan-out is the
+      untested half of the U-81 change.
+- [ ] U81-7 — a refused mode must be *visible* in the page, in the error colour.
+- [ ] U81-9 — **watchdog**: load the page repeatedly, confirm no reboot.
+- [ ] U81-10 — **old-car regression.** Needs a second, pre-U-79 car.
+- [ ] U81-11 — 100-command burst over WS (T8).
+- [ ] U82-4 — the mode dropdown **visually**: no flicker, rows usable. The tokens are proven; the
+      feel is not. This is the row that matters most for the original complaint.
+- [ ] OLED rendering and the physical buttons/joystick.
+
+### Toolchain gotchas, so nobody loses an hour to them
+
+- `arduino-cli upload` **fails at the default 921600 baud** on this CH340 with
+  `Unable to verify flash chip connection`. Use `--upload-property "upload.speed=115200"`.
+- The Arduino IDE on this machine has core **3.3.12**; CI pins **3.3.11**. Built with 3.3.11 here.
+- The car's WiFi join takes **60–90 s** after boot. The log stops at `[RADIO] defer-mdns/sta-busy`
+  and prints nothing further — the car is simply not on the network yet. Ports 80/81 refuse
+  connections until it is. Do not reset in a loop waiting for it.
+- Never flash `*.merged.bin` at 0x0: it includes the NVS region and would wipe the saved routers
+  and credentials. Use `arduino-cli upload`, or `write_flash` of bootloader/partitions/app only.
