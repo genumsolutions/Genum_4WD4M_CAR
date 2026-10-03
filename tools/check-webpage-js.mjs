@@ -17,8 +17,17 @@
 //   4. RUNS handleTextLine against the firmware's real reply strings and
 //      asserts what the user is shown — including that a REFUSAL is never
 //      rendered in the success colour, and that unrelated chatter says nothing
+//   5. cross-checks the page's mode <option> data-canon against the tokens
+//      ModeManager.cpp actually accepts, in BOTH directions
+//   6. RUNS setMode() for every option and asserts the frame it puts on the
+//      wire is a token the car can parse (and that the empty option sends
+//      nothing, F-57)
 //
 // Step 4 is the one that matters. A page that parses can still lie.
+//
+// Step 5 exists because of U-82: setMode() sent each option's legacy
+// `value='MODE_*'` id, tokens the car has never heard of, so every mode in the
+// website dropdown was dead. Steps 5+6 make that class of drift a build failure.
 //
 // Run: node tools/check-webpage-js.mjs        (exit 1 on any failure)
 // The reply strings below are copied from the firmware that emits them:
@@ -36,6 +45,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const header = path.join(here, "..", "WebPage.h");
 const src = fs.readFileSync(header, "utf8");
+const modeSrc = fs.readFileSync(path.join(here, "..", "ModeManager.cpp"), "utf8");
 
 // ---- extract the raw string, delimiter and all -------------------------
 const m = /R"([A-Za-z_]\w*)\(/.exec(src);
@@ -210,6 +220,150 @@ for (const quiet of [
     );
     bad++;
   }
+}
+
+// ---- 5. the mode list must match what the CAR can actually parse ----------
+//
+// U-82: every <option value='MODE_*'> was a legacy internal id that
+// ModeManager::setModeFromString has never heard of. It matches
+// MODE_REGISTRY[].token plus two aliases, so all seven website modes NACKed.
+// This stage reads the firmware's accepted tokens straight out of
+// ModeManager.cpp and cross-checks the page's data-canon both ways, so the
+// list cannot drift from the firmware again in either direction.
+const registryTokens = new Set(
+  [...modeSrc.matchAll(/\{\s*Mode::\w+\s*,\s*"([^"]+)"/g)].map((x) => x[1]),
+);
+const accepted = new Set(registryTokens);
+const fnStart = modeSrc.indexOf("ModeManager::setModeFromString");
+for (const x of modeSrc
+  .slice(fnStart)
+  .matchAll(/strcasecmp\(\s*modeStr\s*,\s*"([^"]+)"\s*\)/g)) {
+  // Receive-side legacy aliases (BT, MANUAL). The firmware deliberately keeps
+  // accepting these but its own comment says "senders emit <canonical>", so they
+  // are valid to RECEIVE and must never be required in the page's list.
+  accepted.add(x[1]);
+}
+if (accepted.size < 7) {
+  console.error(
+    `FAIL: only ${accepted.size} mode tokens parsed from ModeManager.cpp - ` +
+      `the registry shape changed and this gate is now blind. Fix the regex.`,
+  );
+  process.exit(1);
+}
+
+const pageOptions = [
+  // Attribute order/amount is not guaranteed and the list is column-aligned
+  // with runs of spaces, so match the three data-* attributes in any order
+  // after `value` rather than assuming one tidy layout.
+  ...html
+    .matchAll(
+      /<option\s+value='([^']*)'((?:\s+data-[a-z]+='[^']*')+)\s*>/g,
+    ),
+].map((x) => {
+  const attrs = {};
+  for (const a of x[2].matchAll(/data-([a-z]+)='([^']*)'/g)) attrs[a[1]] = a[2];
+  return { value: x[1], canon: attrs.canon ?? "", label: attrs.label ?? "" };
+});
+if (!pageOptions.length) {
+  console.error("FAIL: no mode <option> tags parsed - markup shape changed");
+  process.exit(1);
+}
+for (const o of pageOptions) {
+  if (!o.canon) {
+    console.error(`FAIL: page option '${o.value}' has no data-canon token`);
+    process.exit(1);
+  }
+}
+
+for (const o of pageOptions) {
+  if (!accepted.has(o.canon)) {
+    console.error(
+      `FAIL: page option '${o.label}' has data-canon='${o.canon}', which ` +
+        `ModeManager::setModeFromString cannot parse (accepted: ` +
+        `${[...accepted].join(", ")}). The car would answer ` +
+        `NACK;E=UNKNOWN_MODE;ARG=${o.canon}.`,
+    );
+    bad++;
+  }
+}
+// Reverse direction: a mode the car offers must be selectable from the page.
+for (const tok of registryTokens) {
+  if (!pageOptions.some((o) => o.canon === tok)) {
+    console.error(
+      `FAIL: the car accepts mode '${tok}' but the page has no option for it`,
+    );
+    bad++;
+  }
+}
+if (!bad) {
+  console.log(
+    `PASS: all ${pageOptions.length} page modes are tokens the car parses ` +
+      `(${[...accepted].join(", ")})`,
+  );
+}
+
+// ---- 6. setMode() must put an ACCEPTED token on the wire ------------------
+// Driven by the real markup above: select each option in turn and check the
+// exact frame setMode() would send.
+if (typeof sandbox.setMode !== "function") {
+  console.error("FAIL: setMode is not callable");
+  process.exit(1);
+}
+const realSendCmd = sandbox.sendCmd;
+const mSel = el("m");
+const frames = [];
+sandbox.sendCmd = (c) => frames.push(c);
+
+// Build the whole option list once, exactly as a real <select> would have it,
+// then move the selection. (An earlier version of this check handed setMode a
+// one-element `options` array with selectedIndex>0, which made every option
+// after the first take setMode's `|| sel.value` fallback and failed for the
+// wrong reason. A real select always has all of them.)
+const optNodes = pageOptions.map((o) => ({
+  value: o.value,
+  getAttribute: (n) => (n === "data-canon" ? o.canon : null),
+}));
+mSel.options = optNodes;
+
+for (let i = 0; i < pageOptions.length; i++) {
+  const o = pageOptions[i];
+  mSel.value = o.value; // the page stores the internal id here...
+  mSel.selectedIndex = i;
+  frames.length = 0;
+  sandbox.setMode();
+  const sent = frames[0];
+  if (sent === undefined) {
+    console.error(`FAIL: selecting '${o.label}' sent nothing`);
+    bad++;
+  } else if (sent !== o.canon) {
+    console.error(
+      `FAIL: selecting '${o.label}' sent '${sent}', not the canonical ` +
+        `'${o.canon}'`,
+    );
+    bad++;
+  } else if (!accepted.has(sent)) {
+    console.error(
+      `FAIL: selecting '${o.label}' sent '${sent}', which the car cannot parse`,
+    );
+    bad++;
+  }
+}
+
+// F-57 must survive: the empty "- current mode -" option sends nothing.
+mSel.value = "";
+mSel.selectedIndex = 0;
+frames.length = 0;
+sandbox.setMode();
+if (frames.length) {
+  console.error(`FAIL: the empty option sent '${frames[0]}' (F-57 regression)`);
+  bad++;
+}
+sandbox.sendCmd = realSendCmd;
+if (!bad) {
+  console.log(
+    `PASS: setMode() puts an accepted token on the wire for all ` +
+      `${pageOptions.length} modes, and nothing for the empty option`,
+  );
 }
 
 if (bad) {

@@ -314,7 +314,18 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     function setMode(){
       let sel = document.getElementById('m');
       if (!sel || !sel.value) return;   // F-57: never send the empty "unknown" option
-      sendCmd(sel.value);
+      // U-82: send data-canon (the token the car actually parses), NOT the
+      // option's value. The values are legacy internal ids (MODE_BT,
+      // MODE_PATH, ...) and ModeManager::setModeFromString has NEVER heard of
+      // them: it matches MODE_REGISTRY[].token (4WD4M/PATH/OBS_US/OBS_IR/MAN/
+      // AUTO/2WD1M) plus the two aliases BT and MANUAL. So every one of the
+      // seven options answered NACK;E=UNKNOWN_MODE;ARG=MODE_... and the page's
+      // mode dropdown was 100% dead. The "mapping lives in setModeFromString"
+      // comment below was describing a mapping that did not exist. data-canon
+      // already holds the right token, so read it here.
+      let opt = sel.options[sel.selectedIndex];
+      let canon = opt && opt.getAttribute('data-canon');
+      sendCmd(canon || sel.value);   // fall back to value only if data-canon is absent
     }
     // F-57: mirror the car's REPORTED mode into the dropdown, so the control a
     // user reads agrees with the #mode readout. Never while the user has it
@@ -390,12 +401,16 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
              mode in the #mode readout and a different one here (F-53). A
              dropdown must not assert a state nothing has confirmed. -->
         <option value='' selected>— current mode —</option>
-        <!-- data-canon is the CANONICAL token the car reports as j.mode. Keeping
-             it in the markup next to the label means the dropdown <-> reported
-             mode mapping cannot drift from the option list, and adding a mode
-             here is all that is needed for it to sync. Legacy aliases on the
-             wire (MODE_BT -> 4WD4M, MODE_ESP_SERVER -> ESP_SER) live in
-             ModeManager::setModeFromString and are NOT repeated here. -->
+        <!-- data-canon is the CANONICAL token the car reports as j.mode and the
+             one the car accepts on input (ModeManager::setModeFromString
+             matches MODE_REGISTRY[].token). It is what setMode() SENDS.
+             data-label is the display text, which differs from the token
+             (OBS-US vs OBS_US, MANUAL vs MAN).
+             U-82: value='MODE_*' are legacy internal ids, NOT wire tokens -
+             the car cannot parse them and every option used to NACK. Do not
+             "simplify" this by sending value; send data-canon. The gate
+             tools/check-webpage-js.mjs cross-checks each data-canon against
+             MODE_REGISTRY so this list cannot drift from the firmware again. -->
         <!-- U-79: ESP32 (WS) / ESP32 (CLIENT) are REMOVED — the webserver
              mode is gone from the car (no second Wi-Fi setup to fall into).
              The remaining non-LIVE modes are DISABLED at runtime from the
