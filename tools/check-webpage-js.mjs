@@ -20,14 +20,17 @@
 //   5. cross-checks the page's mode <option> data-canon against the tokens
 //      ModeManager.cpp actually accepts, in BOTH directions
 //   6. RUNS setMode() for every option and asserts the frame it puts on the
-//      wire is a token the car can parse (and that the empty option sends
-//      nothing, F-57)
+//      wire resolves to a mode token the car can parse (and that the empty
+//      option sends nothing, F-57)
 //
 // Step 4 is the one that matters. A page that parses can still lie.
 //
-// Step 5 exists because of U-82: setMode() sent each option's legacy
-// `value='MODE_*'` id, tokens the car has never heard of, so every mode in the
-// website dropdown was dead. Steps 5+6 make that class of drift a build failure.
+// Step 5 exists so the page cannot offer a mode the car does not have, or omit
+// one it does. History: U-82 first "fixed" setMode() to send data-canon on the
+// belief that value='MODE_*' was unparseable. That was WRONG - handleCommand
+// strips the 5-char MODE_ prefix (ModeManager.cpp:302), confirmed on the car,
+// where MODE_MANUAL/MODE_PATH/MODE_AUTO all switch the mode. The change was
+// reverted; stages 5 and 6 keep only the invariant that is real.
 //
 // Run: node tools/check-webpage-js.mjs        (exit 1 on any failure)
 // The reply strings below are copied from the firmware that emits them:
@@ -278,10 +281,11 @@ for (const o of pageOptions) {
 for (const o of pageOptions) {
   if (!accepted.has(o.canon)) {
     console.error(
-      `FAIL: page option '${o.label}' has data-canon='${o.canon}', which ` +
-        `ModeManager::setModeFromString cannot parse (accepted: ` +
-        `${[...accepted].join(", ")}). The car would answer ` +
-        `NACK;E=UNKNOWN_MODE;ARG=${o.canon}.`,
+      `FAIL: page option '${o.label}' has data-canon='${o.canon}', which is ` +
+        `not a MODE_REGISTRY token (accepted: ${[...accepted].join(", ")}). ` +
+        `data-canon is what syncMode() matches the car's reported mode ` +
+        `against and what the CAPS-disable path looks up, so the dropdown ` +
+        `would stop tracking the car and would not grey out absent modes.`,
     );
     bad++;
   }
@@ -302,9 +306,11 @@ if (!bad) {
   );
 }
 
-// ---- 6. setMode() must put an ACCEPTED token on the wire ------------------
-// Driven by the real markup above: select each option in turn and check the
-// exact frame setMode() would send.
+// ---- 6. setMode() must put a token the car accepts on the wire ----------
+// The page sends value='MODE_<token>'. That form is correct: handleCommand
+// strips the 5-char "MODE_" prefix before parsing (ModeManager.cpp:302), and
+// this was verified on the car - MODE_MANUAL/MODE_PATH/MODE_AUTO all switch
+// the mode. A bare '<token>' is equally valid, so both forms are accepted here.
 if (typeof sandbox.setMode !== "function") {
   console.error("FAIL: setMode is not callable");
   process.exit(1);
@@ -317,8 +323,7 @@ sandbox.sendCmd = (c) => frames.push(c);
 // Build the whole option list once, exactly as a real <select> would have it,
 // then move the selection. (An earlier version of this check handed setMode a
 // one-element `options` array with selectedIndex>0, which made every option
-// after the first take setMode's `|| sel.value` fallback and failed for the
-// wrong reason. A real select always has all of them.)
+// after the first take a fallback path and failed for the wrong reason.)
 const optNodes = pageOptions.map((o) => ({
   value: o.value,
   getAttribute: (n) => (n === "data-canon" ? o.canon : null),
@@ -327,7 +332,7 @@ mSel.options = optNodes;
 
 for (let i = 0; i < pageOptions.length; i++) {
   const o = pageOptions[i];
-  mSel.value = o.value; // the page stores the internal id here...
+  mSel.value = o.value; // the page stores the wire token here
   mSel.selectedIndex = i;
   frames.length = 0;
   sandbox.setMode();
@@ -335,15 +340,16 @@ for (let i = 0; i < pageOptions.length; i++) {
   if (sent === undefined) {
     console.error(`FAIL: selecting '${o.label}' sent nothing`);
     bad++;
-  } else if (sent !== o.canon) {
+    continue;
+  }
+  // Accept either "MODE_<token>" or a bare "<token>".
+  const bare = sent.startsWith("MODE_") ? sent.slice(5) : sent;
+  const bareOk = accepted.has(bare);
+  const tokenOk = accepted.has(sent);
+  if (!bareOk && !tokenOk) {
     console.error(
-      `FAIL: selecting '${o.label}' sent '${sent}', not the canonical ` +
-        `'${o.canon}'`,
-    );
-    bad++;
-  } else if (!accepted.has(sent)) {
-    console.error(
-      `FAIL: selecting '${o.label}' sent '${sent}', which the car cannot parse`,
+      `FAIL: selecting '${o.label}' sent '${sent}', which resolves to ` +
+        `'${bare}' - not a token ModeManager can parse`,
     );
     bad++;
   }

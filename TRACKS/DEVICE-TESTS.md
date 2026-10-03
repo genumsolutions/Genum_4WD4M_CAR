@@ -441,35 +441,56 @@ test in any repo could see it. Flash before believing any of this.
 
 Verdict: **RC-PENDING** — needs a flash.
 
-## U-82 — the website's mode dropdown sent tokens the car cannot parse
+## U-82 — CORRECTION. The website mode dropdown was never broken
 
-Found while auditing U-81. Not a new fault: **pre-existing and 100% broken.** `setMode()` sent the
-`<option value='MODE_*'>` internal id, and `ModeManager::setModeFromString` has never known those
-names — it matches `MODE_REGISTRY[].token` (`4WD4M` `PATH` `OBS_US` `OBS_IR` `MAN` `AUTO` `2WD1M`)
-plus the receive-side aliases `BT` and `MANUAL`. Every option therefore drew
-`NACK;E=UNKNOWN_MODE;ARG=MODE_…`.
+This section first recorded a defect that does not exist. Keeping the correction
+here so the next session does not "re-fix" it.
 
-U-81 made this *visible* (the NACK now reaches the page) rather than causing it: before U-81 the
-refusal was discarded by the same sink that hid everything else, so the dropdown just did nothing.
+**The false claim.** An audit read `setMode()` as sending each option's internal
+id (`MODE_AUTO`, `MODE_PATH`, …) while `setModeFromString()` matches only
+`MODE_REGISTRY[].token` (`4WD4M PATH OBS_US OBS_IR MAN AUTO 2WD1M`) plus the
+aliases `BT`/`MANUAL`. Conclusion drawn: all seven options NACK and the dropdown
+was 100% dead.
 
-- [ ] U82-1 — **the root cause row.** Open `http://192.168.245.1`, devtools → Network → WS frames.
-      Tap `AUTO`. The frame sent MUST be exactly `AUTO` — never `MODE_AUTO`. The car MUST NOT
-      answer `NACK;E=UNKNOWN_MODE`.
-- [ ] U82-2 — **all seven.** Repeat for `4WD4M`, `PATH`, `OBS-US`, `OBS-IR`, `MANUAL`, `AUTO`,
-      `2WD1M`. Each must be sent as `4WD4M` `PATH` `OBS_US` `OBS_IR` `MAN` `AUTO` `2WD1M`
-      respectively, and each must actually take (the `#mode` readout and the OLED agree).
-- [ ] U82-3 — **display is not the token.** `OBS-US` is shown with a hyphen but must be *sent* as
-      `OBS_US`; `MANUAL` is shown in full but must be sent as `MAN`. Reading the label as the
-      wire token is the original mistake — confirm the car accepts both.
-- [ ] U82-4 — **disabled rows stay refused.** `PATH`/`OBS-*`/`MAN`/`AUTO`/`2WD1M` are COMING SOON
-      in the car's CAPS map, so the page disables them. Confirm the fix did not make a disabled
-      row selectable, and that a disabled tap still cannot park the car in a dead mode.
-- [ ] U82-5 — **the empty option stays silent (F-57).** With the car not yet reporting, tap the
-      `— current mode —` row: nothing may be sent.
-- [ ] U82-6 — **no regression in the truthful notes.** A genuine refusal (send `ESP_SER`, which
-      this car removed in U-79) must STILL show "The car refused mode …" in the error colour. The
-      U-82 fix must not make real refusals look like successes.
+**Why it was wrong.** The grep missed the handler. `ModeManager::handleCommand`
+(ModeManager.cpp:302) matches the five characters `"MODE_"` and passes the
+*remainder* to `setModeFromString`:
 
-Verdict: **RC-PENDING** — needs a flash. The page gate `tools/check-webpage-js.mjs` stages 5+6
-cover this statically in CI (reverting the one-line fix fails 7 checks); these rows prove it on
-the car.
+```cpp
+if (strncmp(cmdBuf, "MODE_", 5) == 0) { setModeFromString(cmdBuf + 5); return; }
+```
+
+So `MODE_MANUAL` → `MANUAL` (alias) → `Mode::MANUAL`, `MODE_PATH` → `PATH` →
+`Mode::PATH`. A prefix-length skip, which is why no literal `MODE_MANUAL` string
+exists in the firmware to grep for. The markup comment claiming the mapping lives
+in the firmware was accurate after all.
+
+**Measured on the car** (fresh socket per token, mode recorded before and after,
+no-op control stable, car restored to 4WD4M after every trial):
+
+| sent | mode after | verdict |
+|---|---|---|
+| *(nothing)* | 4WD4M | control stable — harness reliable |
+| `MODE_MANUAL` | MAN | accepted |
+| `MODE_PATH` | PATH | accepted |
+| `MODE_AUTO` | AUTO | accepted |
+| `MODE_2WD1M` | 2WD1M | accepted |
+| `MAN` / `AUTO` / `2WD1M` | same | accepted (bare form works too) |
+| `ESP_SER` | 4WD4M | refused, `NACK;E=UNKNOWN_MODE` (U-79, correct) |
+
+**Correction applied.** The one-line `setMode()` change is reverted. The page
+gate keeps only the invariant that is real — every `data-canon` is a genuine
+`MODE_REGISTRY` token, in both directions — and stage 6 now accepts either wire
+form.
+
+- [x] U82-1 — website mode dropdown switches the car: **PASS** (measured above).
+- [x] U82-2 — bare canonical tokens also work: **PASS**.
+- [x] U82-3 — a genuinely removed mode is still refused: **PASS** (`ESP_SER`).
+- [ ] U82-4 — owner eyeballs the dropdown in a browser and confirms each entry
+      switches the mode. Not automatable; the tokens are proven above.
+
+**Lesson.** The static "the two halves must agree" instinct was right, but I
+asserted a contract from one side of a handshake and only read the half I
+already had open. The device answered in one probe. Verify the mechanism exists
+before reporting the defect — and when a grep for a literal comes back empty,
+that is evidence the encoding is indirect, not evidence the code is missing.
