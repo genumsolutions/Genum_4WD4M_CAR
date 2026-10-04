@@ -1,5 +1,14 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-04: U-92 own-hotspot fix; firmware 1.0.5)
 
+**HEADS-UP — U-94 DESIGN WRITTEN (2026-10-04, no code, awaiting owner go):** the Internet
+method (cloud WSS relay) is designed at the app repo's
+`guide/PLAN-2026-10-04-U94-INTERNET-METHOD-DESIGN.md`. **Phase 2 is THIS repo's future round:**
+a `RelayComm` that dials OUT over the STA the car already joins (U-71 auto-join), authenticates
+with a per-car relay token (NVS `botcfg/relay_token`, never printed), then bridges WS frames
+into the SAME `handleCommand` queue path (T-1) and forwards STATE back. Both ends are relay
+clients; pairing by the car's existing `boardIdHex`. Gate stages + bench rows T-REL-1..n to be
+added when the owner approves (Q1 relay impl, Q2 claim model, Q3 timing — see the plan's §6).
+Do NOT start without the owner's explicit go (F-41).
 **U-92 (2026-10-04) - THE OWN HOTSPOT: A DOUBLE ENTRY, A "SWITCH" THAT NEVER LEFT, AND A HIDDEN
 JOIN-YOUR-OWN-BEACON TRAP.** Owner: *"webpage has double entry of esps own hotspot please remove
 that too"* · *"through the webpage the router is not switching to the esp own hotspot"* ·
