@@ -1071,16 +1071,41 @@ void WebServerComm::advanceRejoinStep() {
       return;
 
     case REJOIN_STEP_MODE:
-      if (WiFi.getMode() != WIFI_AP_STA) {
-        noteRadioStep("rejoin/mode-AP_STA");
-        WiFi.mode(WIFI_AP_STA);
-        // U-76: `WiFi.mode()` RESTARTS the driver, which tears the softAP down -
-        // but `apRunning_` was still true, so every later startOwnAP() returned
-        // early at `if (apRunning_) return;` while the beacon was actually DOWN.
-        // That is why the owner's log shows `rejoin/softAP` and then silence: the
-        // AP step did nothing. Never trust apRunning_ across a driver restart.
-        apRunning_ = false;
-      }
+      // U-90 (2026-10-04, owner: *"the car seems stuck on one router and doesnt
+      // connect even if on same network"*): this step is now UNCONDITIONAL.
+      //
+      // It used to run only `if (WiFi.getMode() != WIFI_AP_STA)`. After the
+      // FIRST switch of the car's life the driver is already WIFI_AP_STA
+      // (beginAlwaysOn() left it there), so every LATER switch skipped the
+      // driver reset entirely — and REJOIN_STEP_BEGIN then issued WiFi.begin()
+      // ON TOP OF the still-associated STA. Two consequences, both proven by
+      // the U-76 serial evidence (`E wifi:sta is connecting, cannot set
+      // config`):
+      //
+      //   1. The IDF REFUSES the begin (the STA is busy), so the car never
+      //      even attempted the router it was asked for.
+      //   2. Worse: the resolve block keys on `WiFi.status() == WL_CONNECTED`
+      //      — which the OLD association still satisfied — so the switch
+      //      resolved as SUCCESS on the OLD network. The car reported the
+      //      old router as joined, the DHCP lease was never refreshed, and
+      //      no retry ever ran (no failure was ever seen). That is exactly
+      //      "stuck on one router, and it won't connect even to the same
+      //      network": the association and its lease went stale and every
+      //      later request was swallowed by the stale link.
+      //
+      // `WiFi.mode(WIFI_AP_STA)` restarts the WiFi driver: the stale STA
+      // state is torn down, and REJOIN_STEP_BEGIN now runs against a clean
+      // slate. The cost is one driver restart per explicit switch — the same
+      // cost the first-ever switch already paid, one radio call per loop
+      // pass (U-71), so the watchdog rule (F-24/F-60) is untouched.
+      noteRadioStep("rejoin/mode-AP_STA");
+      WiFi.mode(WIFI_AP_STA);
+      // U-76: `WiFi.mode()` RESTARTS the driver, which tears the softAP down -
+      // but `apRunning_` was still true, so every later startOwnAP() returned
+      // early at `if (apRunning_) return;` while the beacon was actually DOWN.
+      // That is why the owner's log shows `rejoin/softAP` and then silence: the
+      // AP step did nothing. Never trust apRunning_ across a driver restart.
+      apRunning_ = false;
       rejoinStep_ = REJOIN_STEP_AP;
       return;
 

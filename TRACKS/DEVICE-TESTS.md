@@ -3,6 +3,35 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## U-90 round — stuck-router fix + selectable coming-soon modes (2026-10-04, firmware 1.0.4 — DEVICE VERIFY PENDING)
+
+> Owner: _"the car seems stuck on one router and doesnt connect even if on same network"_ ·
+> _"allow those comming soon too that changes the modes on the car too"_ · _"menu for router
+> change is also not working"_. **Flash 1.0.4 (huge_app, upload.speed=115200) FIRST** — the fix
+> is inside the rejoin step machine, so old firmware keeps the old behavior no matter what the
+> page does.
+
+- [ ] **U-90-1 — switching to the router the car is ALREADY on works.** Car associated to
+      router X (or "stuck" on it): send `ROUTERS;USE;X` (webpage console or app). The driver
+      must restart and re-associate with a FRESH lease — serial shows `[RADIO]
+      rejoin/mode-AP_STA` → `rejoin/softAP` → `rejoin/begin`, and STATE's `IP=` reflects the
+      new lease. (Pre-fix this "succeeded" instantly on the stale link and nothing changed.)
+- [ ] **U-90-2 — switching AWAY actually leaves.** Car on router X: `ROUTERS;USE;Y` → the car
+      associates to Y (NOT X) within the switch budget; STATE `SSID=` shows Y. Then switch
+      back to X. Every switch must behave like the first one — the old bug made every later
+      switch resolve on whatever network the car already held.
+- [ ] **U-90-3 — the router menu drives the car.** From the phone: select a saved router in
+      the page dropdown → exactly one `REPLY=ROUTERS;USED;<ssid>`; the "＋ Add router…"
+      entry still stores + switches via WIFICFG; the dropdown NEVER auto-highlights a router
+      on load (it must sit on "— Select router —" until the user acts).
+- [ ] **U-90-4 — coming-soon modes are selectable and change the car.** The mode dropdown
+      offers 4WD4M + PATH/OBS-US/OBS-IR/MANUAL/AUTO/2WD1M, the coming-soon ones labelled,
+      ALL selectable. Pick OBS-US: the car's mode actually changes (OLED + `#mode` readout +
+      app agree). Drive controls pause in a stub mode (expected, known to the owner); picking
+      4WD4M restores drive.
+- [ ] **U-90-5 — an unknown mode still refuses.** Send `MODE_ESP_SER`: exactly one
+      `NACK;E=UNKNOWN_MODE`, the note area shows the refusal, the car stays put.
+
 ## U-87 / U-88 round — beacon parks only while in use, one answer per command (2026-10-03, `5dddd5a` + `5e04df7` — DEVICE VERIFY PENDING)
 
 > Owner: _"the esp's own router seems to be active for the connection even when the car is working

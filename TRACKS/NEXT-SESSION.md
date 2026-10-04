@@ -1,4 +1,45 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-04: one command one answer, beacon parked only while in use; firmware 1.0.3)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-04: U-90 stuck-router fix + selectable modes; firmware 1.0.4)
+
+**U-90 (2026-10-04) - THE CAR WAS STUCK ON ONE ROUTER, AND EVERY LATER "SWITCH" WAS A LIE.**
+Owner: *"the car seems stuck on one router and doesnt connect even if on same network"* ·
+*"the mode toggle doesnt allows all other comming soon modes to change through the drop down
+menu, all those are dim please allow those comming soon too that changes the modes on the car
+too"* · *"the menu for router change is also not working"* · *"please fix these first and push
+properly".*
+
+1. **THE ROOT CAUSE — a switch resolved as SUCCESS on the router it never left.**
+   `rejoinNetwork()` arms the U-71 step machine; `REJOIN_STEP_MODE` ran `WiFi.mode(WIFI_AP_STA)`
+   only `if (WiFi.getMode() != WIFI_AP_STA)`. After the car's FIRST switch the driver is already
+   AP_STA (beginAlwaysOn() leaves it there), so every LATER switch skipped the driver reset —
+   and `REJOIN_STEP_BEGIN` issued `WiFi.begin()` ON TOP of the still-associated STA. The IDF
+   refuses config on a busy STA (the exact U-76 error: *"sta is connecting, cannot set
+   config"*), and the resolve block then saw `WiFi.status() == WL_CONNECTED` — satisfied by the
+   OLD association — so the switch resolved INSTANTLY as success on the OLD network: no rejoin,
+   no fresh DHCP lease, and no retry (no failure was ever observed). That is the stale-lease
+   *"stuck on one router, won't connect even on the same network"* report. **FIX:
+   `REJOIN_STEP_MODE` is now UNCONDITIONAL** — one driver restart per explicit switch (the same
+   cost the first-ever switch already paid), still one radio call per loop pass (U-71/F-24
+   untouched). Re-joining the router the car is ALREADY on also works now: fresh association,
+   fresh lease.
+2. **COMING-SOON MODES ARE SELECTABLE (owner override of the U-79 page gate).** The U-79 gate
+   existed so a tap could never park the car in a stub; the owner now wants the dropdown to
+   change the car's mode. WebPage.h: the CAPS sync NEVER disables an option and keeps the
+   "(coming soon)" suffix as information only; unknown tokens still earn `NACK;E=UNKNOWN_MODE`
+   (F-62). Known consequence, accepted by the owner: entering a stub mode gates the drive
+   controls until 4WD4M is picked again (one dropdown tap).
+3. **Router dropdown honesty (F-57 applied to the router list).** The rebuild used to
+   re-select whatever the select happened to show — asserting a switch request nothing
+   confirmed. Now it never preselects; the neutral placeholder holds until the user acts.
+4. **Verified:** page-js gate ALL STAGES PASS locally (mode list written once per real change,
+   never per frame, never while open; tokens cross-checked both ways; one command one answer;
+   beacon-park policy intact). Firmware syntax gate (xtensa g++ -fsyntax-only, core 3.3.12 +
+   esp32-libs SDK + WebSockets) CLEAN on WebServerComm/BluetoothComm/ModeManager — note for the
+   next session: on THIS machine the SDK headers live at
+   `Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include` (NOT the classic
+   `hardware/esp32/*/tools/sdk` path), and `arduino-cli.exe` is Device-Guard-blocked. **Firmware
+   1.0.4.** NOT device-verified: the car is not on this bench's network this session (probe of
+   192.168.1.100/.57 dead, ARP shows no car) — the U-90 rows in DEVICE-TESTS.md need the
+   owner's flash + bench run (huge_app, upload.speed=115200).
 
 **U-87 / U-88 (2026-10-03, backfilled 2026-10-04) - RECOVERED FROM THE COMMIT BODIES
 (`0fdb1d1` + `5dddd5a` + `12c930c`, `5e04df7`).** This ledger was not written while the rounds

@@ -16,7 +16,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.0.3` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.0.4` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -76,6 +76,7 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.0.4 (2026-10-04, U-90)** — **the stuck-router fix**: the rejoin MODE step now restarts the WiFi driver on EVERY explicit switch, so `WiFi.begin()` never lands on a still-associated STA — the stale association used to satisfy the `WL_CONNECTED` resolve check, making a switch to ANY router "succeed" on the OLD network (stale DHCP lease, car unreachable on its own network, no retry ever triggered). Webpage: **coming-soon modes are selectable** (owner override; unknown tokens still NACK; the (coming soon) label stays as information) and the router dropdown no longer preselects an unconfirmed network.
 - **1.0.3 (2026-10-03, U-79)** — **webserver mode REMOVED** (ESP_SER/ESP_CLI gone from the registry,
   page and NACK path — the Wi-Fi web layer is the only Wi-Fi setup, no second one to fall into);
   **transport power policy**: idle = Bluetooth + Wi-Fi both broadcast, a client on one turns the

@@ -188,11 +188,19 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             document.getElementById('status').innerText=j.status;
             document.getElementById('mode').innerText=j.mode_name || j.mode;
             syncMode(j.mode);   // F-57: keep the dropdown equal to car truth
-            // U-79: the car's CAPS map is the single truth for what is
-            // selectable. A mode that is not LIVE (WIP/CS) is DISABLED here,
-            // so a tap can never park the car in a coming-soon mode and
-            // silently kill the drive controls. ESP_SER/ESP_CLI are gone
-            // from the registry entirely and simply never appear.
+            // U-90 (owner override of the U-79 page gate): *"the mode toggle
+            // doesnt allows all other comming soon modes to change through the
+            // drop down menu, all those are dim please allow those comming
+            // soon too that changes the modes on the car too"*. Every mode in
+            // the registry is now SELECTABLE, coming-soon included - the car
+            // answers for itself: an unknown token still earns
+            // NACK;E=UNKNOWN_MODE and a refusal shows in the note area (F-62).
+            // ESP_SER/ESP_CLI are gone from the registry entirely and simply
+            // never appear. The (coming soon) label suffix stays so a stub
+            // mode is never mistaken for a finished one - only the DISABLE
+            // state is gone. Honest consequence, known to the owner: entering
+            // a stub mode gates the drive controls until 4WD4M is picked
+            // again; switching back is one dropdown tap.
             if (typeof j.caps === 'string') {
               var caps = {};
               j.caps.split(';').forEach(function (p) {
@@ -217,9 +225,9 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                 for (var i = 0; i < msel.options.length; i++) {
                   var o = msel.options[i], canon = o.getAttribute('data-canon');
                   if (!canon) continue;
-                  var live = (caps[canon] === 'LIVE');
-                  var txt = o.getAttribute('data-label') + (live ? '' : ' (coming soon)');
-                  if (o.disabled === live) o.disabled = !live;
+                  // U-90: information only - the option is NEVER disabled.
+                  var txt = o.getAttribute('data-label') + (caps[canon] === 'LIVE' ? '' : ' (coming soon)');
+                  if (o.disabled) o.disabled = false;
                   if (o.text !== txt) o.text = txt;
                 }
               }
@@ -240,15 +248,18 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             if(Array.isArray(j.networks)){
               var sel=document.getElementById('r');
               if(sel){
-                var cur=sel.value;
                 var sig=j.networks.join('\u001f');
                 if(sig!==lastNetSig && document.activeElement!==sel){
                   lastNetSig=sig;
                   while(sel.options.length>1) sel.remove(1);
+                  // U-90 (F-57 applied to the router list): never preselect a
+                  // network nothing has confirmed. The old rebuild re-selected
+                  // whatever the select happened to show, which ASSERTED a
+                  // switch request that was never made; the dropdown must sit
+                  // on its neutral placeholder until the user acts on it.
                   j.networks.forEach(function(n){
                     var o=document.createElement('option');
                     o.value=n; o.text=n;
-                    if(n===cur) o.selected=true;
                     sel.add(o);
                   });
                   // U-79: the add-new-network entry, rebuilt with the list
@@ -419,8 +430,9 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
              a real MODE_REGISTRY token, so this list cannot drift. -->
         <!-- U-79: ESP32 (WS) / ESP32 (CLIENT) are REMOVED — the webserver
              mode is gone from the car (no second Wi-Fi setup to fall into).
-             The remaining non-LIVE modes are DISABLED at runtime from the
-             car's CAPS map, so a dropdown tap can never kill drive. -->
+             U-90 (owner override): the remaining modes are ALL selectable,
+             coming-soon included; the (coming soon) suffix the 1 Hz CAPS sync
+             adds is information, never a disable. -->
         <option value='MODE_BT' data-canon='4WD4M' data-label='4WD4M'>4WD4M</option>
         <option value='MODE_PATH'      data-canon='PATH'    data-label='PATH'>PATH</option>
         <option value='MODE_OBS_US'    data-canon='OBS_US'  data-label='OBS-US'>OBS-US</option>
