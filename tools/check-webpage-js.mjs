@@ -531,6 +531,31 @@ if (!staGuard.test(body)) {
   );
   bad++;
 }
+
+// U-87 CORRECTION. The bench caught this: parking whenever the STA was up made
+// the car unreachable, because it had joined a router the user was not on. A
+// connected client is the only proof that the user can reach the car WITHOUT the
+// beacon, so it is now a required condition.
+const inUse = /const bool inUse\s*=\s*ws\.connectedClients\(\)\s*>\s*0/;
+if (!inUse.test(body)) {
+  console.error(
+    "FAIL: the policy does not require a connected WebSocket client — the " +
+      "car can park its only way in while nobody can reach it",
+  );
+  bad++;
+}
+// ...and parking must be gated on it, not merely computed.
+const parkBlock = /if\s*\(\s*apParked_\s*\)\s*\{([\s\S]*?)\n  \}/.exec(body);
+if (!parkBlock) {
+  console.error("FAIL: the parked branch is missing from the power policy");
+  bad++;
+} else if (!/inUse/.test(parkBlock[1])) {
+  console.error(
+    "FAIL: a parked beacon is not released when the last client leaves — the " +
+      "car would stay unreachable after use",
+  );
+  bad++;
+}
 // Grace period, so a router that drops again straight away cannot flap it.
 if (!/AP_PARK_GRACE_MS/.test(body)) {
   console.error(

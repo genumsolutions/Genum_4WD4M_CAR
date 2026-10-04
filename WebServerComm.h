@@ -210,22 +210,24 @@ public:
   // driver out of low-power states. Measured on an ESP32 the beacon alone is
   // tens of mA.
   //
-  // It is safe to drop the beacon ONLY once the car is genuinely reachable
-  // without it, so the rule is deliberately conservative:
+  // U-87 CORRECTION, found on the bench. The first version parked the beacon
+  // whenever the STA was connected, and that made the car UNREACHABLE: it joined
+  // a router the laptop was not on, the STA came up, the beacon went down, and
+  // there was no way in at all. "The car is on a router" does not mean "you can
+  // reach that router".
   //
-  //   1. the STA must be CONNECTED (associated and with an IP), and
-  //   2. the car must have a usable address on THAT network, and
-  //   3. only after a grace period, so a brief association does not tear the
-  //      hotspot down and immediately need it back.
+  // So the beacon is parked ONLY while a WebSocket client is actually connected
+  // - because a connected client proves the user is on the router already - and
+  // it comes straight back when the last one leaves:
   //
-  // If the router later drops, the existing give-up fallback brings the beacon
-  // straight back (`startOwnAP()`), so this can never brick the setup path.
+  //   in use -> parked  (power saved, when it is safe to)
+  //   idle   -> up      (always reachable, which is the safety property)
   //
   // It is a beacon, not the web server: HTTP :80 and WS :81 stay bound and the
-  // page keeps working on the router's address.
+  // page keeps working on the router's address throughout.
   void updateApPowerPolicy();
   uint32_t staConnectedAtMs_;   // when the current association came up
-  bool apParked_;               // beacon intentionally down, STA healthy
+  bool apParked_;               // beacon intentionally down, someone is using the car
 void advanceRejoinStep();
   uint8_t rejoinStep_;
 

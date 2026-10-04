@@ -914,6 +914,30 @@ void WebServerComm::updateApPowerPolicy() {
   const bool staUp = (WiFi.status() == WL_CONNECTED);
   const unsigned long nowMs = millis();
 
+  // U-87 CORRECTION (found on the bench, not by review).
+  //
+  // The first version of this policy parked the beacon whenever the STA was up.
+  // That is wrong, and the bench proved it within one boot: the car joined a
+  // router this laptop was NOT on, the STA came up, the beacon was parked - and
+  // the car became completely unreachable. Before the change the beacon was
+  // always up, so 4WDCar_Wifi was ALWAYS a way in, and that is the property
+  // that matters. "The car is on a router" says nothing about whether YOU can
+  // reach that router.
+  //
+  // The missing condition is the obvious one: only park while somebody is
+  // actually connected, because a connected client is proof the user is on the
+  // router already and does not need the beacon. The moment the last client
+  // goes, the beacon comes back.
+  //
+  //   in use  -> beacon parked (the power saving, when it is safe)
+  //   idle    -> beacon up     (always reachable, which is the safety property)
+  //
+  // So the beacon is down exactly when it is not needed and up exactly when it
+  // might be. The idle case is the common one, so this saves less power than
+  // first claimed - and that is the honest trade, because the alternative is a
+  // car that cannot be set up.
+  const bool inUse = ws.connectedClients() > 0;
+
   if (!staUp) {
     // Router gone or never joined: the beacon is the fallback, so make sure it
     // is up. `startOwnAP()` is idempotent and already retried by handle().
@@ -928,12 +952,12 @@ void WebServerComm::updateApPowerPolicy() {
   if (staConnectedAtMs_ == 0) staConnectedAtMs_ = nowMs;
 
   if (apParked_) {
-    // Parked already. Restore the beacon if the association is no longer
-    // trustworthy (no lease, or the grace period is somehow stale).
-    if (storedSsid_[0] == '\0') {
-      apParked_ = false;
-      if (!apRunning_) startOwnAP();
-    }
+    // Parked: stay parked ONLY while a client is actually using the car, and
+    // only while there is a real lease to be using it over.
+    if (inUse && storedSsid_[0] != '\0') return;
+    apParked_ = false;
+    if (!apRunning_) startOwnAP();
+    Serial.println("[POWER] car idle - hotspot beacon restored (stay reachable)");
     return;
   }
 
@@ -943,18 +967,18 @@ void WebServerComm::updateApPowerPolicy() {
     return;
   }
 
-  // Conditions 1 and 2 are now known true: STA connected, and there is a stored
-  // SSID. Wait out the grace period so a router that drops again in the first
-  // few seconds does not cause a teardown/rebuild flap.
-  if (nowMs - staConnectedAtMs_ < AP_PARK_GRACE_MS) return;
-
+  // Park only when ALL of these hold: associated, a lease exists, somebody is
+  // connected right now, and it has held long enough that a router dropping
+  // again immediately cannot cause a teardown/rebuild flap.
+  if (!inUse) return;
   if (storedSsid_[0] == '\0') return;
+  if (nowMs - staConnectedAtMs_ < AP_PARK_GRACE_MS) return;
 
   // One call, and it does not restart the driver.
   WiFi.softAPdisconnect(/*wifioff=*/false);
   apRunning_ = false;
   apParked_ = true;
-  Serial.println("[POWER] router up - car hotspot beacon parked (page still on the router)");
+  Serial.println("[POWER] in use on router - hotspot beacon parked");
 }
 
 void WebServerComm::giveUpStepMachine() {
