@@ -16,14 +16,17 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.0.2` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.0.3` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
-Every token stays selectable and is announced via
-`CAPS;4WD4M:LIVE;ESP_SER:CS;…;2WD1M:CS` (device order, no trailing `;`).
+Every LIVE token stays selectable and is announced via
+`CAPS;4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS` (device order, no trailing
+`;`). Since U-79 (1.0.3) `ESP_SER`/`ESP_CLI` are DELETED from the registry: the correct CAPS
+expectation is their **ABSENCE** — never `CS`, never `WIP` (see the rewritten T10 in
+TRACKS/DEVICE-TESTS.md).
 
-| Token | Display | Avail (v1.0.2) | Notes |
+| Token | Display | Avail (v1.0.3) | Notes |
 |---|---|---|---|
 | 4WD4M | 4WD4M | **LIVE** | the single drive mode — over **Bluetooth AND Wi-Fi** |
 | ESP_SER | Server (ESP_SER) | **REMOVED (U-79)** | was retired to CS in v2; deleted entirely in 1.0.3 — the Wi-Fi web layer is always-on and is the ONLY Wi-Fi setup |

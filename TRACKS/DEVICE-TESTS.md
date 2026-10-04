@@ -368,7 +368,10 @@ Verdict: **RC-PENDING** — not flashed.
       `FAILSAFE_TIMEOUT_MS` = 2000 ms. Do not re-add an ESTOP control without a firmware ruling.
 - [ ] T8 — 100-command burst over WS; packet loss % recorded
 - [ ] T9 — old-car regression: donor WIRELESS car still pairs/drives as before (untouched repo proof)
-- [ ] T10 — CAPS shows `4WD4M:LIVE`, `ESP_SER:CS`, `ESP_CLI:CS`; app marks the CS ones Coming Soon
+- [ ] T10 — ~~CAPS shows `4WD4M:LIVE`, `ESP_SER:CS`, `ESP_CLI:CS`; app marks the CS ones Coming
+      Soon~~ → **STALE — superseded by the rewritten row further below (U-81 correction,
+      2026-10-03):** U-79 deleted `ESP_SER`/`ESP_CLI` from the registry, so expect their
+      **ABSENCE** from the CAPS line — never `CS`
 - [ ] Flash v1.0.1 to the board and confirm the new OLED line renders
       (BT paired vs Wi-Fi mode + RSSI) and the splash reports 1.0.1
 
