@@ -479,7 +479,10 @@ Rows (rows 1–10 carried into the v1.0.1 round above; this v1.0.0 round is clos
       now **absence**: `CAPS;4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS`,
       with no `ESP_SER` key at all. The app half of U-81 reads that absence as `GONE` and must
       show the two website modes as "Not on this car" and refuse to send them. **Test:**
-      (a) `REQ_CAPS` returns exactly the 7 keys above; (b) the app greys out EspWebServer /
+      (a) the `CAPS;` frame the car broadcasts carries exactly the 7 keys above — it rides
+      `REQ_STATE` (`sendState()` writes STATE + CAPS + NETW, ModeManager.cpp:542). **`REQ_CAPS`
+      IS NOT A COMMAND** — the firmware has no such verb and will NACK it; (b) the app greys out
+      EspWebServer /
       EspWebClient and cannot select them; (c) an OLD car still announcing `ESP_SER:LIVE` /
       `ESP_CLI:WIP` keeps both modes selectable — that is the fleet-parity half and is the row
       most likely to regress.
@@ -495,8 +498,10 @@ finding is that a green Arduino build shipped a `write()` that threw every byte 
 test in any repo could see it. Flash before believing any of this.
 
 - [ ] U81-1 — **the root cause, directly.** Open the page on the car AP (Wi-Fi), DevTools →
-      WebSocket frames → Messages. Send `REQ_CAPS` from the console. **A `CAPS;…` text frame must
-      appear.** Before U-81 the frame never existed: `WebServerComm::write()` returned `len`
+      WebSocket frames → Messages. Send `REQ_STATE` from the console. **A `CAPS;…` text frame must
+      appear** (it rides the same `sendState()`). ⚠ Do **NOT** send `REQ_CAPS`: it is not a firmware
+      command, so the car NACKs it and this row would report a failure on a perfectly healthy car.
+      Before U-81 the frame never existed: `WebServerComm::write()` returned `len`
       without sending. This is THE row; the rest are consequences of it.
 - [ ] U81-2 — **router add over Wi-Fi, end to end.** App → add a home router → the page/car show
       it immediately (`ROUTERS;ADDED;<ssid>`), then the car joins it and the socket drops. Join

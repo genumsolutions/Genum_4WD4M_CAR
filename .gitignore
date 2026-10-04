@@ -16,3 +16,8 @@ compile_commands.json
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# ---- Bench harness (tools/*.py) ----
+__pycache__/
+*.pyc
+serial.log
