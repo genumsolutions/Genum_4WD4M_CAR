@@ -562,3 +562,55 @@ Do not read the table above as U-81 being closed. These need eyes or hardware th
   connections until it is. Do not reset in a loop waiting for it.
 - Never flash `*.merged.bin` at 0x0: it includes the NVS region and would wipe the saved routers
   and credentials. Use `arduino-cli upload`, or `write_flash` of bootloader/partitions/app only.
+---
+
+## Bench run 2026-10-03 (second pass) — U-87 parking proven on hardware
+
+Car flashed with `5dddd5a` and confirmed by reading the app partition back off the
+hardware and hashing it (`1CD8F39B...5214` both sides). Joined `nijandangal_2.4`.
+
+**The U-87 power cycle, captured live on the serial console:**
+
+    10:48:10  [POWER] Bluetooth off - web client active
+    10:48:27  [POWER] in use on router - hotspot beacon parked
+    10:49:10  [POWER] car idle - hotspot beacon restored (stay reachable)
+    10:49:14  [POWER] Bluetooth advertising (no client)
+
+That is the whole property: 20 s after a client connects the beacon goes down,
+and the moment the last client leaves it comes back. **U-87-1 through U87-4 PASS.**
+
+The page kept working throughout the park — HTTP 200, 25,116 bytes, with
+`handleTextLine` and all three U-83 markers present. Parking is a beacon, not the
+web server.
+
+**U-81 device suite: 12/12.** Two rows first failed and BOTH were harness faults,
+not car faults — re-checked one variable at a time and the car was correct:
+
+| row | first run | re-check |
+|---|---|---|
+| F-62 refuses unknown command | FAIL | 2x `NACK;E=UNKNOWN_MODE;ARG=NOT_A_COMMAND`, both attempts — the 2.5 s capture window was too short |
+| U82-1 `MODE_PATH` -> PATH | FAIL | mode became `PATH`, 0 NACKs, stable across 3 reads — the read caught the pre-change broadcast |
+
+The suite now double-reads after every switch and gives refusals a 4.5 s window.
+
+### Still needs the owner (cannot be automated here)
+
+- [ ] **U87-5** — confirm `4WDCar_Wifi` actually disappears from a PHONE's Wi-Fi
+      list while parked and reappears after. The car says it did; only a radio can
+      confirm the beacon is really gone from the air.
+- [ ] **U81-5/6** — Bluetooth SPP: a refused mode must be visible on the phone.
+      This is the untested half of U-81 (the `auxComm_` fan-out).
+- [ ] **U81-7** — a refused mode visible on the WEB page in the error colour.
+- [ ] **U81-9** — watchdog: reload the page repeatedly, confirm no reboot.
+- [ ] **U81-10** — old-car regression (needs a pre-U-79 car).
+- [ ] **U81-11** — 100-command burst over WS.
+- [ ] **U82-4** — the mode dropdown **visually**: no flicker, rows usable.
+- [ ] **U86 rows** — the app's one-list Wi-Fi panel, the hotspot row being
+      tappable, the fixed page header. Gates and CI are green; no human has seen it.
+- [ ] OLED rendering, physical buttons/joystick.
+
+### Monitor
+
+`monitor_car.py <port> [seconds]` decodes the serial console and tags the lines
+that matter. Use it in one terminal while doing something to the car in another —
+it is how the table above was captured.
