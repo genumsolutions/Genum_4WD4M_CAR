@@ -153,8 +153,15 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         }
         note('Car refused: ' + why, false); return;
       }
-      if(r.indexOf('WIFICFG;OK;') === 0){ note('Saved on the car: ' + r.slice(11), true); return; }
-      if(r.indexOf('WIFICFG;') === 0){ note('Car refused: ' + r.slice(8), false); return; }
+      // U-92: the car answers WIFICFG;STORED;<ssid> (WebServerComm.cpp) —
+      // the page used to look for WIFICFG;OK; and so NEVER confirmed a save
+      // made through "Add router…".
+      if(r.indexOf('WIFICFG;STORED;') === 0){ note('Saved on the car: ' + r.slice(15), true); return; }
+      if(r.indexOf('WIFICFG;') === 0){
+        var w = r.slice(8);
+        if(w.indexOf('ERROR;') === 0) w = w.slice(6);
+        note('Car refused: ' + w, false); return;
+      }
       // A whole router list rides REPLY= too; the 1 s JSON networks array is
       // what actually repaints the dropdown, so there is nothing to say.
     }
@@ -248,7 +255,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             if(Array.isArray(j.networks)){
               var sel=document.getElementById('r');
               if(sel){
-                var sig=j.networks.join('\u001f');
+                // U-92: the joined network rides in the signature too, so a
+                // switch repaints the list even though the saved names are
+                // unchanged.
+                var sig=j.networks.join('\u001f') + '\u001f' + (j.ssid || '');
                 if(sig!==lastNetSig && document.activeElement!==sel){
                   lastNetSig=sig;
                   while(sel.options.length>1) sel.remove(1);
@@ -268,6 +278,13 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                   var add=document.createElement('option');
                   add.value='__add__'; add.text='＋ Add router…';
                   sel.add(add);
+                  // U-92 (owner: *"webpage doesnt show the router name but
+                  // shows select router"*): the placeholder DISPLAYS the
+                  // network the car reports it is on - car truth, never an
+                  // asserted request (F-57).
+                  if(sel.options.length > 0){
+                    sel.options[0].text = j.ssid ? ('Now on: ' + j.ssid) : '— Select router —';
+                  }
                 }
               }
             }

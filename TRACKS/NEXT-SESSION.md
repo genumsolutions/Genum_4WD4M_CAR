@@ -1,4 +1,44 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-04: U-90 stuck-router fix + selectable modes; firmware 1.0.4)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-04: U-92 own-hotspot fix; firmware 1.0.5)
+
+**U-92 (2026-10-04) - THE OWN HOTSPOT: A DOUBLE ENTRY, A "SWITCH" THAT NEVER LEFT, AND A HIDDEN
+JOIN-YOUR-OWN-BEACON TRAP.** Owner: *"webpage has double entry of esps own hotspot please remove
+that too"* · *"through the webpage the router is not switching to the esp own hotspot"* ·
+*"says, car switched to 4wdcar_wifi but doent switch that one, but switches to other router
+fine"* · *"webpage doesnt show the router name but shows select router"* · *"check the app also
+for same problem"*.
+
+1. **THE DOUBLE ENTRY — the Reserved guards never actually guarded.** The checks compared the
+   WHOLE unterminated command field (`strcasecmp(ssid, WIFI_AP_NAME)` where `ssid` still carried
+   `;<password>`), so any ADD/USE/WIFICFG with a password after the name BYPASSED the refusal
+   and 4WDCar_Wifi entered the saved registry — and `loadSavedRouters()`'s boot promotion then
+   copied the poisoned active pair in and persisted it. Now field-bounded everywhere (ADD, USE
+   saved-match + add-path, WIFICFG gets a guard it never had), the poisoned rows are PURGED at
+   load (NVS rewritten, logged) and the promotion refuses the own name — an already-poisoned
+   car heals itself on first boot, no owner action.
+2. **THE "SWITCH" THAT NEVER LEFT.** The T-66 own-hotspot return answered `ROUTERS;USED;
+   4WDCar_Wifi` and then armed NOTHING — `pendingRejoin_` keys on `hasStoredWifi_`, which the
+   branch had just cleared, so `REJOIN_STEP_BEGIN` early-returned with zero radio work and the
+   car stayed on the router ("switches to other router fine" — those have a stored target).
+   Now the `!hasStoredWifi_` BEGIN case hands off to the existing one-call-per-pass teardown
+   (disconnect → `WiFi.mode(WIFI_AP)` → startOwnAP) — the sequence the give-up path already
+   proved on hardware — and the serial line says which of the two paths ran. The CLEAR path
+   (T-62) inherits the same fix.
+3. **THE HIDDEN TRAP.** Unguarded `WIFICFG;4WDCar_Wifi;<pass>` stored the AP as the ACTIVE pair:
+   boot auto-join then tried to associate the car with its OWN beacon. `loadStoredWifi()` now
+   refuses + erases it; WIFICFG refuses it outright.
+4. **WEBPAGE (WebPage.h):** the router dropdown's placeholder DISPLAYS the car's current
+   network (`Now on: <ssid>` — car truth, F-57: never an asserted request; the joined SSID rides
+   the rebuild signature), and the page finally parses `WIFICFG;STORED;<ssid>` — it used to look
+   for `WIFICFG;OK;`, a reply the car has never sent, so "Add router…" saves were never
+   confirmed.
+5. **APP CHECK (owner asked):** no app change needed — `routerList.ts` already dedupes by name
+   ("the user must not see two rows that are one router") and `switchableRouters()` excludes the
+   own AP; the app's hotspot switch sends the same `ROUTERS;USE` this round fixes, and the
+   U-80 phone-switch prompt fires on the USED answer as before. The car-side fixes serve the
+   app automatically.
+6. **Verified:** page-js gate ALL STAGES PASS; xtensa -fsyntax-only CLEAN (WebServerComm /
+   BluetoothComm / ModeManager). **Firmware 1.0.5.** Device rows U-92-1..4 (below) — all
+   unticked; the car was not on the bench network this session.
 
 **U-90 (2026-10-04) - THE CAR WAS STUCK ON ONE ROUTER, AND EVERY LATER "SWITCH" WAS A LIE.**
 Owner: *"the car seems stuck on one router and doesnt connect even if on same network"* ·

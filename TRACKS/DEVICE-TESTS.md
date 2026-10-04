@@ -3,6 +3,33 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## U-92 round — own-hotspot: double entry gone, the return actually returns (2026-10-04, firmware 1.0.5 — DEVICE VERIFY PENDING)
+
+> Owner: _"webpage has double entry of esps own hotspot please remove that too"_ · _"through
+> the webpage the router is not switching to the esp own hotspot"_ · _"says, car switched to
+> 4wdcar_wifi but doent switch that one, but switches to other router fine"_ · _"webpage doesnt
+> show the router name but shows select router"_. **Flash 1.0.5 first** — the poisoned registry
+> row heals itself at the first boot (watch for the `[ROUTERS] removed the car's own hotspot`
+> line).
+
+- [ ] **U-92-1 — the double entry is gone.** After flashing 1.0.5, the router dropdown (webpage)
+      and the app list show the car's hotspot EXACTLY ONCE. If the registry was poisoned, the
+      serial prints `[ROUTERS] removed the car's own hotspot from the saved list (U-92)` at
+      boot.
+- [ ] **U-92-1b — switching away still works (U-90 regression re-check).** After the guard
+      rewrite (ADD/USE with a password now refuse the own name; every ordinary router name still
+      adds/switches normally).
+- [ ] **U-92-2 — "back to my own hotspot" actually returns.** Car on router X (phone on X):
+      pick 4WDCar_Wifi from the dropdown → one `REPLY=ROUTERS;USED;4WDCar_Wifi`, then serial
+      `[RADIO] rejoin/...` steps ending in **`WiFi STA left the router - back on the car's own
+      hotspot`** — the car is genuinely AP-only and the phone must rejoin 4WDCar_Wifi to follow.
+- [ ] **U-92-3 — the placeholder shows the truth.** The dropdown's first row reads
+      `Now on: <network>` and follows every switch (own hotspot ↔ router); it is never a stale
+      static "Select router".
+- [ ] **U-92-4 — refusals hold.** `ROUTERS;ADD;4WDCar_Wifi;x` → one `ROUTERS;ERROR;Reserved`;
+      `WIFICFG;4WDCar_Wifi;x` → one `WIFICFG;ERROR;Reserved`; a save via "Add router…" now
+      shows `Saved on the car: <ssid>` (the STORED reply is parsed at last).
+
 ## U-90 round — stuck-router fix + selectable coming-soon modes (2026-10-04, firmware 1.0.4 — DEVICE VERIFY PENDING)
 
 > Owner: _"the car seems stuck on one router and doesnt connect even if on same network"_ ·

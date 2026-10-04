@@ -88,6 +88,14 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;SSID length");
     } else if (strlen(pass) > 64) {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Password too long");
+    } else if (ssidLen == strlen(WIFI_AP_NAME) &&
+               strncasecmp(ssid, WIFI_AP_NAME, ssidLen) == 0) {
+      // U-92 (owner: *"webpage has double entry of esps own hotspot"*): the
+      // car's own hotspot is not a router to join. This branch had NO guard
+      // at all — storing the AP as the ACTIVE pair made the car try to
+      // associate with its OWN beacon, and the boot promotion then copied
+      // the name into the saved registry (the double entry).
+      snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Reserved");
     } else {
       strncpy(storedSsid_, ssid, ssidLen);
       storedSsid_[ssidLen] = '\0';
@@ -135,11 +143,25 @@ void WebServerComm::loadStoredWifi() {
   prefs.end();
   lastGoodSsid_[ROUTER_SSID_LEN - 1] = '\0';
   lastGoodPass_[ROUTER_PASS_LEN - 1] = '\0';
-  if (ssid.length() > 0 && ssid.length() <= 32) {
+  if (ssid.length() > 0 && ssid.length() <= 32 &&
+      strcasecmp(ssid.c_str(), WIFI_AP_NAME) != 0) {
     ssid.toCharArray(storedSsid_, sizeof(storedSsid_));
     pass.toCharArray(storedPass_, sizeof(storedPass_));
     hasStoredWifi_ = true;
   } else {
+    if (ssid.length() > 0) {
+      // U-92: a stored ACTIVE pair named like the car's own hotspot (the
+      // unguarded WIFICFG path) would make boot auto-join try to associate
+      // with the car's OWN beacon. Drop it and erase the NVS keys so the
+      // poison cannot survive a reboot.
+      Preferences wprefs;
+      wprefs.begin("botcfg", false);
+      wprefs.remove("wifi_ssid");
+      wprefs.remove("wifi_pass");
+      wprefs.end();
+      Serial.println(
+          "[WIFICFG] removed the car's own hotspot from the stored pair (U-92)");
+    }
     hasStoredWifi_ = false;
     storedSsid_[0] = '\0';
     storedPass_[0] = '\0';
@@ -174,9 +196,56 @@ void WebServerComm::loadSavedRouters() {
     p.toCharArray(savedRouterPass_[i], ROUTER_PASS_LEN);
     ++savedRouterCount_;
   }
+  // U-92: a registry row named like the car's OWN hotspot is poison — it got
+  // in through the unguarded WIFICFG/ADD paths (their Reserved checks compared
+  // the whole unterminated field, so a password after the name bypassed them)
+  // and the promotion below then copied the active pair in. The owner's
+  // "double entry of esp's own hotspot". Purge at load and rewrite NVS so an
+  // already-poisoned car heals itself without owner action.
+  {
+    int w = 0;
+    bool purged = false;
+    for (int r = 0; r < savedRouterCount_; ++r) {
+      if (strcasecmp(savedRouterSsid_[r], WIFI_AP_NAME) == 0) {
+        purged = true;
+        continue;
+      }
+      if (w != r) {
+        strcpy(savedRouterSsid_[w], savedRouterSsid_[r]);
+        strcpy(savedRouterPass_[w], savedRouterPass_[r]);
+      }
+      ++w;
+    }
+    if (purged) {
+      for (int i = w; i < savedRouterCount_; ++i) {
+        savedRouterSsid_[i][0] = '\0';
+        savedRouterPass_[i][0] = '\0';
+      }
+      savedRouterCount_ = w;
+      Preferences wprefs;
+      wprefs.begin("botcfg", false);
+      for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
+        static const char* sKeys[] = { "rnet0s", "rnet1s", "rnet2s", "rnet3s", "rnet4s", "rnet5s" };
+        static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
+        if (i < savedRouterCount_) {
+          wprefs.putString(sKeys[i], savedRouterSsid_[i]);
+          wprefs.putString(pKeys[i], savedRouterPass_[i]);
+        } else {
+          wprefs.remove(sKeys[i]);
+          wprefs.remove(pKeys[i]);
+        }
+      }
+      wprefs.end();
+      Serial.println(
+          "[ROUTERS] removed the car's own hotspot from the saved list (U-92)");
+    }
+  }
   // Promote the stored active pair (wifi_ssid) up front so the connected
   // router always appears in the saved list even after a WIFICFG-only setup.
-  if (hasStoredWifi_ && storedSsid_[0]) {
+  // U-92: never promote the car's own hotspot — that is the other half of the
+  // double-entry mechanism.
+  if (hasStoredWifi_ && storedSsid_[0] &&
+      strcasecmp(storedSsid_, WIFI_AP_NAME) != 0) {
     bool found = false;
     for (int i = 0; i < savedRouterCount_; ++i) {
       if (strcmp(savedRouterSsid_[i], storedSsid_) == 0) { found = true; break; }
@@ -228,8 +297,11 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     size_t ssidLen = semi ? static_cast<size_t>(semi - ssid) : strlen(ssid);
     if (ssidLen == 0 || ssidLen >= ROUTER_SSID_LEN) {
       snprintf(reply, sizeof(reply), "ROUTERS;ERROR;SSID length");
-    } else if (strcasecmp(ssid, WIFI_AP_NAME) == 0) {
-      // T-66: the car's own network is not a router you add to the list.
+    } else if (ssidLen == strlen(WIFI_AP_NAME) &&
+               strncasecmp(ssid, WIFI_AP_NAME, ssidLen) == 0) {
+      // T-66/U-92: the car's own network is not a router you add to the list.
+      // The old check compared the WHOLE unterminated field, so a password
+      // after the name bypassed it and the hotspot entered the registry.
       snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Reserved");
     } else if (strlen(pass) >= ROUTER_PASS_LEN) {
       snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Password too long");
@@ -260,7 +332,18 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     }
   } else if (rest[0] == ';' && strncasecmp(rest, ";USE;", 5) == 0) {
     const char* ssid = rest + 5;
-    if (strcasecmp(ssid, WIFI_AP_NAME) == 0) {
+    // U-92: bound the ssid field FIRST. `ssid` points into the raw command
+    // line and still carries ";<password>" — every comparison below used to
+    // run against the WHOLE remainder, so the saved-router match never
+    // matched and the Reserved guard was bypassed whenever a password
+    // followed the name.
+    const char* semi = strchr(ssid, ';');
+    const char* pass = semi ? semi + 1 : "";
+    size_t ssidLen = semi ? static_cast<size_t>(semi - ssid) : strlen(ssid);
+    const bool isOwnApName =
+        (ssidLen == strlen(WIFI_AP_NAME) &&
+         strncasecmp(ssid, WIFI_AP_NAME, ssidLen) == 0);
+    if (isOwnApName) {
       // T-66: "USE 4WDCar_Wifi" = switch back to the car's own network
       // (nothing stored → rejoin to the own AP as the default).
       hasStoredWifi_ = false;
@@ -276,9 +359,11 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
       else updateExtraInfo();
     } else {
       // First check if the ssid is already in the saved routers list
+      // (U-92: field-bounded — see the note at the top of this branch).
       int slot = -1;
       for (int i = 0; i < savedRouterCount_; ++i) {
-        if (strcmp(savedRouterSsid_[i], ssid) == 0) { slot = i; break; }
+        if (strlen(savedRouterSsid_[i]) == ssidLen &&
+            strncasecmp(savedRouterSsid_[i], ssid, ssidLen) == 0) { slot = i; break; }
       }
       if (slot >= 0) {
         // Switch the ACTIVE pair to this saved router (the car holds its pass).
@@ -299,15 +384,16 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
         else updateExtraInfo();
       } else {
         // ssid not in saved list — attempt to add it temporarily then switch
-        const char* semi = strchr(ssid, ';');
-        const char* pass = semi ? semi + 1 : "";
-        size_t ssidLen = semi ? static_cast<size_t>(semi - ssid) : strlen(ssid);
+        // (U-92: semi/pass/ssidLen/isOwnApName are computed at the top of
+        // this branch now, field-bounded.)
         if (ssidLen == 0 || ssidLen >= ROUTER_SSID_LEN) {
           snprintf(reply, sizeof(reply), "ROUTERS;ERROR;SSID length");
         } else if (strlen(pass) >= ROUTER_PASS_LEN) {
           snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Password too long");
-        } else if (strcasecmp(ssid, WIFI_AP_NAME) == 0) {
-          // T-66: the car's own network is protected — cannot be added to saved list
+        } else if (isOwnApName) {
+          // T-66/U-92: the car's own network is protected — it can never be
+          // added to the saved list (the old check compared the WHOLE
+          // unterminated field, so a password after the name bypassed it).
           snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Reserved");
         } else {
           // Attempt to add this router to the saved list
@@ -1012,7 +1098,14 @@ void WebServerComm::giveUpStepMachine() {
       // the next association would skip the grace period.
       apParked_ = false;
       giveUpStep_ = GIVEUP_IDLE;
-      Serial.println("WiFi STA gave up (router unreachable) - AP-only mode");
+      // U-92: one sequence now serves two masters — the failed-join give-up
+      // AND the deliberate "back to my own hotspot" return (T-66). Say which.
+      if (hasStoredWifi_) {
+        Serial.println("WiFi STA gave up (router unreachable) - AP-only mode");
+      } else {
+        Serial.println(
+            "WiFi STA left the router - back on the car's own hotspot");
+      }
       updateExtraInfo();
       if (modeManager) modeManager->sendState();
       return;
@@ -1128,6 +1221,17 @@ void WebServerComm::advanceRejoinStep() {
       if (!hasStoredWifi_) {
         connectingPending_ = false;
         startedAsAP = true;
+        // U-92 (owner: *"says, car switched to 4wdcar_wifi but doent switch
+        // that one, but switches to other router fine"*): "back to my own
+        // hotspot" used to stop HERE — rejoinNetwork() armed nothing
+        // (pendingRejoin_ keys on hasStoredWifi_, which T-66 had just
+        // cleared), so the car ANSWERED `ROUTERS;USED;4WDCar_Wifi` and then
+        // simply stayed associated to the router. There is no target to
+        // begin(), but there IS an association to LEAVE: hand off to the
+        // existing one-call-per-pass teardown (disconnect → mode(WIFI_AP) →
+        // startOwnAP) — the exact sequence the give-up path already proved
+        // on hardware.
+        giveUpStep_ = GIVEUP_DISCONNECT;
         updateExtraInfo();
         return;
       }
