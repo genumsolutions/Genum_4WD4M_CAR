@@ -633,3 +633,52 @@ if (bad) {
   console.error(`\n${bad} check(s) FAILED`);
   process.exit(1);
 }
+// ---- 9. one WS command must produce exactly ONE answer --------------------
+//
+// U-88: the WebSocket handler dispatched each line immediately AND queued it, so
+// every Wi-Fi command ran twice. Invisible for ADD, destructive for the rest - a
+// delete answered DELETED and then "ERROR;Not saved" for the SAME user action,
+// which is what made add / edit / delete / switch look broken in the app.
+const wsc = fs.readFileSync(path.join(here, "..", "WebServerComm.cpp"), "utf8");
+const wsFn = /void WebServerComm::handleWebSocketEvent\([\s\S]*?\n\}/.exec(wsc);
+if (!wsFn) {
+  console.error("FAIL: handleWebSocketEvent is missing from WebServerComm.cpp");
+  process.exit(1);
+}
+// Only lines that are not comments count. The U-88 explanation quotes the old
+// handleCommand() call, and the file is CRLF, so a regex strip proved fragile;
+// "trimmed line starts with //" says exactly what it means.
+const codeLines = wsFn[0]
+  .split("\n")
+  .map((l) => l.trim())
+  .filter((l) => l.length > 0 && !l.startsWith("//"));
+
+const dispatches = codeLines.filter((l) => l.includes("handleCommand(")).length;
+const queues = codeLines.filter((l) => l.includes("queuePush(")).length;
+
+if (dispatches !== 0) {
+  console.error(
+    `FAIL: the WebSocket path calls handleCommand() ${dispatches} time(s) AND ` +
+      `queues the line, so the command runs twice - a delete answers DELETED ` +
+      `and then ERROR;Not saved for one user action`,
+  );
+  bad++;
+}
+if (queues !== 1) {
+  console.error(
+    `FAIL: the WebSocket path queues the line ${queues} time(s); T-1's single ` +
+      `command path needs exactly one, or nothing would run at all`,
+  );
+  bad++;
+}
+if (!bad) {
+  console.log(
+    "PASS: a WebSocket command is queued once and dispatched once, so it " +
+      "produces exactly one answer",
+  );
+}
+
+if (bad) {
+  console.error(`\n${bad} check(s) FAILED`);
+  process.exit(1);
+}

@@ -1728,10 +1728,37 @@ void WebServerComm::handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * p
     while (mlen > 0 && (msg[mlen - 1] == '\n' || msg[mlen - 1] == '\r')) {
       msg[--mlen] = '\0';
     }
-    if (mlen == 0) return;
-    // 2026-09-15: WS is the WIRE transport — the drive gate scopes BT with
-    // acceptsBtDrive, so webserver-mode drive must not fall under that rule.
-    if (modeManager) modeManager->handleCommand(msg, ModeManager::CmdSource::WIRE);
+if (mlen == 0) return;
+    // U-88 (owner: *"switching between the router is not working and the
+    // addition and editing and deleting of the router is not properly built"*).
+    //
+    // This handler used to do BOTH of these:
+    //
+    //     modeManager->handleCommand(msg, CmdSource::WIRE);   // immediate
+    //     queuePush(msg);                                      // and again
+    //
+    // so every Wi-Fi command ran TWICE. The duplicate is invisible for ADD
+    // (the second pass finds the same slot and re-saves the same values) but
+    // it is destructive for the others, because the second pass sees state the
+    // first pass already changed:
+    //
+    //   DEL   -> "ROUTERS;DELETED;<ssid>"  then  "ROUTERS;ERROR;Not saved:<ssid>"
+    //   CLEAR -> "ROUTERS;CLEARED"          then  "ROUTERS;CLEARED" again
+    //   USE   -> two full rejoin sequences
+    //
+    // Both answers ride the same `REPLY=` slot of two consecutive STATE lines,
+    // and the app is entitled to treat the SECOND one as the outcome of the
+    // user's action. So a delete that worked reported a failure, and a switch
+    // drove the radio twice. Measured on the car before this fix:
+    //
+    //   > ROUTERS;DEL;_probe1
+    //   REPLY=ROUTERS;DELETED;_probe1
+    //   REPLY=ROUTERS;ERROR;Not saved:_probe1
+    //
+    // T-1 is explicit that there is ONE command path: lines are queued and
+    // dispatched by ModeManager::run(). So the immediate call is the wrong one
+    // and queuePush alone is correct - the command still runs on the next loop
+    // pass, which is imperceptible.
     queuePush(msg);
     // F-22/F-23: state requests get a live status broadcast on the WS channel.
     if (strncasecmp(msg, "REQ_STATE", 9) == 0) {
