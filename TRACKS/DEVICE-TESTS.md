@@ -3,6 +3,37 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first â€” EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands â†’ app-first for round 1.
 
+## U-87 / U-88 round â€” beacon parks only while in use, one answer per command (2026-10-03, `5dddd5a` + `5e04df7` â€” DEVICE VERIFY PENDING)
+
+> Owner: _"the esp's own router seems to be active for the connection even when the car is working
+> with another external route â€¦ save power and energy as much as you can"_ Â· _"switching between
+> the router is not working and the addition and editing and deleting of the router is not
+> properly built in the app"_. Flash `5e04df7` (huge_app, upload.speed=115200) unless the bench
+> flash from the U-88 verification is still installed. Backfilled 2026-10-04 from the commit
+> bodies.
+
+- [ ] **U-88-1 â€” one command, one answer (the headline).** From the webpage console: add a
+      router â†’ exactly ONE `ROUTERS;ADDED;<ssid>`; delete it â†’ exactly ONE
+      `ROUTERS;DELETED;<ssid>`; delete it again â†’ exactly ONE `ROUTERS;ERROR;Not saved:<ssid>`.
+      Before U-88 every Wi-Fi command ran twice â€” a delete that WORKED reported a failure. (The
+      U-88 bench measured all of these at one answer each; re-confirm on your flash.)
+- [ ] **U-88-2 â€” one switch, one rejoin.** `ROUTERS;USE` on a saved router drives the radio
+      through exactly ONE rejoin sequence and reports `ROUTERS;USED;<ssid>` once (it used to
+      drive two full rejoins â€” and USE also drove the app's router-switch prompt from U-80).
+- [ ] **U-87-1 â€” idle: the beacon is up.** Car joined to a router, NO client anywhere:
+      serial `Own AP active: 4WDCar_Wifi`, no `[POWER] â€¦ parked` line, and 4WDCar_Wifi visible in
+      a phone scan. (Bench-proven after the U-87 correction; here for the owner's eyes.)
+- [ ] **U-87-2 â€” in use: the beacon parks.** A client connected over WiFi for >20 s:
+      serial `[POWER] router up - car hotspot beacon parked`, and the page KEEPS serving on the
+      router's address (it is a beacon, not the web server). **STILL UNVERIFIED ON HARDWARE** â€”
+      the bench could never reach the network the car's router was on.
+- [ ] **U-87-3 â€” drop: the beacon comes straight back.** Disconnect the last client (or lose the
+      router association entirely): 4WDCar_Wifi returns on its own. There must be NO state where
+      the car believes the beacon is down while it is up, and no state with no way in.
+- [ ] **U-87-4 â€” the first U-87 stays dead.** Boot the car onto a router the phone is NOT on,
+      with no client: the beacon must STAY UP (idle = reachable, always). The pre-correction
+      U-87 parked it here and the car became unreachable â€” this row is the regression net.
+
 ## U-79 round â€” webserver mode gone, transport power policy, page fixes (2026-10-03, `abb7297`, CI âœ“)
 
 > Flash `abb7297` (huge_app) FIRST. The app side needs the U-80 OTA (d97d6f1): force-close +
@@ -497,7 +528,7 @@ that is evidence the encoding is indirect, not evidence the code is missing.
 
 ---
 
-## Bench run 2026-10-03 — car flashed, U-81 root cause verified on the device
+## Bench run 2026-10-03 ï¿½ car flashed, U-81 root cause verified on the device
 
 Hardware: ESP32-D0WDQ6 rev 1.1, MAC `08:b6:1f:98:2f:f4`, CH340 on **COM8**, 4 MB flash.
 Built `esp32:esp32:esp32:PartitionScheme=huge_app` with core **3.3.11** (the CI pin).
@@ -514,22 +545,22 @@ app0+app1 OTA table and the huge_app table, so nothing was lost:
 `[BOOT] Restored mode=4WD4M`, `[BOOT] Restored speed=230`,
 `will try last-good router "nijandangal_2.4"`. A backup was taken before flashing.
 
-Automated over `ws://192.168.1.100:81/` — **12/12 passed**:
+Automated over `ws://192.168.1.100:81/` ï¿½ **12/12 passed**:
 
 | row | check | result |
 |---|---|---|
-| U81-1 | `CAPS;` frame arrives over WiFi | PASS — `CAPS;4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS` |
-| U81-2 | `STATE;` frame arrives over WiFi | PASS — `STATE;MODE=4WD4M;SPD=230;TRIM=0;STATUS=Stopped;SSID=nijandangal_2.4;…` |
-| U81-3 | saved routers listed | PASS — `NETW;4WDCar_Wifi;Esp;nijandangal_2.4` |
-| U81-4 | telemetry JSON complete | PASS — `mode=4WD4M spd=230 rssi=-57 ip=192.168.1.100` |
-| F-62 | refuses a mode this car dropped | PASS — `NACK;E=UNKNOWN_MODE;ARG=ESP_SER` |
-| F-62 | refuses an unknown command | PASS — `NACK;E=UNKNOWN_MODE;ARG=NOT_A_COMMAND` |
-| U82-1 | `MODE_PATH` switches the car | PASS — mode became `PATH` |
-| U82-1 | bare `PATH` switches the car | PASS — mode became `PATH` |
+| U81-1 | `CAPS;` frame arrives over WiFi | PASS ï¿½ `CAPS;4WD4M:LIVE;PATH:CS;OBS_US:CS;OBS_IR:CS;MAN:CS;AUTO:CS;2WD1M:CS` |
+| U81-2 | `STATE;` frame arrives over WiFi | PASS ï¿½ `STATE;MODE=4WD4M;SPD=230;TRIM=0;STATUS=Stopped;SSID=nijandangal_2.4;ï¿½` |
+| U81-3 | saved routers listed | PASS ï¿½ `NETW;4WDCar_Wifi;Esp;nijandangal_2.4` |
+| U81-4 | telemetry JSON complete | PASS ï¿½ `mode=4WD4M spd=230 rssi=-57 ip=192.168.1.100` |
+| F-62 | refuses a mode this car dropped | PASS ï¿½ `NACK;E=UNKNOWN_MODE;ARG=ESP_SER` |
+| F-62 | refuses an unknown command | PASS ï¿½ `NACK;E=UNKNOWN_MODE;ARG=NOT_A_COMMAND` |
+| U82-1 | `MODE_PATH` switches the car | PASS ï¿½ mode became `PATH` |
+| U82-1 | bare `PATH` switches the car | PASS ï¿½ mode became `PATH` |
 | U82-1 | `4WD4M` switches the car | PASS |
-| U82-2 | speed command honoured | PASS — `speed=150` |
-| U81-8 | drive commands accepted, no wedge | PASS — 15 frames still flowing after F/S/B/S |
-| — | car restored to `4WD4M`, speed 230 | PASS |
+| U82-2 | speed command honoured | PASS ï¿½ `speed=150` |
+| U81-8 | drive commands accepted, no wedge | PASS ï¿½ 15 frames still flowing after F/S/B/S |
+| ï¿½ | car restored to `4WD4M`, speed 230 | PASS |
 
 U81-1 is the one that mattered: it is the root cause. Before the fix the car returned **nothing**
 over WiFi. These frames are the proof the sink is gone.
@@ -538,17 +569,17 @@ Root page over HTTP: **25,116 bytes, HTTP 200**, containing `handleTextLine`, `R
 all four U-83 markers (`lastCapsSig`, both conditional writes, the open-guard). So the page served
 by the car is the page in this repo.
 
-### Still NOT verified — needs a human
+### Still NOT verified ï¿½ needs a human
 
 Do not read the table above as U-81 being closed. These need eyes or hardware this bench lacks:
 
-- [ ] U81-5 / U81-6 — **Bluetooth SPP.** Needs a paired phone. The `auxComm_` NACK fan-out is the
+- [ ] U81-5 / U81-6 ï¿½ **Bluetooth SPP.** Needs a paired phone. The `auxComm_` NACK fan-out is the
       untested half of the U-81 change.
-- [ ] U81-7 — a refused mode must be *visible* in the page, in the error colour.
-- [ ] U81-9 — **watchdog**: load the page repeatedly, confirm no reboot.
-- [ ] U81-10 — **old-car regression.** Needs a second, pre-U-79 car.
-- [ ] U81-11 — 100-command burst over WS (T8).
-- [ ] U82-4 — the mode dropdown **visually**: no flicker, rows usable. The tokens are proven; the
+- [ ] U81-7 ï¿½ a refused mode must be *visible* in the page, in the error colour.
+- [ ] U81-9 ï¿½ **watchdog**: load the page repeatedly, confirm no reboot.
+- [ ] U81-10 ï¿½ **old-car regression.** Needs a second, pre-U-79 car.
+- [ ] U81-11 ï¿½ 100-command burst over WS (T8).
+- [ ] U82-4 ï¿½ the mode dropdown **visually**: no flicker, rows usable. The tokens are proven; the
       feel is not. This is the row that matters most for the original complaint.
 - [ ] OLED rendering and the physical buttons/joystick.
 
@@ -557,14 +588,14 @@ Do not read the table above as U-81 being closed. These need eyes or hardware th
 - `arduino-cli upload` **fails at the default 921600 baud** on this CH340 with
   `Unable to verify flash chip connection`. Use `--upload-property "upload.speed=115200"`.
 - The Arduino IDE on this machine has core **3.3.12**; CI pins **3.3.11**. Built with 3.3.11 here.
-- The car's WiFi join takes **60–90 s** after boot. The log stops at `[RADIO] defer-mdns/sta-busy`
-  and prints nothing further — the car is simply not on the network yet. Ports 80/81 refuse
+- The car's WiFi join takes **60ï¿½90 s** after boot. The log stops at `[RADIO] defer-mdns/sta-busy`
+  and prints nothing further ï¿½ the car is simply not on the network yet. Ports 80/81 refuse
   connections until it is. Do not reset in a loop waiting for it.
 - Never flash `*.merged.bin` at 0x0: it includes the NVS region and would wipe the saved routers
   and credentials. Use `arduino-cli upload`, or `write_flash` of bootloader/partitions/app only.
 ---
 
-## Bench run 2026-10-03 (second pass) — U-87 parking proven on hardware
+## Bench run 2026-10-03 (second pass) ï¿½ U-87 parking proven on hardware
 
 Car flashed with `5dddd5a` and confirmed by reading the app partition back off the
 hardware and hashing it (`1CD8F39B...5214` both sides). Joined `nijandangal_2.4`.
@@ -579,38 +610,38 @@ hardware and hashing it (`1CD8F39B...5214` both sides). Joined `nijandangal_2.4`
 That is the whole property: 20 s after a client connects the beacon goes down,
 and the moment the last client leaves it comes back. **U-87-1 through U87-4 PASS.**
 
-The page kept working throughout the park — HTTP 200, 25,116 bytes, with
+The page kept working throughout the park ï¿½ HTTP 200, 25,116 bytes, with
 `handleTextLine` and all three U-83 markers present. Parking is a beacon, not the
 web server.
 
 **U-81 device suite: 12/12.** Two rows first failed and BOTH were harness faults,
-not car faults — re-checked one variable at a time and the car was correct:
+not car faults ï¿½ re-checked one variable at a time and the car was correct:
 
 | row | first run | re-check |
 |---|---|---|
-| F-62 refuses unknown command | FAIL | 2x `NACK;E=UNKNOWN_MODE;ARG=NOT_A_COMMAND`, both attempts — the 2.5 s capture window was too short |
-| U82-1 `MODE_PATH` -> PATH | FAIL | mode became `PATH`, 0 NACKs, stable across 3 reads — the read caught the pre-change broadcast |
+| F-62 refuses unknown command | FAIL | 2x `NACK;E=UNKNOWN_MODE;ARG=NOT_A_COMMAND`, both attempts ï¿½ the 2.5 s capture window was too short |
+| U82-1 `MODE_PATH` -> PATH | FAIL | mode became `PATH`, 0 NACKs, stable across 3 reads ï¿½ the read caught the pre-change broadcast |
 
 The suite now double-reads after every switch and gives refusals a 4.5 s window.
 
 ### Still needs the owner (cannot be automated here)
 
-- [ ] **U87-5** — confirm `4WDCar_Wifi` actually disappears from a PHONE's Wi-Fi
+- [ ] **U87-5** ï¿½ confirm `4WDCar_Wifi` actually disappears from a PHONE's Wi-Fi
       list while parked and reappears after. The car says it did; only a radio can
       confirm the beacon is really gone from the air.
-- [ ] **U81-5/6** — Bluetooth SPP: a refused mode must be visible on the phone.
+- [ ] **U81-5/6** ï¿½ Bluetooth SPP: a refused mode must be visible on the phone.
       This is the untested half of U-81 (the `auxComm_` fan-out).
-- [ ] **U81-7** — a refused mode visible on the WEB page in the error colour.
-- [ ] **U81-9** — watchdog: reload the page repeatedly, confirm no reboot.
-- [ ] **U81-10** — old-car regression (needs a pre-U-79 car).
-- [ ] **U81-11** — 100-command burst over WS.
-- [ ] **U82-4** — the mode dropdown **visually**: no flicker, rows usable.
-- [ ] **U86 rows** — the app's one-list Wi-Fi panel, the hotspot row being
+- [ ] **U81-7** ï¿½ a refused mode visible on the WEB page in the error colour.
+- [ ] **U81-9** ï¿½ watchdog: reload the page repeatedly, confirm no reboot.
+- [ ] **U81-10** ï¿½ old-car regression (needs a pre-U-79 car).
+- [ ] **U81-11** ï¿½ 100-command burst over WS.
+- [ ] **U82-4** ï¿½ the mode dropdown **visually**: no flicker, rows usable.
+- [ ] **U86 rows** ï¿½ the app's one-list Wi-Fi panel, the hotspot row being
       tappable, the fixed page header. Gates and CI are green; no human has seen it.
 - [ ] OLED rendering, physical buttons/joystick.
 
 ### Monitor
 
 `monitor_car.py <port> [seconds]` decodes the serial console and tags the lines
-that matter. Use it in one terminal while doing something to the car in another —
+that matter. Use it in one terminal while doing something to the car in another ï¿½
 it is how the table above was captured.

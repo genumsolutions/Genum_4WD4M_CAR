@@ -1,9 +1,33 @@
-**U-79 (2026-10-03) - THE WEBSERVER MODE IS GONE + TRANSPORT POWER POLICY. Owner: *"remove the
-webserver mode of the car totally ... the car doesnt have the double setup for the wifi setup"* ·
-*"all the networks at one place ... the default hotspot is the last option"* · *"broadcast both
-bluetooth and the wifi until user selects one and turn off the other to save power ... if one
-method is connected utilize things with the car"*. Owner questions answered: tokens removed
-FULLY (not hidden); boot = last-used transport; app discovery = automatic (app repo).
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-04: one command one answer, beacon parked only while in use; firmware 1.0.3)
+
+**U-87 / U-88 (2026-10-03, backfilled 2026-10-04) - RECOVERED FROM THE COMMIT BODIES
+(`0fdb1d1` + `5dddd5a` + `12c930c`, `5e04df7`).** This ledger was not written while the rounds
+happened; the git commits are the primary record.
+
+1. **U-87 (`0fdb1d1`, corrected in `5dddd5a`) — the setup beacon parks only while the car is IN
+   USE.** Owner asked whether the car's own hotspot staying active while it works on a router is
+   necessary. First version parked the beacon whenever the STA was connected — and made the car
+   UNREACHABLE on the very next bench boot (joined a router the bench was not on; no beacon, no
+   address, no way in). The mistake: "the car is on a router" does not mean "YOU can reach that
+   router". The corrected policy: `in use -> parked, idle -> up` — `inUse` is computed from
+   `ws.connectedClients()`, a connected client being proof the user is on the router already.
+   Bench-proven idle (beacon up at idle, restored the moment the last client leaves, page kept
+   serving through a park — it is a beacon, not the web server); parking WHILE a client is
+   connected is still unverified on hardware (the car sits on a network the bench cannot reach).
+   Never calls WiFi.mode() on this path — driver restart is the documented U-75 watchdog-cause.
+   T-65 narrowed, not reversed: during a switch the beacon is still up, which is when it matters.
+2. **U-88 (`5e04df7`) — one WebSocket command, one answer.** Owner: *"switching between the
+   router is not working and the addition and editing and deleting of the router is not properly
+   built in the app"*. Found by driving the real car: `ROUTERS;DEL` produced TWO answers
+   (`DELETED` then `ERROR;Not saved`) because `handleWebSocketEvent()` dispatched each line
+   immediately AND queued it — every Wi-Fi command ran twice (ADD looked fine because it is
+   idempotent; USE drove the radio through two full rejoins). T-1 is explicit: ONE command path,
+   lines are queued and dispatched by ModeManager::run(); the immediate call was removed.
+   Measured after, on the car: LIST/ADD/DEL/USE and even unknown commands answer exactly once
+   (the NACK count halving from 2 to 1 is the cleanest proof). U-81 device suite 12/12 after the
+   change. Gate stage 9 fails if the WS path ever calls handleCommand() again or stops queueing.
+   Verified with a throwaway SSID, removed afterwards; the owner's registry untouched.
+
 
 1. **THE "WEBPAGE CONTROLS STOPPED WORKING" MYSTERY — SOLVED BY THE OWNER'S OWN SERIAL LOG.**
    The U-77 breadcrumbs showed `[MODE] set 4WD4M -> ESP32(WEBSERVER)`: the page's mode dropdown
