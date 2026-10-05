@@ -1,4 +1,47 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-05: U-94 Phase 2 firmware written; firmware 1.1.0 NOT flashed)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-06: U-95 Phase 0 + Phase 1 pushed; firmware 1.2.0 NOT flashed; relay deployment BLOCKED by gate)
+**U-95 PHASE 0 AND PHASE 1 ARE WRITTEN AND PUSHED. FIRMWARE IS NOW `1.2.0` AND IS STILL NOT ON A
+CAR.** Everything below marked U-95 is source-level. The bench car is still running `1.0.5`. F-61.
+Commits, in order: `883626b` (crash record), `29b8eaf` (page-send budget + watchdog feed), `83ecf15`
+(idle attribution), `d78c27d` (relay guards + deployment interlock), `f73aded` (bench sheet). CI green
+on all five; no firmware has been flashed.
+
+**WHAT U-95 ACTUALLY FIXED, AND WHAT IT DID NOT.** The owner's report was "the car resets again and
+again" with no cause attached. U-95's first job was to make the resets *legible*, because the only
+reset diagnostic was a Serial line the bench car does not have, and `.trigger_panic = true` reported
+a hung `loop()` as `PANIC` instead of `TASK_WDT` — so the one label that would have named the cause
+was unreachable.
+
+- **Fixed — the confirmed reset cause (F-77, `29b8eaf`).** `serveRootBounded()` had a 6000 ms body
+  budget against a 5000 ms watchdog, so a client that stopped reading reset the car *every time*; and
+  on a zero-byte write the loop did `yield(); continue;` with no watchdog feed. Budget is now 3500 ms
+  with 1500 ms of headroom, tied to the watchdog by `static_assert`, and the stall path feeds and
+  waits a real `delay(1)` gap.
+- **Fixed — attribution (F-79, `883626b`, `83ecf15`).** Boot count, crash count, reset reason, boot
+  heap and the phase the car was executing now persist to NVS and surface on the OLED header, in
+  `/status` and in the page. The second commit fixed a real bug in the first: the write floor
+  rate-limited the *idle* transition too, so a parked-car crash was blamed on whatever the car last
+  did. The header had promised otherwise and no gate noticed.
+- **NOT fixed — and it now blocks U-94 deployment (F-84, `d78c27d`).** The relay TLS handshake runs
+  on the loop task with `handshake_timeout = 120000` (core default, `NetworkClientSecure.cpp:41`) and
+  the task watchdog measures wall-clock time, so the handshake's `vTaskDelay(2)` does not save it. A
+  host that completes TCP then stalls TLS resets the car for up to two minutes. It cannot be tuned
+  from here: `WebSocketsClient` keeps its `WiFiClientSecure` in a `protected` member, recreates it
+  every retry, and `WEBSOCKETS_TCP_TIMEOUT` is read inside the library's own translation unit, so
+  `#define`ing it in the sketch is a no-op. **The `armed-handshake` gate now FAILS THE BUILD for any
+  config that sets `RELAY_HOST`.** The real fix is moving the dial to its own FreeRTOS task, deferred
+  until the relay can be bench-tested against a live host. A TCP pre-flight was considered and
+  REJECTED: it cannot help, because the dangerous host is one that *accepts* the connection and then
+  stalls TLS.
+
+**THE PART THAT SHOULD MAKE THE NEXT PERSON HUMBLE.** Three gates written during U-95 could not have
+worked, and two of them printed `ok` while doing it (F-83). One counted `esp_task_wdt_reset()`
+occurrences in the raw file and reported four watchdog feeds for a loop with three — the fourth was
+the function's name inside the comment explaining the fix. One matched `next[0] != '\0'` against
+comment-stripped source, where `code()` blanks character literals, so it failed on the *fixed* tree.
+One used `indexOf("loadToken()")` and matched the word inside the comment explaining why the guard
+must precede `loadToken()`. Every new source rule now states which view of the file it reads, and is
+proven in both directions: revert the fix, confirm red, restore, confirm green. Green-only proves
+nothing.
 
 **U-94 PHASE 2 IS WRITTEN AND HAS NEVER BEEN ON A CAR.** `RelayComm` exists, the
 third `ModeManager` slot is wired, `RELAYCFG` provisions a token, and the gates are
