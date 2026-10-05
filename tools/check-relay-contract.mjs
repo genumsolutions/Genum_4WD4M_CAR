@@ -456,6 +456,39 @@ if (!clCode) {
   } else {
     pass("crash-record", "only POWERON/EXT/DEEPSLEEP/SW are treated as clean");
   }
+
+  // (d) Returning to idle must NOT be rate-limited. This rule exists because the
+  // bug it catches was real and completely invisible: CrashLog.h promised that
+  // the idle transition is always written, while the floor in crashLogPhase()
+  // applied to every change. A parked car that crashed within 30 s of its last
+  // real operation therefore kept naming that operation — so the record blamed
+  // "http-root" for a crash that had nothing to do with the page, which is
+  // precisely the confident-and-wrong answer this module was built to avoid.
+  // Every other gate stayed green through it.
+  //
+  // So the rule is not "the header says so" — it is checked against the
+  // CONDITION in the code, and it requires the exemption to be expressed as a
+  // test on the phase being empty. That way the guarantee cannot be quietly
+  // dropped and left behind in a comment.
+  // Deliberately the RAW file, not clCode. The test being checked is
+  // `next[0] != '\0'`, and code() blanks character literals — so against stripped
+  // source the guard reads `next[0] != '  '` and can never match. That mistake is
+  // the same one as counting a comment as evidence: the rule has to be written
+  // against the text it will actually be handed. Stripping comments here buys
+  // nothing anyway, since the floor line is code.
+  const phaseFnRaw = body(read("CrashLog.cpp"), "void crashLogPhase") ?? "";
+  if (!phaseFnRaw) {
+    fail("crash-record", "crashLogPhase() not found in CrashLog.cpp");
+  } else {
+    const floorLine = phaseFnRaw.split("\n").find((l) => l.includes("CRASHLOG_PHASE_MIN_MS") && l.includes("return")) ?? "";
+    if (!floorLine) {
+      fail("crash-record", "crashLogPhase() no longer rate-limits phase writes - check whether flash wear is now unbounded");
+    } else if (!/next\s*\[\s*0\s*\]\s*!=\s*'\\0'/.test(floorLine)) {
+      fail("crash-record", "the phase-write floor applies to the idle transition as well as real phases - a crash while parked will be attributed to whatever the car last did, which is the one wrong answer this record must not give");
+    } else {
+      pass("crash-record", "the idle transition bypasses the write floor, so a parked-car crash is not blamed on the last real operation");
+    }
+  }
 }
 
 // (d) Both status-JSON buffers must be the SAME size. These two drifted apart

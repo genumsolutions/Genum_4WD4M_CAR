@@ -152,10 +152,23 @@ void crashLogPhase(const char *phase) {
   s_livePhase[sizeof(s_livePhase) - 1] = '\0';
 
   const uint32_t now = millis();
-  // The FIRST write of a session is always allowed. Without this, a crash
-  // during the first 30 s of a boot could never record a non-idle phase,
+  // The floor applies to NON-EMPTY phases ONLY, and the distinction is the whole
+  // point of the module rather than a detail. CrashLog.h promises that returning
+  // to idle is always written, because a rate-limited idle transition leaves a
+  // parked-car crash reporting whatever it last did: the record says "died
+  // serving the root page" about a crash that had nothing to do with the page.
+  // That is the one failure this module exists to prevent, so it is the one
+  // write not allowed to be stale.
+  //
+  // It costs nothing, which is why the exemption is safe. This runs on a
+  // TRANSITION, not on a poll: an idle car calls this every loop with "", and the
+  // `strcmp(next, s_flashedPhase)` early-out above returns before flash on every
+  // one of those passes. Only the pass that actually changes state gets here.
+  //
+  // The FIRST non-empty write of a session is also always allowed. Without that,
+  // a crash during the first 30 s of a boot could never record a non-idle phase,
   // because millis() is small and the floor would swallow it.
-  if (s_phaseWriteSeen && (now - s_lastPhaseWriteMs) < CRASHLOG_PHASE_MIN_MS) return;
+  if (next[0] != '\0' && s_phaseWriteSeen && (now - s_lastPhaseWriteMs) < CRASHLOG_PHASE_MIN_MS) return;
   s_phaseWriteSeen = true;
   s_lastPhaseWriteMs = now;
 
