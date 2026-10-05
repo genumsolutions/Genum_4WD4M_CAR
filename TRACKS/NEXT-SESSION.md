@@ -9,6 +9,57 @@ into the SAME `handleCommand` queue path (T-1) and forwards STATE back. Both end
 clients; pairing by the car's existing `boardIdHex`. Gate stages + bench rows T-REL-1..n to be
 added when the owner approves (Q1 relay impl, Q2 claim model, Q3 timing — see the plan's §6).
 Do NOT start without the owner's explicit go (F-41).
+**U-95 (2026-10-05) - VERIFICATION ROUND: the bench harness was lying before it ever ran. No
+firmware change; firmware stays 1.0.5.** The owner could not flash, so this session re-ran every
+gate on the machine instead of quoting prose, then audited the two untracked scripts in `tools/`
+before they were ever pointed at a car.
+
+1. **THREE HARNESS ROWS COULD NEVER PASS (`5b61250`, F-70 in `guide/FAILSAFES.md`).** Each would
+   have read as a firmware fault on a healthy car:
+   - **`REQ_CAPS` is not a firmware verb.** Only `REQ_STATE`/`REQ_NETW` exist
+     (`ModeManager.cpp:309/315`); `CAPS;` rides the same `sendState()` (`:542`). **This is the
+     fourth appearance of the invented-command trap** after the U-82 `NACK;...ARG=REQ_CAPS` probe
+     and the two "does not answer" rounds that were the harness's own `REPLY=` fault. The row now
+     drives `REQ_STATE`. Do NOT "fix" the firmware by adding `REQ_CAPS`.
+   - **Absolute frame counts cannot work.** The car re-broadcasts `STATE` + `CAPS` + `NETW` every
+     `STATE_INTERVAL_MS` = 1500 ms (`Config.h:75`) while any transport is connected, so "exactly
+     one `STATE`" was guaranteed wrong. "One command, one answer" is now measured as a **delta
+     against the idle cadence captured in the same session** (`count_prefix()`).
+   - **A rendered DOM string cannot be asserted from a raw HTTP GET.** The U-92-3 row also asserted
+     the ABSENCE of "— Select router —", which the page deliberately ships (F-57: never
+     preselect) and only rewrites to `Now on: <ssid>` when the 1 Hz JSON frame lands. Split into two
+     rows that prove the code paths plus the car truth they read; the rendered string stays an
+     **owner-eyes** row.
+2. **Two ledger rows told the owner to send `REQ_CAPS`** — `DEVICE-TESTS.md` **T10(a)** and
+   **U81-1**. U81-1 is *the* headline U-81 row ("the root cause, directly"); run as written it
+   reports FAIL on a car that is fixed. Both corrected to `REQ_STATE` with an explicit warning.
+   `Car.__aenter__` also drains the connect-time burst so each row's window starts from silence.
+3. **`tools/check-firmware-syntax.ps1` (`016d2f9`) - a runnable syntax gate.** The Arduino CI is the
+   real build but is a **private repo (API 404 unauthenticated)**, so the "xtensa -fsyntax-only
+   CLEAN" claims in earlier rounds had no command behind them. This gate runs
+   `xtensa-esp-elf-gcc -fsyntax-only` over all 7 TUs and **exits non-zero on failure**;
+   **mutation-tested** (injecting `this_should_not_compile;` → exit 1, file+line named), so it is
+   not a gate that always passes. **Current: PASS 7/7.** Two traps documented in the file, both of
+   which produce baffling failures rather than obvious ones:
+   - **Never define `-DESP32`.** `Config.h` declares `enum class BoardType : uint8_t { ESP32 };`
+     and the numeric macro turns that enumerator into a numeric constant, so EVERY file including
+     `Config.h` fails with "expected identifier before numeric constant".
+   - **`-DWEBSOCKETS_NETWORK_TYPE=4`** (`NETWORK_ESP32`) is required; without it the WebSockets
+     library defaults to W5100 and wants an `Ethernet.h` that core 3.3.12 does not ship.
+   - Toolchain facts for the next session: core **3.3.12** puts the SDK headers in
+     `Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/...` — NOT the classic
+     `hardware/esp32/*/tools/sdk` path — and the sketchbook libraries (`U8g2`, `WebSockets`) live
+     in `%USERPROFILE%\Documents\Arduino\libraries`, not in the package. `arduino-cli.exe` remains
+     Device-Guard-blocked on this machine; the IDE `.exe` still not found.
+4. **Gates re-run 2026-10-05, not quoted:** page-js ALL STAGES PASS (exit 0) · firmware syntax
+   **7/7** · app **tsc 0 · vitest 615/615 (42 files) · prettier clean**. App needed no change.
+
+**STILL OWED, unchanged: the car is not on this bench** (no COM port, no ARP at 192.168.1.100/.57),
+so every row in U-87…U-93 stays unticked. When hardware is available the sequence is: flash
+`main` 1.0.5 (USB, **115200**, `huge_app`) → `python tools/bench_u90_u92.py <ip>` (safe rows;
+`--switch` also moves the radio) → the manual rows U-92-1..4 + U-90-1..5 → app U-93-1..5. **F-61:
+all of the above is green and none of it is device evidence.**
+
 **U-92 (2026-10-04) - THE OWN HOTSPOT: A DOUBLE ENTRY, A "SWITCH" THAT NEVER LEFT, AND A HIDDEN
 JOIN-YOUR-OWN-BEACON TRAP.** Owner: *"webpage has double entry of esps own hotspot please remove
 that too"* · *"through the webpage the router is not switching to the esp own hotspot"* ·
