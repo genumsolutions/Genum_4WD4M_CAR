@@ -142,8 +142,14 @@ void setup() {
   // ESP_RST_TASK_WDT, which is the precise answer. Nothing is lost: the panic
   // handler's backtrace was only reachable via the serial line anyway, which is
   // the channel we just established nobody was reading.
+  // U-95/F-77: timeout_ms is not just a number here, it is the OTHER HALF of
+  // the invariant that HTTP_BODY_BUDGET_MS has to respect, so the two are tied
+  // together at compile time rather than left to agree by inspection. They
+  // previously read 5000 and 6000 in two files with a comment asserting the
+  // relationship was fine — which is how the guard ended up longer than the
+  // thing it was guarding (static_assert in WebServerComm.cpp enforces it now).
   esp_task_wdt_config_t wdt_cfg = {
-    .timeout_ms = 5000,
+    .timeout_ms = LOOP_TASK_WDT_TIMEOUT_MS,
     .idle_core_mask = 0,
     .trigger_panic = false,
   };

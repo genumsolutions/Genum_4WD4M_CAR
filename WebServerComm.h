@@ -61,7 +61,31 @@
 #define WS_HEARTBEAT_PONG_TIMEOUT_MS 1000ul
 #define WS_HEARTBEAT_DROP_AFTER 2
 #define HTTP_WRITE_TIMEOUT_MS 500ul
-#define HTTP_BODY_BUDGET_MS 6000ul
+
+// U-95/F-77: the TOTAL body budget must be strictly BELOW the task watchdog.
+// It used to be 6000 ms against a 5000 ms watchdog, so the "mitigation" was
+// longer than the thing it was mitigating: a client that stopped reading
+// deterministically reset the car, every time. It read like a safeguard because
+// it is a number with "budget" in its name, and the comment above it named the
+// per-write cap and the yield() as what keeps loop() safe - which is precisely
+// the pair that was the defect.
+//
+// 3500 ms is chosen with the arithmetic visible rather than by feel. Worst case
+// is N × (per-write cap) + N × (spin interval), which for a 28 kB page in 512 B
+// chunks is 56 × (500 + 10) = 28.6 s of blocked time, so the budget is what
+// actually ends the loop, and it must end it before the watchdog at 5 s. 3.5 s
+// leaves 1.5 s of headroom for the HTTP parser's own work plus the rest of the
+// loop pass. Below the watchdog, with margin - not merely under it.
+#define HTTP_BODY_BUDGET_MS 3500ul
+// The gap between a zero-byte write and the next attempt. This exists so a
+// stalled client cannot turn into a busy spin, and it is the term the budget
+// arithmetic above multiplies by the chunk count.
+#define HTTP_WRITE_RETRY_GAP_MS 10ul
+
+// The watchdog timeout, in ONE place, so a gate can compare against it. The
+// sketch owns the real configuration (esp_task_wdt_config_t in the .ino); this
+// is the number the contract gate reads and the reason the two must agree.
+#define LOOP_TASK_WDT_TIMEOUT_MS 5000ul
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
 

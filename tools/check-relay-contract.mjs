@@ -506,6 +506,108 @@ if (!/crash_count[\s\S]{0,400}crashCount\s*>\s*0/.test(page) && !/cc\s*>\s*0[\s\
   pass("crash-visible", "the page shows the restart row only when crash_count > 0");
 }
 
+/** Extract the braced block that starts at `from`, by brace matching. Used where
+ *  a fixed-size character window would be wrong: comments and formatting decide
+ *  how much text sits between two lines of code, and a window that happens to be
+ *  long enough today silently stops covering the code after a reflow. */
+function braced(text, from) {
+  const open = text.indexOf("{", from);
+  if (from < 0 || open < 0) return null;
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}" && --depth === 0) return text.slice(open, i + 1);
+  }
+  return null;
+}
+
+// ---- 9. the page-send loop cannot starve the watchdog (U-95/F-77) ------
+// The bug this forbids is deterministic, not racy: serveRootBounded() spun on
+// zero-byte writes for up to a 6 s budget against a 5 s watchdog, feeding it
+// never. A client that stops reading resets the car EVERY time. The numbers were
+// asserted by a comment; the loop was asserted by nothing, so the loop is what
+// these two rules check.
+
+const wsh = raw("WebServerComm.h");
+const budget = Number(wsh.match(/#define\s+HTTP_BODY_BUDGET_MS\s+(\d+)ul/)?.[1] ?? 0);
+const wdt = Number(wsh.match(/#define\s+LOOP_TASK_WDT_TIMEOUT_MS\s+(\d+)ul/)?.[1] ?? 0);
+
+// The sketch's REAL watchdog config must be the same number the header declares.
+// Two copies of the timeout, one used by the compiler for the static_assert and
+// one handed to esp_task_wdt_reconfigure(), is exactly how the invariant rots:
+// assert against the header, configure the hardware with a literal, and the
+// static_assert silently guards a number nothing uses.
+// The sketch's REAL watchdog config must NAME the constant, not merely agree with
+// it. Comparing values is what I did first and it is a decorative check: a
+// reverted `.timeout_ms = 5000` still equals the header's 5000, so the rule
+// passed while the thing it exists to prevent — the sketch drifting back to its
+// own literal — had happened. Coincidence is not a tie. Naming the constant makes
+// the two numbers one value, so there is nothing left to drift.
+const inoWdt = inoCode.match(/esp_task_wdt_config_t\s+\w+\s*=\s*\{([^}]*)\}/)?.[1] ?? "";
+const inoTimeoutRaw = inoWdt.match(/timeout_ms\s*=\s*([^,}]+)/)?.[1]?.trim() ?? "";
+if (!budget || !wdt) {
+  fail("wdt-budget", `could not read the numbers (budget=${budget}, watchdog=${wdt}) - one of the defines is gone or unparseable`);
+} else if (budget >= wdt) {
+  fail("wdt-budget", `HTTP_BODY_BUDGET_MS (${budget}) is NOT below the watchdog (${wdt}) - a slow client resets the car instead of getting a truncated page`);
+} else if (wdt - budget < 1000) {
+  fail("wdt-budget", `only ${wdt - budget}ms between the budget and the watchdog - the HTTP parser and the rest of loop() have no room`);
+} else if (!/static_assert\s*\(\s*HTTP_BODY_BUDGET_MS\s*<\s*LOOP_TASK_WDT_TIMEOUT_MS/.test(code(wsc))) {
+  fail("wdt-budget", "no static_assert ties the budget to the watchdog - the invariant is a comment again");
+} else if (inoTimeoutRaw !== "LOOP_TASK_WDT_TIMEOUT_MS") {
+  fail("wdt-budget", `the sketch configures the watchdog with \`${inoTimeoutRaw || "nothing"}\` instead of LOOP_TASK_WDT_TIMEOUT_MS - a literal here is a second copy of the number, and the static_assert would be guarding a value the hardware never used`);
+} else {
+  pass("wdt-budget", `${budget}ms budget under a ${wdt}ms watchdog (${wdt - budget}ms margin), tied by static_assert and used by the sketch`);
+}
+
+// The LOOP itself. This analysis runs on COMMENT-STRIPPED source, and that is
+// not tidiness. The first version counted `esp_task_wdt_reset()` occurrences in
+// the raw file and cheerfully reported four feeds for a loop that has three,
+// because the surrounding prose explains the fix and names the function. A rule
+// that counts a COMMENT as evidence of code is F-82 pointed the other way: prose
+// is what got certified by plausibility in the first place, and letting it
+// satisfy a gate makes the gate agree with the story instead of the source.
+const wscCode = code(wsc);
+const serveRoot = body(wscCode, "void WebServerComm::serveRootBounded") ?? "";
+const loopAt = serveRoot.indexOf("while (off < pageLen)");
+const loopBody = loopAt >= 0 ? serveRoot.slice(loopAt) : "";
+if (!loopBody) {
+  fail("wdt-feed", "could not find the page-send while loop in serveRootBounded()");
+} else {
+  const stallAt = loopBody.indexOf("if (w == 0)");
+  const stallBody = braced(loopBody, stallAt) ?? "";
+  const feeds = (loopBody.match(/esp_task_wdt_reset\s*\(\s*\)/g) ?? []).length;
+  if (!stallBody) {
+    fail("wdt-feed", "the send loop has no zero-write branch - check this rule still matches the code");
+  } else if (!/esp_task_wdt_reset\s*\(\s*\)/.test(stallBody)) {
+    fail("wdt-feed", "the zero-write branch does not feed the watchdog - this is the F-77 spin, restored");
+  } else if (!/delay\s*\(\s*1\s*\)|HTTP_WRITE_RETRY_GAP_MS/.test(stallBody)) {
+    fail("wdt-feed", "the zero-write branch has no real gap - a bare yield() returns to the same instruction and busy-spins");
+  } else if (feeds < 2) {
+    // BOTH paths must feed, not just one. A single feed placed before the stall
+    // branch satisfies "the stall path feeds" in the loosest reading while the
+    // progress path - the one that runs 56 times for a normal page load, each
+    // blocking up to HTTP_WRITE_TIMEOUT_MS - goes unmonitored. So the rule counts
+    // the feeds in the loop rather than settling for one.
+    fail("wdt-feed", `only ${feeds} watchdog feed(s) in the send loop - both the stall path and the progress path need one`);
+  } else {
+    pass("wdt-feed", `the zero-write branch feeds the watchdog AND waits a real gap; ${feeds} feeds across both paths`);
+  }
+
+  // The budget must be checked BEFORE the write, not after. Checking it after
+  // means the loop can always begin one more write past the deadline - which is
+  // up to a full HTTP_WRITE_TIMEOUT_MS of overrun, and on the stall path far
+  // longer, because that iteration also burns the retry gap.
+  const budgetAt = loopBody.search(/millis\(\)\s*-\s*start\s*>\s*HTTP_BODY_BUDGET_MS/);
+  const writeAt = loopBody.search(/c\.write\s*\(/);
+  if (budgetAt < 0) {
+    fail("wdt-budget", "the send loop no longer checks HTTP_BODY_BUDGET_MS at all");
+  } else if (writeAt >= 0 && budgetAt > writeAt) {
+    fail("wdt-budget", "the budget is checked AFTER the write - an iteration can begin out of time");
+  } else {
+    pass("wdt-budget", "the budget is checked before every write");
+  }
+}
+
 // The one thing this gate cannot check is the thing that matters most: that the
 // relay actually answers. That is the owner's bench (T-REL), not a laptop.
 console.log("\nrelay-contract: source checks only - no socket was opened, no hello was sent.");

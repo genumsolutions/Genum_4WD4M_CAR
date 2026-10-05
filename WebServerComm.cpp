@@ -8,6 +8,25 @@
 #include "WebPage.h"
 #include "CrashLog.h"     // U-95/F-79: the restart record, surfaced in /status
 #include <WiFi.h>
+#include <esp_task_wdt.h> // U-95/F-77: the send loop must feed the watchdog
+
+// U-95/F-77: the invariant that was only ever a comment, now checked by the
+// compiler. HTTP_BODY_BUDGET_MS is the upper bound on how long serveRootBounded()
+// may occupy loop(); LOOP_TASK_WDT_TIMEOUT_MS is how long loop() may occupy the
+// task before the watchdog resets the chip. A budget at or above the watchdog
+// does not "mostly work" — it is a reset with extra steps, and the failure is
+// deterministic rather than racy, so it will happen on the bench every time.
+//
+// The second half is the margin. `>=` would permit a budget of exactly 5000 ms,
+// which leaves the watchdog and the budget expiring in the same millisecond and
+// makes correctness depend on which one the scheduler reaches first. 1500 ms of
+// slack absorbs the HTTP parser's own work and the rest of the loop pass.
+static_assert(HTTP_BODY_BUDGET_MS < LOOP_TASK_WDT_TIMEOUT_MS,
+              "F-77: the page-send budget must be below the watchdog timeout, or a "
+              "slow client resets the car instead of getting a truncated page");
+static_assert(LOOP_TASK_WDT_TIMEOUT_MS - HTTP_BODY_BUDGET_MS >= 1000ul,
+              "F-77: leave at least 1s between the page-send budget and the watchdog, "
+              "or the parser and the rest of loop() have no room");
 #include <pgmspace.h>
 #include <ESPmDNS.h>   // U-74: advertise the car by name on whatever network it is on
 
@@ -1998,7 +2017,7 @@ void WebServerComm::armHttpGuard() {
 //      will never keep.
 void WebServerComm::serveRootBounded() {
   armHttpGuard();
-  // U-95/F-79: name the operation in the crash record. This is the #1 suspect
+  // U-95/F-79: name the operation in the crash record. This was the #1 suspect
   // for the owner's reboot loop — the send loop below is bounded to
   // HTTP_BODY_BUDGET_MS, which until F-77 was LARGER than the 5 s task watchdog,
   // so a client that stopped reading deterministically reset the car here. If
@@ -2014,6 +2033,10 @@ void WebServerComm::serveRootBounded() {
   size_t off = 0;
   char chunk[512];
   while (off < pageLen) {
+    // U-95/F-77, part one: the budget is checked BEFORE the write, so the loop
+    // can never begin an iteration it already knows is out of time. It was 6000
+    // ms against a 5000 ms watchdog, which made the guard a countdown to the
+    // reset rather than a bound on the work.
     if (millis() - start > HTTP_BODY_BUDGET_MS) {
       FW_LOG("[HTTP] root page aborted (client too slow): %u/%u bytes\n",
              static_cast<unsigned>(off), static_cast<unsigned>(pageLen));
@@ -2023,11 +2046,38 @@ void WebServerComm::serveRootBounded() {
     const size_t n = (pageLen - off < sizeof(chunk)) ? (pageLen - off) : sizeof(chunk);
     memcpy_P(chunk, PAGE_HTML + off, n);
     const size_t w = c.write((const uint8_t*)chunk, n);
+    // U-95/F-77, part two — THE ACTUAL DEFECT, and the part that was easy to
+    // miss because it looks like a courtesy: on a zero-byte write this loop did
+    // yield(); continue; — no progress, no watchdog feed, and it could spin for
+    // the whole budget. esp_task_wdt_reset() is what keeps loop() alive, so a
+    // loop that spins without feeding it is a reset generator no matter how
+    // carefully the surrounding numbers were chosen. This is the line the
+    // comment used to justify itself with.
+    //
+    // The order matters and is not interchangeable: feed the watchdog, wait out
+    // the gap so a stalled client cannot become a busy spin, and only then
+    // re-check the budget. Feeding last would still be correct here but reads
+    // as if the budget check were the thing keeping the task alive.
+    esp_task_wdt_reset();
     if (w == 0) {
-      yield();  // write window closed; the total budget still bounds us
+      // A real gap, not a bare yield(): yield() returns immediately to the same
+      // instruction, so 28 kB of stalled page was ~millions of wasted
+      // iterations inside one loop pass. delay() parks the task, which also
+      // gives the TCP window time to reopen instead of re-testing it instantly.
+      const unsigned long gapStart = millis();
+      while (millis() - gapStart < HTTP_WRITE_RETRY_GAP_MS) {
+        esp_task_wdt_reset();
+        delay(1);
+      }
       continue;
     }
     off += w;
+    // Feed on the progress path too. The 512 B chunk usually returns in
+    // microseconds, but a write that fills the socket buffer blocks for up to
+    // HTTP_WRITE_TIMEOUT_MS, and a run of those can reach the budget; feeding
+    // here means the watchdog is satisfied by progress, not only by the stall
+    // path above.
+    esp_task_wdt_reset();
   }
   // A short body after an honest Content-Length leaves the browser waiting for
   // bytes that will never arrive. End the response instead of hanging it.
