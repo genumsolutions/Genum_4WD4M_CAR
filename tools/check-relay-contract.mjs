@@ -387,6 +387,78 @@ if (!/if\s*\(\s*!hasToken\(\)\s*\)/.test(relayCode)) {
 } else {
   pass("inert-by-default", "no token means no dial");
 }
+
+// (U-95 Phase 1e) An EMPTY RELAY_HOST must be refused explicitly, and BEFORE the
+// token is even read. This is not the same as the check above: with a token
+// stored and no host configured, beginSslWithCA("") simply fails, and the library
+// treats a failed connect as a reason to retry — so "no host" was not inert, it
+// was a DNS lookup plus a socket connect every kRedialMs, on the loop task,
+// inside the watchdog window. Busy, not off.
+const beginBodyRaw = body(raw("RelayComm.cpp"), "bool RelayComm::begin") ?? "";
+// Matched on RAW source, not relayCode. The comparison is against the NUL
+// character literal `'\0'`, and code() blanks character literals — so against
+// stripped source this reads `== '  '` and can never match. Same trap as the
+// crash-record idle rule: check against the text the rule will be handed.
+const hostGuardRe = /RELAY_HOST\s*\[\s*0\s*\]\s*==\s*'\s*\\0\s*'/;
+const hostGuard = beginBodyRaw.search(hostGuardRe);
+// The loadToken() position is taken from a COMMENT-STRIPPED view, and that is the
+// third time this gate has been caught reading prose as code: the comment above
+// the guard explains that the guard must precede loadToken(), so a plain
+// indexOf("loadToken()") found the sentence and reported the guard as misplaced.
+// Comment-stripping is what makes "where is it CALLED" answerable at all. (The
+// host-guard test above still needs the raw text, because it matches the '\0'
+// character literal that code() blanks.)
+const loadTokenCallAt = code(beginBodyRaw).search(/loadToken\s*\(\s*\)/);
+if (!beginBodyRaw) {
+  fail("inert-by-default", "RelayComm::begin() not found");
+} else if (hostGuard < 0) {
+  fail("inert-by-default", "begin() has no explicit empty-RELAY_HOST guard - an unconfigured car with a token will re-attempt a doomed dial every retry interval instead of staying off");
+} else if (beginBodyRaw.indexOf("loadToken()") >= 0 && hostGuard > loadTokenCallAt) {
+  // Order is the substance of the fix, not a style point: a car with no host has
+  // no business reading credentials or reaching the TLS path at all.
+  fail("inert-by-default", "the empty-RELAY_HOST guard runs AFTER loadToken() - it must come first, so an unconfigured car never touches credentials or the TLS code");
+} else {
+  pass("inert-by-default", "an empty RELAY_HOST is refused up front, before credentials are read or the TLS path is reached");
+}
+
+// ---- 7b. the relay must not be ARMED while the handshake is unbounded ----
+// This is the interlock for a measured, still-unfixed defect, and it is the
+// reason U-94's deployment is blocked rather than merely discouraged.
+//
+// The facts, from the toolchain rather than from a comment:
+//   - NetworkClientSecure sets sslclient->handshake_timeout = 120000.
+//   - ssl_starttls_handshake() loops on that value and nothing else.
+//   - WebSocketsClient::loop() runs it, on the loop task.
+//   - The loop task is subscribed to a 5000 ms task watchdog, and that watchdog
+//     measures WALL-CLOCK time since the last esp_task_wdt_reset() — so the
+//     vTaskDelay(2) inside the handshake loop does not save it.
+// Therefore a relay host that completes TCP and then stalls TLS resets the car
+// for up to two minutes.
+//
+// It cannot be tuned from here: WebSocketsClient keeps its WiFiClientSecure in a
+// protected member with no setter, deletes and recreates it every retry, and
+// WEBSOCKETS_TCP_TIMEOUT is read inside the library's own translation unit — so
+// #define'ing it in this sketch is a no-op, and the owner's Arduino IDE build
+// passes no build flags.
+//
+// So the honest position is that ARMING the relay is the dangerous act, and the
+// gate refuses it. Shipping RELAY_HOST="" keeps every car on the safe side of
+// this bug; a build that sets it is a build that will reboot the car whenever the
+// relay is slow to answer. The fix is to move the dial off the loop task, after
+// which this rule is deleted deliberately rather than quietly.
+const hostIsSet = !/#define\s+RELAY_HOST\s+""/.test(cfg);
+const handshakeBounded =
+  /RELAY_HANDSHAKE_BOUNDED/.test(cfg) ||
+  /xTaskCreate|RelayTask|relayTask/.test(relayCode);
+if (hostIsSet && !handshakeBounded) {
+  fail("armed-handshake",
+    "RELAY_HOST is set, but the relay TLS handshake still runs on the loop task with a 120000 ms handshake_timeout against a 5000 ms watchdog. " +
+    "This is how the car reboots. Either keep RELAY_HOST empty, or move the dial to its own task (see RelayComm.cpp) before deploying.");
+} else if (hostIsSet) {
+  pass("armed-handshake", "RELAY_HOST is set and the handshake is bounded");
+} else {
+  pass("armed-handshake", "RELAY_HOST is empty, so the unbounded handshake cannot be reached");
+}
 // connected() must require enrolment, not just a socket: a car refused with
 // close 4401 is not connected, and must not switch the safe-stop off.
 const connBody = body(relayCode, "bool RelayComm::connected") ?? "";

@@ -126,6 +126,24 @@ void RelayComm::onEventTrampoline(WStype_t type, uint8_t* payload, size_t length
 bool RelayComm::begin() {
   if (started_) return true;
 
+  // U-95 Phase 1e: an EXPLICIT empty-host guard, ahead of everything else.
+  //
+  // This looked already covered — RELAY_HOST ships "" and beginSslWithCA("")
+  // cannot succeed — so the token check below appeared to be the only gate that
+  // mattered. It is not. With a token stored and no host configured, the old code
+  // dialled "" every kRedialMs for the life of the battery: the library treats a
+  // failed connect as a reason to retry, so "no host" was not inert, it was
+  // BUSY. Every one of those attempts runs the DNS lookup and the socket connect
+  // on the loop task, inside the 5 s watchdog window.
+  //
+  // The order matters and is the point: this is checked before loadToken(),
+  // because a car with no relay host has no business reading credentials, dialling
+  // anything, or reaching the TLS code at all.
+  if (RELAY_HOST[0] == '\0') {
+    FW_LOG("[RELAY] RELAY_HOST is empty - the relay transport stays off (see Config.h)");
+    return false;
+  }
+
   // No token means no dial. Not "dial and get refused": an unauthenticated car
   // is a car that appears to want the Internet on the owner's bench and cannot
   // explain why it never connects.
@@ -142,12 +160,33 @@ bool RelayComm::begin() {
   }
 
   sInstance = this;
-  // U-95/F-79: name the operation in the crash record. The TLS handshake below
-  // runs SYNCHRONOUSLY inside begin() with NO timeout set, so it is a blocking
-  // call of unbounded length sitting in loop()'s call graph — the second
-  // confirmed way this car can stop feeding its 5 s watchdog. Phase 1d bounds
-  // it; until then, if a car that has a relay token resets while sitting idle,
-  // "relay-tls" in the record is the whole answer.
+  // U-95/F-79 + Phase 1d — STILL AN OPEN DEFECT, and the comment used to read as
+  // if this were handled. It is not.
+  //
+  // Measured, not assumed: NetworkClientSecure sets sslclient->handshake_timeout
+  // to 120000 (NetworkClientSecure.cpp:41/69) and `ssl_starttls_handshake()`
+  // (ssl_client.cpp:325) loops on that value alone. WebSocketsClient::loop() is
+  // what runs it, on THIS task, and this task is subscribed to a 5000 ms
+  // watchdog. The handshake loop calls vTaskDelay(2), which does not help: the
+  // task watchdog measures wall-clock time since the last esp_task_wdt_reset(),
+  // not CPU time, so yielding for two minutes still trips it.
+  //
+  // So a relay host that completes TCP and then stalls TLS resets the car for up
+  // to two minutes. There is no way to set that timeout from here: WebSocketsClient
+  // keeps its WiFiClientSecure in a protected member, exposes no setter, and
+  // DELETES AND RECREATES it on every retry (WebSocketsClient.cpp, loop()), so
+  // even a value set once would be discarded. WEBSOCKETS_TCP_TIMEOUT would not
+  // help either — it is read inside the library's own translation unit, so
+  // defining it here changes nothing, and the owner's Arduino IDE build takes no
+  // build flags.
+  //
+  // The real fix is to move the dial off this task, so loop() keeps feeding its
+  // watchdog AND keeps running motor safety while the handshake waits. That is
+  // deferred until the relay can actually be bench-tested against a live host;
+  // until then the `armed-handshake` gate in tools/check-relay-contract.mjs
+  // refuses any build that sets RELAY_HOST, because deploying this is exactly how
+  // the car reboots. Phase 1e's empty-host guard above is what keeps an
+  // unconfigured car out of this code entirely.
   crashLogPhase("relay-tls");
   client_.beginSslWithCA(RELAY_HOST, RELAY_PORT, RELAY_PATH, kIsrgRootX1);
   crashLogPhase("");
