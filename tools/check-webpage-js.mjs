@@ -445,6 +445,67 @@ const frame = JSON.stringify({
   free_heap: 120000,
 });
 
+// --- U-95/F-79: the restart row -----------------------------------------
+// The page must show the restart reason when the car has one, and show NOTHING
+// when it has not. The second half is the part worth testing: a row that is
+// always visible (or that renders an absent field as a zero) trains the owner
+// to ignore the one line that matters, which is how a watchdog starvation went
+// unnoticed for a week.
+const rstWrap = sandbox.document.getElementById("rst-wrap");
+const rstEl = sandbox.document.getElementById("rst");
+if (!rstWrap || !rstEl) {
+  console.error("FAIL: the restart row is missing from the markup");
+  process.exit(1);
+}
+const rstVisible = () => rstWrap.style.display !== "none";
+
+// A healthy car: the field is absent, which is "no data", NOT a zero.
+onmsg({ data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+  connected: true }) });
+if (rstVisible()) {
+  console.error("FAIL: the restart row is visible on a car that reported no crash fields - an absent field must read as 'no data', not as a zero");
+  process.exit(1);
+}
+// A clean power-on with crash_count 0 stays hidden.
+onmsg({ data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+  reset_reason: "POWER_ON", crash_count: 0, boot_count: 12 }) });
+if (rstVisible()) {
+  console.error("FAIL: crash_count 0 rendered a restart row - the owner would see 'RST' on a car that never crashed");
+  process.exit(1);
+}
+// A real crash shows, with the reason AND the phase (the phase names the bug).
+onmsg({ data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+  reset_reason: "TASK_WDT", crash_count: 7, boot_count: 40,
+  last_crash_phase: "http-root" }) });
+if (!rstVisible()) {
+  console.error("FAIL: a car with 7 crashes showed no restart row - the evidence exists and is not being shown");
+  process.exit(1);
+}
+if (!/TASK_WDT/.test(rstEl.innerText) || !/http-root/.test(rstEl.innerText)) {
+  console.error(`FAIL: the restart row omits the reason or the phase: ${JSON.stringify(rstEl.innerText)} - the phase is what names the bug`);
+  process.exit(1);
+}
+// A crash with no phase recorded still shows the reason (must not blank out).
+onmsg({ data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+  reset_reason: "PANIC", crash_count: 2, boot_count: 3, last_crash_phase: "" }) });
+if (!rstVisible() || !/PANIC/.test(rstEl.innerText)) {
+  console.error("FAIL: a crash with an empty phase rendered nothing - an absent phase must not hide the reason");
+  process.exit(1);
+}
+// The REVERSE order, which the checks above never exercise: a row that is
+// currently VISIBLE, then a frame that says the car is healthy. This is the
+// realistic sequence - the page is left open across a crash and a later power
+// cycle - and it is where a row implemented as "show on crash" without a
+// matching "hide when clean" leaves a stale reason on screen forever, which is
+// worse than never showing one: it is a wrong answer confidently displayed.
+onmsg({ data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+  reset_reason: "POWER_ON", crash_count: 0, boot_count: 41 }) });
+if (rstVisible()) {
+  console.error("FAIL: a visible restart row survived a frame reporting crash_count 0 - a stale reset reason stays on screen across a power cycle");
+  process.exit(1);
+}
+console.log("PASS: the restart row shows reason+phase when the car crashed, hides when clean, and does not go stale");
+
 // First frame applies the registry; later identical frames must be inert.
 onmsg({ data: frame });
 const afterFirst = writes.n;

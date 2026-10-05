@@ -6,6 +6,7 @@
 
 // =====================================================================
 #include "Config.h"
+#include "CrashLog.h"      // U-95/F-79: persisted "why did the car restart"
 #include "MotorControl.h"
 #include "CommInterface.h"
 #include "BluetoothComm.h"
@@ -90,50 +91,61 @@ void setup() {
   Serial.begin(115200);
   delay(50);
 
-  // U-70 (2026-10-02): say WHY the car is booting.
+  // U-95 / F-79: say WHY the car is booting, and REMEMBER it.
   //
-  // The owner reported "the car restarts when the app directs to cars webpage"
-  // — with no other symptom and no way to tell a watchdog abort from a stack
-  // smash from a brownout from an intentional reset. Every one of those looks
-  // identical from the outside ("it restarted"), which is why the report could
-  // not be acted on: the cause is printed on the serial line at the exact moment
-  // it happens, and nobody had been reading it.
+  // This block used to be a switch that printed a reset reason to the serial
+  // line and nothing else. Two separate failures were sitting in it:
   //
-  // `esp_reset_reason()` is latched by the ROM before our code runs, so this
-  // always describes THIS boot. A non-power-on reason is announced loudly,
-  // because that is the case worth noticing.
+  //  1. The serial line is unreadable in the field. The owner reported "the car
+  //     resets again and again" and no cause could be attached, because the
+  //     cause was printed at the exact moment of the reset on a wire nobody was
+  //     attached to. A diagnostic that can only be read with a bench tool at
+  //     the instant of failure is not a diagnostic the owner has.
+  //  2. The label the owner was told to look for was UNREACHABLE. The banner
+  //     said "if it says TASK WATCHDOG, loop() blocked" - but the watchdog was
+  //     configured with .trigger_panic = true below, which routes a task
+  //     watchdog trip through the panic handler and reports ESP_RST_PANIC.
+  //     So ESP_RST_TASK_WDT could never be printed, and the one line that would
+  //     have identified a hung loop() always read "crash" instead. That is how a
+  //     watchdog starvation turned into a week of "why does it reset".
+  //
+  // crashLogBegin() fixes both: the reason is mapped in ONE place (two
+  // independent mappers of the same enum is exactly the shape that lets one of
+  // them go stale - F-82), the record is persisted, and it counts boots, so a
+  // reboot loop is a number instead of a feeling. Call it FIRST: the heap it
+  // records is the boot heap only if nothing has allocated yet.
+  crashLogBegin();
   {
-    const esp_reset_reason_t why = esp_reset_reason();
-    const char* label = "unknown";
-    switch (why) {
-      case ESP_RST_POWERON:  label = "power-on"; break;
-      case ESP_RST_EXT:      label = "external pin"; break;
-      case ESP_RST_SW:       label = "software restart"; break;
-      case ESP_RST_PANIC:    label = "PANIC (crash/exception)"; break;
-      case ESP_RST_INT_WDT:  label = "interrupt watchdog"; break;
-      case ESP_RST_TASK_WDT: label = "TASK WATCHDOG (loop hung >5s)"; break;
-      case ESP_RST_WDT:      label = "other watchdog"; break;
-      case ESP_RST_DEEPSLEEP:label = "deep sleep wake"; break;
-      case ESP_RST_BROWNOUT: label = "BROWNOUT (undervoltage)"; break;
-      case ESP_RST_SDIO:     label = "SDIO"; break;
-      default: break;
-    }
-    Serial.printf("[BOOT] reset reason: %d (%s)\n", (int)why, label);
-    if (why != ESP_RST_POWERON && why != ESP_RST_EXT && why != ESP_RST_DEEPSLEEP) {
-      // The line that matters: it means the car restarted on its own.
-      Serial.println("[BOOT] *** UNSOLICITED RESTART - see the reason above ***");
-      Serial.println("[BOOT] *** if it says TASK WATCHDOG, loop() blocked; PANIC means a crash ***");
+    const CrashInfo& ci = crashLogInfo();
+    Serial.printf("[BOOT] reset reason: %s\n", ci.label);
+    if (ci.crashCount > 0) {
+      // The line that matters: it means the car restarted on its own. Say HOW
+      // MANY times, because "it resets again and again" and "it reset 41 times
+      // in 10 minutes" lead to completely different investigations.
+      Serial.printf("[BOOT] *** UNSOLICITED RESTART #%u - last was %s, phase '%s', heap %u ***\n",
+                    (unsigned)ci.crashCount, ci.label, ci.phase, (unsigned)ci.heapAtBoot);
+      Serial.println("[BOOT] *** TASK_WDT means loop() blocked; PANIC means a crash ***");
+      Serial.println("[BOOT] *** also on the OLED header and in /status JSON ***");
     }
   }
 
-  // F-24: esp32 core 3.x task watchdog — reconfigure FIRST (the core
+  // F-24: esp32 core 3.x task watchdog - reconfigure FIRST (the core
   // pre-initializes the TWDT), loopTask ONLY (idle_core_mask = 0; subscribing
   // idle tasks caused a ~19s reboot loop). A genuine loop hang still aborts
   // after 5s; normal loop work can never starve an idle task.
+  //
+  // U-95/F-79: .trigger_panic = false. This is the fix for the unreachable
+  // label described above. With panic escalation on, a starved loop() is
+  // reported as ESP_RST_PANIC and is indistinguishable from a real crash, so
+  // the record could not name the cause it existed to name. With it off, a
+  // watchdog trip resets the chip directly and esp_reset_reason() reports
+  // ESP_RST_TASK_WDT, which is the precise answer. Nothing is lost: the panic
+  // handler's backtrace was only reachable via the serial line anyway, which is
+  // the channel we just established nobody was reading.
   esp_task_wdt_config_t wdt_cfg = {
     .timeout_ms = 5000,
     .idle_core_mask = 0,
-    .trigger_panic = true,
+    .trigger_panic = false,
   };
   if (esp_task_wdt_reconfigure(&wdt_cfg) != ESP_OK) {
     esp_task_wdt_init(&wdt_cfg);
@@ -366,6 +378,15 @@ void loop() {
       transportsIdle = false;  // both connected: leave both alone
     }
   }
+
+  // U-95/F-79: back to idle. The phase markers set above (http-root,
+  // relay-tls) are cleared HERE, at the end of a full loop pass, not at the end
+  // of the operation. That ordering is deliberate: if the car dies in the
+  // middle of any single pass, the record still names the operation it was in,
+  // and clearing early would let a later hang inside the SAME pass be reported
+  // as idle. One write per pass at most, and crashLogPhase() suppresses it
+  // entirely when the phase did not change, so a parked car writes nothing.
+  crashLogPhase("");
 
   // T-7b/T-7c (2WD1M-car parity): prolonged BT disconnect → hard-restart the
   // BT stack; low battery (when a divider is wired) or critically low heap →

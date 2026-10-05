@@ -33,6 +33,7 @@
 #include "RelayComm.h"
 
 #include "Config.h"
+#include "CrashLog.h"     // U-95/F-79: crash-record phase markers
 #include "WebServerComm.h"
 #include <WiFi.h>
 
@@ -141,7 +142,15 @@ bool RelayComm::begin() {
   }
 
   sInstance = this;
+  // U-95/F-79: name the operation in the crash record. The TLS handshake below
+  // runs SYNCHRONOUSLY inside begin() with NO timeout set, so it is a blocking
+  // call of unbounded length sitting in loop()'s call graph — the second
+  // confirmed way this car can stop feeding its 5 s watchdog. Phase 1d bounds
+  // it; until then, if a car that has a relay token resets while sitting idle,
+  // "relay-tls" in the record is the whole answer.
+  crashLogPhase("relay-tls");
   client_.beginSslWithCA(RELAY_HOST, RELAY_PORT, RELAY_PATH, kIsrgRootX1);
+  crashLogPhase("");
   client_.setReconnectInterval(kRedialMs);
   client_.enableHeartbeat(kHeartbeatMs, kPongTimeoutMs, kMaxPongMisses);
   client_.onEvent(onEventTrampoline);

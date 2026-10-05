@@ -249,6 +249,23 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             var ss=String(upS%60).padStart(2,'0');
             document.getElementById('uptime').innerText=mm+':'+ss;
             document.getElementById('heap').innerText=(j.free_heap!=null)?Math.round(j.free_heap/1024)+' KB':'--';
+            // U-95/F-79: show the restart record only when there is one. The
+            // gate is crashCount > 0, NOT the presence of the field — an absent
+            // field on an un-updated car must render as "no data", never as a
+            // fabricated zero. Phase (the operation the car died in) is appended
+            // when present because the reason alone is rarely specific enough.
+            var rstW=document.getElementById('rst-wrap');
+            if(rstW){
+              var cc=(j.crash_count!=null)?Number(j.crash_count):0;
+              if(cc>0){
+                rstW.style.display='';
+                var rstTxt=(j.crash_count+'x '+ (j.reset_reason||'UNKNOWN'));
+                if(j.last_crash_phase) rstTxt+=' / '+j.last_crash_phase;
+                document.getElementById('rst').innerText=rstTxt;
+              } else {
+                rstW.style.display='none';
+              }
+            }
             // Round-6 flicker fix: rebuild the saved-router selector ONLY when
             // the list actually changed, and never while the user has the
             // dropdown open (open list + rebuild = flicker).
@@ -499,6 +516,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         <span>SSID: <b id='ssid'>--</b></span>
         <span>Heap: <b id='heap'>--</b></span>
         <span>Conn: <b id='conn'>...</b></span>
+        <!-- U-95/F-79: the restart record, rendered from status JSON. Hidden
+             until the car actually has a crash to report, so a healthy car shows
+             no row at all rather than a permanent "RST:0 POWER_ON" that trains
+             the owner to ignore the one line that matters. -->
+        <span id='rst-wrap' style='display:none'>Last restart: <b id='rst'>--</b></span>
       </aside>
     </div>
 

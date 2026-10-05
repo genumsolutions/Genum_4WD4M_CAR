@@ -398,6 +398,114 @@ if (!/enrolled_/.test(connBody)) {
   pass("enrolment", "connected() requires paired AND an open socket");
 }
 
+// ---- 8. the restart record (U-95/F-79) ---------------------------------
+// Everything above was green while the car rebooted in a loop for a week. These
+// rules exist because of that, and each one is a FACT that used to be a COMMENT.
+// F-82: prose is invisible to every tool and gets certified by plausibility;
+// gates fail. So the four claims below are now asserted, not described.
+
+// (a) trigger_panic must be FALSE. With it true, a task-watchdog trip is routed
+// through the panic handler and esp_reset_reason() reports ESP_RST_PANIC — so
+// the one label that identifies a hung loop() can never be printed, and a
+// watchdog starvation is indistinguishable from a crash. The owner was told to
+// look for a label the firmware could not produce.
+const panicOn = /trigger_panic\s*=\s*true/.test(inoCode);
+if (panicOn) {
+  fail("reset-truth", "the task watchdog still escalates to panic, so TASK_WDT is unreachable and a hung loop() reads as a crash");
+} else if (!/trigger_panic\s*=\s*false/.test(inoCode)) {
+  fail("reset-truth", "trigger_panic is neither true nor false - the watchdog escalation path is unstated");
+} else {
+  pass("reset-truth", "trigger_panic = false, so a hung loop() reports TASK_WDT rather than PANIC");
+}
+
+// (b) The record must be taken before anything else allocates, or the heap it
+// reports is the heap after setup rather than the heap at boot — which is the
+// number that matters when the car is dying of memory pressure.
+const setupAt = inoCode.indexOf("void setup(");
+const beginAt = inoCode.indexOf("crashLogBegin()");
+// The first hardware bring-up allocates (OLED framebuffer, BT stack, motor PWM
+// timers). Recording the heap after any of those describes steady state, not the
+// boot that failed — and a car dying of memory pressure is precisely the case
+// where the boot heap is the number worth keeping.
+const firstAllocAt = inoCode.search(/\b(motor|btComm|oled)\s*\.\s*begin\s*\(/);
+if (beginAt < 0) {
+  fail("crash-record", "setup() never calls crashLogBegin() - the restart reason is not recorded");
+} else if (setupAt < 0 || beginAt < setupAt) {
+  fail("crash-record", "crashLogBegin() is not inside setup()");
+} else if (firstAllocAt >= 0 && beginAt > firstAllocAt) {
+  fail("crash-record", "crashLogBegin() runs after the first begin() - the recorded heap is post-allocation, not the boot heap");
+} else {
+  pass("crash-record", "crashLogBegin() runs before any hardware bring-up allocates");
+}
+
+// (c) An UNKNOWN reset must count as a fault. Classifying "we do not know why it
+// rebooted" as "probably fine" would hide precisely the case this record exists
+// to surface, so the default branch has to be the suspicious one.
+const clCode = code(read("CrashLog.cpp"));
+if (!clCode) {
+  fail("crash-record", "CrashLog.cpp is missing");
+} else {
+  const isFault = body(clCode, "bool isFaultReset") ?? "";
+  if (!/default\s*:\s*return\s+true/.test(isFault)) {
+    fail("crash-record", "isFaultReset() does not default to 'a fault' - an unknown reset would be silently dismissed");
+  } else {
+    pass("crash-record", "isFaultReset() counts an unknown reset as a fault, not as fine");
+  }
+  if (!/ESP_RST_POWERON[\s\S]{0,200}ESP_RST_DEEPSLEEP[\s\S]{0,200}default\s*:\s*\n\s*return\s+true/.test(isFault)) {
+    fail("crash-record", "isFaultReset() no longer lists POWERON/EXT/DEEPSLEEP as non-faults before its default");
+  } else {
+    pass("crash-record", "only POWERON/EXT/DEEPSLEEP/SW are treated as clean");
+  }
+}
+
+// (d) Both status-JSON buffers must be the SAME size. These two drifted apart
+// once with no symptom except that the two copies of one JSON disagreed about
+// which got truncated — and the truncation is silent, because snprintf just
+// stops, so the client receives malformed JSON and reports "the page is not
+// working properly".
+const wsc = raw("WebServerComm.cpp");
+const bufSizes = [...wsc.matchAll(/char\s+buf\[(\d+)\]\s*;\s*\n\s*buildStatusJson/gm)].map((m) => Number(m[1]));
+if (bufSizes.length < 2) {
+  fail("status-buffer", `found ${bufSizes.length} status-JSON buffer size(s) - expected the HTTP and WS copies`);
+} else if (new Set(bufSizes).size !== 1) {
+  fail("status-buffer", `the two status-JSON buffers differ (${bufSizes.join(" vs ")}) - one copy truncates differently`);
+} else {
+  // And it must actually be big enough: the fragments buildStatusJson writes
+  // into it, plus room for the fixed literal fields between them.
+  const frag = (re) => Number(wsc.match(re)?.[1] ?? 0);
+  const need =
+    frag(/char\s+networks\[(\d+)\]/) + frag(/char\s+scanJson\[(\d+)\]/) +
+    frag(/char\s+caps\[(\d+)\]/) + frag(/char\s+statusWord\[(\d+)\]/) +
+    frag(/char\s+boardId\[(\d+)\]/) + 400;  // ssid/ap/ip + every literal field
+  if (bufSizes[0] < need) {
+    fail("status-buffer", `buffer is ${bufSizes[0]} but the fragments alone need ~${need} - snprintf will truncate into invalid JSON`);
+  } else {
+    pass("status-buffer", `both copies are ${bufSizes[0]} bytes, above the ~${need} the fragments need`);
+  }
+}
+
+// (e) The crash fields must be in the status JSON, and the page must gate them
+// on crash_count > 0 rather than on the field merely existing — an absent field
+// on an un-updated car has to read as "no data", never as a fabricated zero.
+const stJson = body(wsc, "void WebServerComm::buildStatusJson") ?? "";
+// Match the bare names, not `"name"`: these keys live inside ONE snprintf format
+// string, so in the source they appear as \"name\" — a quote-delimited search
+// finds nothing and the rule fails on a correct build. Verified by the mutation
+// below, which renames a key and must then fail.
+const fields = ["reset_reason", "boot_count", "crash_count", "last_crash_phase"];
+const missing = fields.filter((f) => !stJson.includes(f));
+if (missing.length) {
+  fail("crash-visible", `status JSON is missing ${missing.join(", ")}`);
+} else {
+  pass("crash-visible", "status JSON carries the reason, both counters and the phase");
+}
+const page = raw("WebPage.h");
+if (!/crash_count[\s\S]{0,400}crashCount\s*>\s*0/.test(page) && !/cc\s*>\s*0[\s\S]{0,300}reset_reason/.test(page)) {
+  fail("crash-visible", "the page does not gate the restart row on crash_count > 0 - an absent field would render as a false zero");
+} else {
+  pass("crash-visible", "the page shows the restart row only when crash_count > 0");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that the
 // relay actually answers. That is the owner's bench (T-REL), not a laptop.
 console.log("\nrelay-contract: source checks only - no socket was opened, no hello was sent.");

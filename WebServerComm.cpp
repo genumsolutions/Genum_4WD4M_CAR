@@ -6,6 +6,7 @@
 // =====================================================================
 #include "WebServerComm.h"
 #include "WebPage.h"
+#include "CrashLog.h"     // U-95/F-79: the restart record, surfaced in /status
 #include <WiFi.h>
 #include <pgmspace.h>
 #include <ESPmDNS.h>   // U-74: advertise the car by name on whatever network it is on
@@ -1943,10 +1944,19 @@ void WebServerComm::redactForAck(const char* cmd, char* out, size_t outLen) {
 
 void WebServerComm::broadcastStatus() {
   if (!modeManager) return;
-  // 1200: status JSON + ssid(32) + ap(21) + caps map(~90) + networks (6×33 ≈ 200)
-  // + scan (D3, 12 × ~48 ≈ 600). Grown for the scan field; `buildStatusJson`
-  // bounds every fragment it writes, so a full scan cannot overflow this.
-  char buf[1200];
+  // 1536: status JSON + ssid(32) + ap(21) + caps map(~90) + networks (6×33 ≈ 200)
+  // + scan (D3, 12 × ~48 ≈ 600) + the U-95 crash fields (~120). Grown for the
+  // scan field, then again for the crash record.
+  //
+  // WHY THE NUMBER IS NOT OPTIMISED AGAIN: `buildStatusJson` bounds every
+  // fragment it writes, so the failure mode of a buffer that is too small is
+  // SILENT — snprintf truncates and the client receives malformed JSON, which
+  // the browser reports as a parse error and the owner reports as "the page is
+  // not working properly". A silently truncated diagnostic is worse than no
+  // diagnostic. tools/check-relay-contract.mjs asserts this buffer is larger
+  // than the sum of the fragment buffers it has to hold, so the next person to
+  // add a field without growing it fails CI instead of shipping a broken page.
+  char buf[1536];
   buildStatusJson(buf, sizeof(buf));
   ws.broadcastTXT(buf);
 }
@@ -1988,6 +1998,14 @@ void WebServerComm::armHttpGuard() {
 //      will never keep.
 void WebServerComm::serveRootBounded() {
   armHttpGuard();
+  // U-95/F-79: name the operation in the crash record. This is the #1 suspect
+  // for the owner's reboot loop — the send loop below is bounded to
+  // HTTP_BODY_BUDGET_MS, which until F-77 was LARGER than the 5 s task watchdog,
+  // so a client that stopped reading deterministically reset the car here. If
+  // the car ever resets again while a phone is loading the page, the record
+  // will say "http-root" and the hunt starts in the right place instead of
+  // everywhere. Cleared at the end of loop(), so it is written on the way out.
+  crashLogPhase("http-root");
   const size_t pageLen = strlen_P(PAGE_HTML);
   server.setContentLength(pageLen);
   server.send(200, "text/html; charset=utf-8", "");
@@ -2081,7 +2099,11 @@ void WebServerComm::handleMode() {
 
 void WebServerComm::handleStatus() {
   armHttpGuard();  // U-77
-  char buf[1200];
+  // Same size and same reason as broadcastStatus()'s buffer — and it MUST be the
+  // same size. These two had drifted apart once (1200 here vs a smaller value in
+  // broadcastStatus) with no symptom at all except that the two copies of the
+  // same JSON disagreed on which one got truncated. See broadcastStatus().
+  char buf[1536];
   buildStatusJson(buf, sizeof(buf));
   server.send(200, "application/json", buf);
 }
@@ -2153,6 +2175,17 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // Connections-Hub: the stable board id (fw:<id> profile key for WiFi cars).
   char boardId[8] = "";
   boardIdHex(boardId, sizeof(boardId));
+  // U-95/F-79: the restart record, over the wire. Until this existed, the only
+  // reason the car had rebooted was a Serial line printed at the instant of the
+  // fault, which is exactly the moment nobody is watching. `/status` is a place
+  // the owner already goes, so the evidence now lives where they already are.
+  //
+  // The two phase strings are firmware string LITERALS passed to
+  // crashLogPhase() — never anything a phone or browser sent — so they carry no
+  // quotes or backslashes and need no JSON escaping. Stated explicitly because
+  // the next person to add a phase from a runtime string will get this wrong,
+  // and "it was only ever internal literals" is not a property any tool checks.
+  const CrashInfo& ci = crashLogInfo();
   snprintf(buf, bufLen,
      "{"
        "\"status\":\"%s\","
@@ -2166,6 +2199,12 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
        "\"signal\":%d,"
        "\"uptime_ms\":%lu,"
        "\"free_heap\":%u,"
+       "\"reset_reason\":\"%s\","
+       "\"boot_count\":%lu,"
+       "\"crash_count\":%lu,"
+       "\"last_crash_phase\":\"%s\","
+       "\"last_crash_heap\":%lu,"
+       "\"phase\":\"%s\","
        "\"speed\":%d,"
        "\"trim\":%d,"
        "\"min_speed\":%d,"
@@ -2186,8 +2225,14 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
      ipStr,
      rssi,
      pct,
-     uptime,
-     static_cast<unsigned int>(free_heap),
+      uptime,
+      static_cast<unsigned int>(free_heap),
+      ci.label,
+      static_cast<unsigned long>(ci.bootCount),
+      static_cast<unsigned long>(ci.crashCount),
+      ci.phase,
+      static_cast<unsigned long>(ci.heapAtBoot),
+      crashLogLivePhase(),
      speed,
      static_cast<int>(modeManager ? modeManager->getTrim() : 0),
      static_cast<int>(MIN_SPEED),
