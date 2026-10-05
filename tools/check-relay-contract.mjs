@@ -33,6 +33,8 @@
 // specifier. `RELAYCFG;SHOW` deliberately reports SET / NOT_SET.
 
 import { existsSync, readFileSync } from "node:fs";
+import { createHash, X509Certificate } from "node:crypto";
+import { rootCertificates } from "node:tls";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -205,10 +207,68 @@ if (!/beginSslWithCA\s*\(/.test(relayCode)) {
 } else {
   pass("tls", "verified TLS via beginSslWithCA()");
 }
-if (!/ISRG Root X1/.test(relayRaw)) {
-  fail("tls", "no ISRG Root X1 anchor");
+// THE ANCHOR, ACTUALLY CHECKED. The rule this replaces was
+// /ISRG Root X1/.test(relayRaw) - and the only place that string appears in the
+// file is the COMMENT naming the anchor. So it reported "the anchor is ISRG Root
+// X1" about a certificate nobody had ever checked, and would have reported it
+// identically over a wrong, truncated or absent PEM. This file's own header
+// explains that gates must not read their own documentation as evidence; that
+// rule was doing exactly that, while passing.
+//
+// It matters more here than elsewhere: a wrong anchor does not fail a build or a
+// test, it produces a car that silently never connects, from a distance where the
+// symptom looks like a network problem rather than a typo in base64.
+//
+// So parse the embedded PEM and pin the DER's SHA-256. The pin is a second value
+// that must be edited deliberately, so rotating the anchor is a visible act
+// rather than a diff nobody reads.
+const ANCHOR_FP = "96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6";
+const pem = relayRaw.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/);
+if (!pem) {
+  fail("tls-anchor", "no certificate embedded in RelayComm.cpp - what is beginSslWithCA() being given?");
 } else {
-  pass("tls", "trust anchor is ISRG Root X1");
+  // Parse inside a try. A hand-edited PEM throws out of X509Certificate as
+  // "bad base64 decode", which exits non-zero - so CI is safe - while telling
+  // the owner nothing about the thing they need to fix.
+  let cert;
+  try {
+    cert = new X509Certificate(pem[0].trim());
+  } catch (err) {
+    fail("tls-anchor", `the embedded block does not parse as a certificate (${err.message})`);
+  }
+  // Flatten the subject: X509Certificate renders it across several lines, which
+  // would run straight through the report format.
+  const subject = cert ? String(cert.subject).replace(/\s*\n\s*/g, ", ").replace(/,\s*$/, "") : "";
+  if (!cert) {
+    // Everything below rests on this one fact. Say it once and stop.
+  } else if (!subject.includes("ISRG Root X1")) {
+    fail("tls-anchor", `the embedded anchor is "${subject}" - expected ISRG Root X1`);
+  } else if (cert.issuer !== cert.subject) {
+    fail("tls-anchor", "the embedded anchor is not self-signed, so it is not a root");
+  } else if (!cert.ca) {
+    fail("tls-anchor", "the embedded certificate is not a CA");
+  } else {
+    const fp = createHash("sha256").update(cert.raw).digest("hex").toUpperCase().match(/../g).join(":");
+    if (fp !== ANCHOR_FP) {
+      fail("tls-anchor", `fingerprint ${fp}\n        expected ${ANCHOR_FP}\n        a wrong anchor fails as a handshake timeout on a car, not as a build error`);
+    } else {
+      pass("tls-anchor", `ISRG Root X1, self-signed CA, SHA-256 ${fp.slice(0, 23)}...`);
+      // A second opinion from this machine's own TLS stack, when it has one.
+      // Never the assertion: a CI runner's trust store is not the firmware's
+      // trust decision, but a mismatch would mean the bytes are not what an
+      // ordinary client trusts.
+      const inStore = rootCertificates.some((der) => {
+        try {
+          return new X509Certificate(der).raw.equals(cert.raw);
+        } catch {
+          return false;
+        }
+      });
+      pass("tls-anchor", inStore
+        ? "also present, byte-identical, in this platform's trust store"
+        : "not in this platform's trust store (fine - the fingerprint is what is pinned)");
+    }
+  }
 }
 // Liveness must be measured. Without a heartbeat a half-open socket reads as
 // connected, and a link that reads as connected has switched the safe-stop off.

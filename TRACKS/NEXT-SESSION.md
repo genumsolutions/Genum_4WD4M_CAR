@@ -39,6 +39,29 @@ itself**, because prose in a comment (`never setInsecure()` on a car) matched th
 banning it. Every structural rule now reads a copy of the source with comments and
 string literals blanked out.
 
+**2b. THE ANCHOR RULE WAS THE SAME ERROR, ONE LEVEL DEEPER (F-76).** The rule that
+the trust anchor is ISRG Root X1 was `/ISRG Root X1/.test(source)` — and the only
+occurrence of that string is the **comment** naming the anchor. It was green, and it
+was evidence of nothing: it would have passed just as happily over a wrong, truncated
+or absent certificate. Found by verifying the anchor by hand after the gate had been
+green for a day, which is the only reason it was found at all.
+The rule now parses the embedded PEM and asserts the artifact: subject is ISRG Root
+X1, `issuer == subject`, `ca == true`, and the DER SHA-256 equals a pinned
+fingerprint (`96:BC:EC:...:08:C6`). The pin is a second value that must be edited
+deliberately, so rotating an anchor is a visible act. `rootCertificates` is read as a
+second opinion when present, never as the assertion — a CI runner's trust store is
+not the firmware's trust decision.
+*Mutation-tested, because a check that has never rejected anything is a comment with
+better manners:* one character changed in the base64 (valid DER, wrong fingerprint),
+corrupt base64 (unparseable), a **real** ISRG Root X2 swapped in from the platform
+store, and the block deleted — all four exit 1, control green. In every one of those
+four the comment still said "ISRG Root X1", which is the point.
+*Two costs worth recording:* a corrupt PEM threw out of `X509Certificate` as
+`bad base64 decode`, which fails CI while telling the owner nothing, and is now caught
+and named; and the "different CA" fixture was at first a certificate I typed from
+memory into base64 — which did not parse, for exactly the reason the rule exists. A
+fixture typed from memory is F-75 again. Take it from the trust store on disk.
+
 **3. INERT BY DEFAULT, DELIBERATELY.** `RELAY_HOST` ships `""` and `begin()` refuses
 to dial without a token, so a default build never opens a socket and a donor car
 changes nothing. The gate fails if that ever stops being true. Filling in `RELAY_HOST`
