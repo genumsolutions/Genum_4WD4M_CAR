@@ -3,6 +3,43 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## U-95 round — evidence gathering + the reset loop itself (2026-10-06, firmware 1.2.0 — DEVICE VERIFY PENDING)
+
+> Owner report was `_the car resets again and again_` with no cause attached. Nothing could name a
+> cause: the only reset diagnostic was a Serial line, the bench car has no serial cable, and
+> `.trigger_panic = true` meant a hung `loop()` reported `PANIC` instead of `TASK_WDT` — so the one
+> label that would have identified it was unreachable. **This round makes the resets legible; it does
+> not claim to have cured them.** Commits `883626b` (record), `29b8eaf` (page-send budget + watchdog
+> feed), `83ecf15` (idle attribution), `d78c27d` (relay guards).
+
+- [ ] **U-95-1 — flash 1.2.0 and read the record BEFORE anything else.** After the first boot, open
+      the car's page: the header carries a restart row and `/status` carries `reset_reason`,
+      `boot_count`, `crash_count`, `last_crash_phase`, `last_crash_heap`, `phase`. Record
+      `boot_count` and `crash_count`. A `boot_count` climbing with `crash_count` tracking it means the
+      loop is still happening and the record will now say which phase.
+- [ ] **U-95-2 — the reset reason is honest.** Force a reset (power-cycle is a *clean* reset and must
+      NOT be counted as a crash — that distinction is the point of U-95-4). To see a fault, force a
+      real hang and let the watchdog fire; expect `TASK_WDT`, **not** `PANIC`. If the banner still says
+      `PANIC`, `trigger_panic` has not been reconfigured — stop and report, do not continue the sheet.
+- [ ] **U-95-3 — the page no longer resets the car on a slow client (U-95/F-77).** This was the
+      confirmed reset cause: the send budget was 6000 ms against a 5000 ms watchdog, and a client that
+      stopped reading reset the car *every time*. Test: connect a phone to the car's own hotspot, load
+      the page, and while it loads put the phone in aeroplane mode so the socket stops draining. The
+      car must serve a truncated page and **stay up**. Confirm `boot_count` and `crash_count` are
+      unchanged afterwards. If the car resets here, F-77 is not fixed — report immediately.
+- [ ] **U-95-4 — a clean power cycle must not inflate the crash count.** Power-cycle the car five
+      times deliberately while trying something. `boot_count` rises by 5; **`crash_count` must not
+      move**, and the restart row must keep showing the *last real fault*, not disappear. If
+      `crash_count` rises on clean power-ons, the reason classification is wrong.
+- [ ] **U-95-5 — an idle crash is not blamed on the last operation.** Serve the page once (so the
+      record is written as `http-root`), then leave the car completely idle and cause a fault. The
+      recorded phase must be empty/idle, **not** `http-root`. This is the `83ecf15` fix: the idle
+      transition used to be rate-limited away, so a parked-car crash inherited the last operation.
+- [ ] **U-95-6 — the relay sheet CANNOT be run yet, by design.** `RELAY_HOST` ships `""` and the new
+      `armed-handshake` gate now **fails the build** for any config that sets it, because the TLS
+      handshake still runs on the loop task with a 120 s timeout against a 5 s watchdog (F-84). Do not
+      work around this gate. T-REL-1..4 are blocked until the dial is moved to its own task. Record
+      that fact here rather than attempting the relay.
 ## U-92 round — own-hotspot: double entry gone, the return actually returns (2026-10-04, firmware 1.0.5 — DEVICE VERIFY PENDING)
 
 > Owner: _"webpage has double entry of esps own hotspot please remove that too"_ · _"through
