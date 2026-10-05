@@ -11,6 +11,7 @@
 #include "BluetoothComm.h"
 #include "OledDisplay.h"
 #include "ModeManager.h"
+#include "RelayComm.h"       // U-94 Phase 2: Internet transport
 #include "WebServerComm.h"
 #include <Arduino.h>
 #include "esp_task_wdt.h"
@@ -21,6 +22,10 @@ L298NControl motor;
 BluetoothComm btComm;
 Oled_1_3 oled;
 WebServerComm webServerComm;
+// U-94 Phase 2: exactly one RelayComm. The WebSockets event callback is a plain
+// function pointer, so the instance has to be reachable statically; the gate
+// asserts this is the only one in the sketch.
+RelayComm relayComm;
 ModeManager modeManager(&motor, &btComm, &oled);
 
 static ModeManager::Mode lastMode = ModeManager::Mode::BT;
@@ -164,7 +169,13 @@ void setup() {
   modeManager.setSystemCommandHook([](const char* cmd) -> bool {
     const bool isRouterCmd = webServerComm.handleRouterCommand(cmd);
     const bool isWifiCmd = webServerComm.handleWifiConfigCommand(cmd);
-    if (!isRouterCmd && !isWifiCmd) return false;
+    // U-94 Phase 2: RELAYCFG rides the SAME single system-command entry point as
+    // ROUTERS/WIFICFG. It is not a drive command and must never reach
+    // handleCommand(); and it is the only way a relay token gets onto a car,
+    // which is why it is deliberately reachable over Bluetooth AND the page -
+    // the owner can always get at it without re-flashing.
+    const bool isRelayCmd = relayComm.handleRelayConfigCommand(cmd);
+    if (!isRouterCmd && !isWifiCmd && !isRelayCmd) return false;
     if (webServerComm.lastWifiReply().length() > 0) {
       modeManager.queueReply(webServerComm.lastWifiReply().c_str());
       // T-35/T-63: fan the reply out over EVERY connected transport (STATE
@@ -172,6 +183,14 @@ void setup() {
       // permanent, so the confirmation always reaches the app.
       modeManager.sendState();
       webServerComm.clearLastWifiReply();
+    }
+    // Every RELAYCFG reply is a fixed literal — "STORED", "CLEARED", "SET",
+    // "NOT_SET" — and never contains the token, so queueing it wholesale is
+    // safe on every transport including STATE.
+    if (isRelayCmd && relayComm.lastReply()[0] != '\0') {
+      modeManager.queueReply(relayComm.lastReply());
+      modeManager.sendState();
+      relayComm.clearLastReply();
     }
     return true;
   });
@@ -188,6 +207,13 @@ void setup() {
   btUp = true;
   modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
   modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
+  // U-94 Phase 2: the Internet transport, registered permanently like the other
+  // two. begin() returns false when RELAY_HOST is unset or no token is stored,
+  // which is the DEFAULT build - the relay is therefore inert unless someone
+  // deliberately turned it on and provisioned it. handle() still runs every
+  // loop and no-ops when !started_, so this line is safe on a donor car.
+  relayComm.begin();
+  modeManager.setRelayComm(&relayComm);
   // U-79: boot network preference. Wi-Fi was the transport the user LAST
   // used -> try the last good router (short budget; the own hotspot is the
   // fallback of last resort). Bluetooth was last -> skip the router hop
@@ -279,6 +305,12 @@ void loop() {
   // `if (webServerComm.isRunning())` mode-gate is retired.
   webServerComm.handle();
 
+  // U-94 Phase 2: pump the relay client. Like the web layer this is
+  // unconditional every loop and a no-op when the transport is not started -
+  // the WebSockets library does its socket I/O and its reconnection from
+  // loop(), so skipping this is the same as not having a relay at all.
+  relayComm.handle();
+
   // ===== U-79: transport power arbitration ============================
   // One client on one transport switches the OTHER off; when nothing is
   // connected for longer than the grace period, both broadcast again. The
@@ -287,7 +319,15 @@ void loop() {
   {
     const bool btClient = btComm.connected();
     const bool webClient = webServerComm.hasWsClients();
-    if (btClient && !webClient) {
+    // U-94 Phase 2: the relay is a WIRED client for power purposes, because it
+    // physically cannot work without Wi-Fi. Without this line the policy would
+    // switch the radio off the moment a Bluetooth phone paired - taking down the
+    // one link the Internet method depends on, while reporting "Wi-Fi off" as if
+    // that were tidy housekeeping. This is the same rule as hasWsClients(),
+    // applied to a client that lives somewhere else.
+    const bool relayClient = relayComm.connected();
+    const bool wiredClient = webClient || relayClient;
+    if (btClient && !wiredClient) {
       if (webUp) {
         webServerComm.stop();
         webUp = false;
@@ -295,15 +335,15 @@ void loop() {
         Serial.println("[POWER] Wi-Fi off - Bluetooth client active");
       }
       transportsIdle = false;
-    } else if (webClient && !btClient) {
+    } else if (wiredClient && !btClient) {
       if (btUp) {
         btComm.stop();
         btUp = false;
         saveLastTransport(LastTransport::WIFI);
-        Serial.println("[POWER] Bluetooth off - web client active");
+        Serial.println("[POWER] Bluetooth off - wired client active");
       }
       transportsIdle = false;
-    } else if (!btClient && !webClient) {
+    } else if (!btClient && !wiredClient) {
       if (!transportsIdle) {
         transportsIdle = true;
         transportsIdleSinceMs = millis();

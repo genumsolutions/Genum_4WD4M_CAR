@@ -69,6 +69,15 @@ public:
   void resetFailsafe();
   void setComm(CommInterface* newComm);
   void setAuxComm(CommInterface* aux);
+  /** U-94 Phase 2: the Internet transport. A THIRD slot, not a replacement for
+   *  either of the others: the relay is a pipe like Bluetooth and the web page,
+   *  and it is how a car gets driven from a phone that is not on this network.
+   *
+   *  It is a separate pointer rather than an assignment to comm_/auxComm_ on
+   *  purpose. Those two are the U-79 power-policy pair, and swapping the relay
+   *  into either would take the Wi-Fi AP down whenever a phone joined over the
+   *  Internet - i.e. exactly when the relay is most needed. */
+  void setRelayComm(CommInterface* relay);
   void setExtraInfo(const char* info);
 
   // v1.0.1 (owner OLED directive 2026-09-28): the dashboard must ALWAYS show
@@ -164,6 +173,7 @@ private:
   MotorControl* motor_;
   CommInterface* comm_;
   CommInterface* auxComm_;
+  CommInterface* relayComm_;  // U-94 Phase 2. Null unless setRelayComm() ran.
   OledDisplay* oled_;
 
   Mode currentMode_;

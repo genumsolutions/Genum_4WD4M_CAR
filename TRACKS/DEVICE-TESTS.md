@@ -704,6 +704,83 @@ The suite now double-reads after every switch and gives refusals a 4.5 s window.
       tappable, the fixed page header. Gates and CI are green; no human has seen it.
 - [ ] OLED rendering, physical buttons/joystick.
 
+## U-94 Phase 2 (2026-10-05) - T-REL: the Internet method, on the car
+
+**State: NOT RUN. Nothing in this section has been observed.** No car has been
+flashed with `1.1.0`; the relay has not been deployed; the migration has not
+been applied. F-61 stands: the relay-contract gate and the Arduino compile are
+source-level evidence and nothing more. Read that sentence again before quoting
+any row below as a result.
+
+**Owner actions required first, in this order.** `RELAY_HOST` in `Config.h`
+must name the Supabase project (it ships empty, so the transport is inert until
+someone fills it in deliberately). The migration
+`20261005130000_relay_token_digest.sql` must be applied. `RELAY_TOKEN_PEPPER`
+must be set as an edge-function secret. Only then can a car be enrolled, and
+only then is a token available to paste.
+
+### T-REL-1 - the handshake
+
+- [ ] `RELAYCFG;<32 lowercase hex>` over Bluetooth -> `RELAYCFG;STORED` in
+      `REPLY=`, and **nothing else**. Read the whole `REPLY=` aloud: if the
+      token appears anywhere in it, the car is compromised and the token is
+      burned. This is the single most important check in the section.
+- [ ] `RELAYCFG;SHOW` -> `RELAYCFG;SET`. Then power-cycle and `SHOW` again
+      -> still `SET`. (Proves NVS survived the reboot.)
+- [ ] `RELAYCFG;RESET` -> `RELAYCFG;CLEARED`, then `SHOW` -> `NOT_SET`,
+      and the log shows `[RELAY] no token stored` at the next boot.
+- [ ] **The negative row:** `RELAYCFG;ABC` (too short) and
+      `RELAYCFG;<32 UPPERCASE hex>` -> both `ERROR`, and neither is stored.
+      Uppercase is rejected on purpose: the relay's regex is lowercase-only, and
+      silently accepting a different spelling of the same token would produce a
+      baffling 4401 later.
+
+### T-REL-2 - the link, and what the panel says
+
+- [ ] Serial shows `[RELAY] dialling ...`, then `socket up, saying hello`,
+      then **`paired - link is live`**. `paired` is the only line that means
+      connected; the socket being up does not.
+- [ ] OLED reads `Internet|WSS` while paired. Then pull the router's antenna
+      (or rename the SSID): within a heartbeat interval the OLED must fall back
+      and the car must **stop within 2 s**. A car that keeps driving because a
+      dead link still claims to be connected is the F-74 failure mode.
+- [ ] `[RELAY] refused by relay` appears when the token is wrong. Confirm the
+      car is NOT connected and the safe-stop is armed.
+- [ ] Recovery: restore the router, confirm the client reconnects **by itself**
+      with no reboot, and re-confirms `paired`.
+
+### T-REL-3 - driving over it, from a phone not on this network
+
+- [ ] Phone on mobile data, car on the router. `F`/`B`/`L`/`R`/`S` and
+      `SPD<n>` all work, and the car's panel shows `Internet|WSS`.
+- [ ] The speed on the phone's STATE track matches the car, and the periodic
+      STATE keeps arriving. **This is the row that would have failed in Phase 1:**
+      a STATE line is ~110 bytes before any `REPLY=`, and the old cap was 128
+      in both directions.
+- [ ] Kill the phone's network mid-drive: the car must stop within 2 s, not
+      continue. (Failsafe, not the relay.)
+- [ ] **Latency is honest now.** The phone's ping measures the phone, not the
+      relay. Confirm the relay's log shows the forwarded `ping` and the car's
+      `ping-echo`. A latency number that does not include the phone is worse
+      than no number, because it hides the phone's own network.
+- [ ] `REQ_STATE` and a `REPLY=` line over the relay - the 448-byte
+      direction, with a multi-router list.
+
+### T-REL-4 - regressions that are not optional
+
+- [ ] Bluetooth driving still works with the relay live, and the power policy
+      does **not** switch Wi-Fi off under an active BT client (that was the bug
+      the `wiredClient` line in the sketch exists to prevent).
+- [ ] Wi-Fi page + WS still works with the relay live.
+- [ ] Boot with no token: no dialling, no log noise beyond one line, and every
+      existing behaviour unchanged. This is the donor-car case.
+- [ ] Flash/SRAM deltas from the compile job are inside the Huge APP budget.
+
+### T-REL-5 - what this section may not be used to claim
+
+Green gates do not make T-REL-1..4 true. Until these rows have a verdict from a
+human on a car, "the Internet method works" is not a sentence anyone in this
+project is entitled to write.
 ### Monitor
 
 `monitor_car.py <port> [seconds]` decodes the serial console and tags the lines

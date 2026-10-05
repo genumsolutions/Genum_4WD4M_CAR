@@ -1,14 +1,61 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-04: U-92 own-hotspot fix; firmware 1.0.5)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-05: U-94 Phase 2 firmware written; firmware 1.1.0 NOT flashed)
 
-**HEADS-UP — U-94 DESIGN WRITTEN (2026-10-04, no code, awaiting owner go):** the Internet
-method (cloud WSS relay) is designed at the app repo's
-`guide/PLAN-2026-10-04-U94-INTERNET-METHOD-DESIGN.md`. **Phase 2 is THIS repo's future round:**
-a `RelayComm` that dials OUT over the STA the car already joins (U-71 auto-join), authenticates
-with a per-car relay token (NVS `botcfg/relay_token`, never printed), then bridges WS frames
-into the SAME `handleCommand` queue path (T-1) and forwards STATE back. Both ends are relay
-clients; pairing by the car's existing `boardIdHex`. Gate stages + bench rows T-REL-1..n to be
-added when the owner approves (Q1 relay impl, Q2 claim model, Q3 timing — see the plan's §6).
-Do NOT start without the owner's explicit go (F-41).
+**U-94 PHASE 2 IS WRITTEN AND HAS NEVER BEEN ON A CAR.** `RelayComm` exists, the
+third `ModeManager` slot is wired, `RELAYCFG` provisions a token, and the gates are
+green. Firmware is now `1.1.0`. **The car on the bench is still running `1.0.5`.**
+Nothing in this file's Phase 2 paragraphs is a result; they are intentions with
+source-level checks behind them. F-61.
+
+**1. THE PHASE 1 CONTRACT HAD THREE DEFECTS, ALL FOUND BY WRITING THE CAR SIDE.**
+Writing the firmware against the relay is the only way to find these — a relay that
+has never had a car talk to it cannot check a car's contract. All three were green
+across three suites:
+- **Every STATE line was dropped** (`039f014`). The frame cap was 128 in *both*
+  directions, justified by a comment about `handleCommand`'s buffer — true of the
+  phone's commands, false of the car's output, which is built into 448. A paired
+  phone would have met a connected, authenticated, permanently silent car.
+- **The latency pair never crossed** (`039f014`). The relay answered the phone's
+  `ping` with its *own* echo, so the number measured the relay and was reported as
+  the car, while the car's real `ping-echo` was refused as an unknown event.
+- **The pairing key could never match** (`40dac31`). `BOARD_ID_RE` demanded 12 hex;
+  `WebServerComm::boardIdHex()` prints 6 (`%06X` of `efuseMac & 0xFFFFFF`). Every
+  real car would have been refused at the hello. Fixed on the relay side, because
+  those 6 chars are already the car's identity in `STATE;...;ID=`, on its page, and
+  in the app's `fw:<id>` profile. F-75.
+
+**2. THE NEW GATE, AND WHY IT IS NOT MORE `static_assert`s** (`tools/check-relay-contract.mjs`,
+CI job `relay-contract`, F-74). The Arduino job answers "does it compile". A transport
+that compiles and is never connected looks identical to one that works, and three of
+the four missing seams are safety-relevant: no drain means commands vanish, no STATE
+fan-out means the phone watches a stopped car, and an `isConnectedNow()` that ignores
+the relay means **the 2 s safe-stop fires continuously while the owner is driving**.
+The gate derives the transport list from the class declarations and asserts each one
+appears in `run()`, `sendState()`, `isConnectedNow()` and `currentLink()`, plus: the
+grammar lock, the NUL control prefix checked before any content read, `beginSslWithCA`
+and no `setInsecure()`, a heartbeat, and four rules about the token never reaching a
+log or a reply. 12 mutations, one per rule, all caught by name.
+*Self-inflicted lesson worth keeping:* the first version of this gate **failed
+itself**, because prose in a comment (`never setInsecure()` on a car) matched the rule
+banning it. Every structural rule now reads a copy of the source with comments and
+string literals blanked out.
+
+**3. INERT BY DEFAULT, DELIBERATELY.** `RELAY_HOST` ships `""` and `begin()` refuses
+to dial without a token, so a default build never opens a socket and a donor car
+changes nothing. The gate fails if that ever stops being true. Filling in `RELAY_HOST`
+is a decision someone has to make on purpose.
+
+**4. NEXT SESSION, IN THIS ORDER.**
+- Run every gate again before touching anything: `tools/check-relay-contract.mjs`,
+  `tools/check-firmware-syntax.ps1` (8/8 TUs), the two CI jobs.
+- **Ask the owner for `RELAY_HOST`** (the Supabase project host). Nothing can be
+  bench-tested without it, and it is deliberately not a value I may guess.
+- Then the owner's sequence: apply the migration, set `RELAY_TOKEN_PEPPER`, deploy
+  `car-relay --no-verify-jwt`, enrol the car, then **T-REL-1..4** in
+  `DEVICE-TESTS.md`. T-REL-1's first row — read the whole `REPLY=` aloud and confirm
+  the token is not in it — is the one that matters most.
+- Phase 3 (app) and Phase 4 (owner bench) are untouched. Phases 3/4 are *not* mine to
+  claim complete.
+
 **U-95 (2026-10-05) - VERIFICATION ROUND: the bench harness was lying before it ever ran. No
 firmware change; firmware stays 1.0.5.** The owner could not flash, so this session re-ran every
 gate on the machine instead of quoting prose, then audited the two untracked scripts in `tools/`

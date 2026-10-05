@@ -37,6 +37,26 @@ jobs:
       - name: The page's JavaScript parses and tells the truth
         run: node tools/check-webpage-js.mjs
 
+  relay-contract:
+    # U-94 Phase 2. The Arduino job answers "does it compile". It cannot answer
+    # "is the relay actually wired in" — a transport that compiles and is never
+    # connected is indistinguishable from one that works. This job reads the
+    # source and asserts the four seams (drain, STATE fan-out, connected(),
+    # loop pump), the grammar lock, the control prefix, verified TLS, and that
+    # the relay token never reaches a log line or an acknowledgement.
+    #
+    # Separate from `compile` so "the relay is half-wired" and "the build broke"
+    # are different failures, and so the failure text is about the contract
+    # rather than a compiler message about a translation unit.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: The relay contract holds
+        run: node tools/check-relay-contract.mjs
+
   compile:
     runs-on: ubuntu-latest
     steps:
