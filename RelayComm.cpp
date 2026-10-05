@@ -104,6 +104,11 @@ constexpr uint8_t kMaxPongMisses = 2;
 // otherwise be dialling every second for the life of the battery.
 constexpr unsigned long kRedialMs = 15000;
 
+// How long to let a socket finish closing before re-arming with new credentials
+// (RELAYCFG). Long enough for the close handshake, short enough that the owner
+// has not yet reached for the reset button.
+constexpr unsigned long kRestartDelayMs = 500;
+
 }  // namespace
 
 // The library's event callback is a plain function pointer, so the instance has
@@ -143,20 +148,43 @@ bool RelayComm::begin() {
 
   started_ = true;
   wantsLink_ = true;
-  lastDialMs_ = millis();
+  restartAtMs_ = 0;
   FW_LOG("[RELAY] dialling %s:%d/%s as %s", RELAY_HOST, RELAY_PORT, RELAY_PATH, boardId_);
   return true;
 }
 
+void RelayComm::restart() {
+  if (!started_) {
+    begin();
+    return;
+  }
+  // The disconnect is finished by loop(), so the redial waits a beat and the
+  // pump keeps running in the meantime. Without the delay this would call
+  // begin() on a client that is still closing its socket, which is the kind of
+  // thing that works once on the bench and never again.
+  restartAtMs_ = millis() + kRestartDelayMs;
+  enrolled_ = false;
+  sentHello_ = false;
+  queueClear();
+}
+
 void RelayComm::handle() {
-  if (!started_) return;
   // The library reconnects from loop(). It also does all socket I/O here, so
   // NOT calling this is the same as not having a relay.
+  if (restartAtMs_ != 0 && static_cast<long>(millis() - restartAtMs_) >= 0) {
+    restartAtMs_ = 0;
+    client_.disconnect();
+    started_ = false;
+    begin();
+    return;
+  }
+  if (!started_) return;
   client_.loop();
 }
 
 void RelayComm::stop() {
-  if (!started_) return;
+  if (!started_ && restartAtMs_ == 0) return;
+  restartAtMs_ = 0;
   client_.disconnect();
   sInstance = nullptr;
   started_ = false;
@@ -521,8 +549,7 @@ bool RelayComm::handleRelayConfigCommand(const char* cmd) {
   token_[kTokenLen] = '\0';
   // Redial now rather than at the next boot: the owner just gave us a token
   // and is sitting in front of the car.
-  stop();
-  begin();
+  restart();
   FW_LOG("[RELAY] token stored for %s", boardId_[0] ? boardId_ : "this car");
   reply("RELAYCFG;STORED");
   return true;

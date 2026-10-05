@@ -81,6 +81,11 @@ public:
   void handle();
   /** Disconnect and forget nothing. Idempotent. */
   void stop();
+  /** Re-arm with the current credentials, after the current socket has actually
+   *  closed. Deferred rather than immediate: the library finishes a disconnect
+   *  inside loop(), so calling begin() in the same breath would re-arm a socket
+   *  that is still closing. */
+  void restart();
 
   /** True when the socket is up AND the relay has accepted us (`paired`).
    *  Deliberately stricter than "the TCP socket is open": a car refused with
@@ -144,5 +149,5 @@ private:
   bool wantsLink_ = false;
   bool enrolled_ = false;
   bool sentHello_ = false;
-  unsigned long lastDialMs_ = 0;
+  unsigned long restartAtMs_ = 0;
 };
