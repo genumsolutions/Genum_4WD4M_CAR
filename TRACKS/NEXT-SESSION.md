@@ -35,8 +35,8 @@ before they were ever pointed at a car.
    reports FAIL on a car that is fixed. Both corrected to `REQ_STATE` with an explicit warning.
    `Car.__aenter__` also drains the connect-time burst so each row's window starts from silence.
 3. **`tools/check-firmware-syntax.ps1` (`016d2f9`) - a runnable syntax gate.** The Arduino CI is the
-   real build but is a **private repo (API 404 unauthenticated)**, so the "xtensa -fsyntax-only
-   CLEAN" claims in earlier rounds had no command behind them. This gate runs
+   real build, so the "xtensa -fsyntax-only CLEAN" claims in earlier rounds had no *local* command
+   behind them. This gate runs
    `xtensa-esp-elf-gcc -fsyntax-only` over all 7 TUs and **exits non-zero on failure**;
    **mutation-tested** (injecting `this_should_not_compile;` → exit 1, file+line named), so it is
    not a gate that always passes. **Current: PASS 7/7.** Two traps documented in the file, both of

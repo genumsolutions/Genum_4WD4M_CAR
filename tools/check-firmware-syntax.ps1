@@ -1,8 +1,10 @@
 # Firmware syntax gate — xtensa-esp-elf-gcc -fsyntax-only over every translation unit.
 #
-# WHY THIS FILE EXISTS (F-61): the car repo's Arduino CI is the real build, but it is
-# a private repo and cannot be re-checked from a bench session. This gate is the
-# local second opinion: it cannot prove behaviour, but it DOES prove the sources
+# WHY THIS FILE EXISTS (F-61): the Arduino CI is the real build, but it only runs
+# after a push and takes ~4 minutes, and an earlier round wrongly recorded it as
+# unreachable ("private, API 404"). It is reachable and green — checked 2026-10-05,
+# run 37280923047 — this gate is the local second opinion: it cannot prove
+# behaviour, but it DOES prove the sources
 # still parse against the real ESP32 core, and it catches a broken edit in seconds
 # instead of waiting for CI.
 #
