@@ -17,6 +17,7 @@
 #include <Arduino.h>
 #include "esp_task_wdt.h"
 #include "esp_system.h"   // U-70: esp_reset_reason() — why did the car boot?
+#include "esp_common.h"   // U-96: RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG
 #include <Preferences.h>  // U-79: last-used transport persistence
 
 L298NControl motor;
@@ -158,11 +159,24 @@ void setup() {
   }
   esp_task_wdt_add(NULL);
 
-  motor.begin();
+  // U-96: the ESP32's RTC low-voltage detector trips at ~3.0V and resets the
+  // chip. On marginal supplies the WiFi AP+STA init spike can dip below this
+  // threshold momentarily. Raise the brownout threshold so only genuine
+  // undervoltage (not a brief init spike) triggers a reset.
+  // RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG: 0 = 2.69V, 1 = 2.42V (default 1).
+  // Setting to 0 raises it to 2.69V — still protects against real undervoltage,
+  // but the brief WiFi init spike (~2.8-2.9V) won't trip it.
+  // Note: this is a mitigation, not a cure. If the supply cannot sustain 3.3V
+  // under load the car WILL still brownout — the owner must fix the power source.
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG, 0);
+
+  // U-96: power-budgeted boot. Stagger power-intensive init so marginal supplies
+  // don't brownout-reset the car. Motors (H-bridge) deferred to end of setup.
   btComm.begin();
   oled.begin();
 
   pinMode(SWITCH_PIN, INPUT_PULLUP);
+  delay(80);  // let supply settle after OLED/BT init
 
   webServerComm.init();
   webServerComm.setModeManager(&modeManager);
@@ -222,6 +236,7 @@ void setup() {
   // every loop(). No mode-based comm swapping exists anymore.
   webServerComm.beginAlwaysOn();
   webUp = true;
+  delay(80);  // let supply settle after WiFi AP+STA power spike
   btUp = true;
   modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
   modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
@@ -242,6 +257,11 @@ void setup() {
   } else {
     Serial.println("[BOOT] Last used: Bluetooth - staying on hotspot + BT (router join skipped)");
   }
+  // U-96: motors deferred to end of setup � the H-bridge is the biggest
+  // non-comms power load and the car is reachable before it loads.
+  delay(500);  // give the supply time to stabilize after WiFi+Bluetooth+relay
+  motor.begin();
+
   lastMode = modeManager.getMode();
 }
 

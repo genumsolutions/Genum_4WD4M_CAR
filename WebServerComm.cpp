@@ -837,6 +837,11 @@ void WebServerComm::startOwnAP() {
     // it mid-association is the very thing that destabilises the driver. Leave it.
     return;
   }
+  // U-96: use minimum AP power (WIFI_POWER_11dB) to reduce the init current
+  // spike. The car's own hotspot only needs to reach a phone across a room —
+  // 11dBm (~12mW) is more than enough and draws noticeably less current than
+  // the default 20dBm during the vulnerable boot window.
+  WiFi.setTxPower(WIFI_POWER_11dB);
   const bool apOk = WiFi.softAP(apName.c_str(), /*passphrase=*/nullptr,
                                 apChannel, /*ssid_hidden=*/0,
                                 /*max_connection=*/4);
