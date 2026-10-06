@@ -26,7 +26,16 @@
 #      the kernel root.
 #
 # Usage:  pwsh -File tools/check-firmware-syntax.ps1
+#         pwsh -File tools/check-firmware-syntax.ps1 -Files WebServerComm.cpp
 # Exit 0 = every TU parses. Non-zero = first errors are printed.
+#
+# -Files narrows the sweep to named translation units. It exists for
+# tools/mutate-gates.mjs, which needs to prove that a static_assert FIRES once per
+# broken invariant, and paying 40 s for all nine units to learn something about one
+# of them makes that harness too slow to run before every commit. Full sweeps (no
+# -Files) still cover everything; this only changes how fast a targeted check is.
+
+param([string[]]$Files = @())
 
 $ErrorActionPreference = "Stop"
 
@@ -99,6 +108,13 @@ Set-Content -Path $rsp -Value ($flags -join "`n") -Encoding ascii
 
 $sources = Get-ChildItem -Path $repo -Filter *.cpp -Recurse | Where-Object { $_.FullName -notmatch '\\build' }
 if (-not $sources) { Write-Error "no .cpp found under $repo"; exit 2 }
+
+if ($Files.Count -gt 0) {
+  $wanted = $Files | ForEach-Object { $_.ToLower() }
+  $sources = $sources | Where-Object { $wanted -contains $_.Name.ToLower() }
+  $missing = $wanted | Where-Object { $_ -notin @($sources | ForEach-Object { $_.Name.ToLower() }) }
+  if ($missing) { Write-Error "no such translation unit(s): $($missing -join ', ')"; exit 2 }
+}
 
 $failed = @()
 foreach ($f in $sources) {
