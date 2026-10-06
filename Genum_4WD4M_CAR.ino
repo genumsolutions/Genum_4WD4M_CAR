@@ -16,7 +16,7 @@
 #include "WebServerComm.h"
 #include <Arduino.h>
 #include "esp_task_wdt.h"
-#include <esp_system.h>  // U-70: esp_reset_reason();  U-96: RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG / WRITE_PERI_REG
+#include <esp_system.h>  // U-70: esp_reset_reason(). U-96's brownout register write was removed — the threshold is Kconfig-baked and not settable from a sketch (see setup()).
 #include <Preferences.h>  // U-79: last-used transport persistence
 
 L298NControl motor;
@@ -158,16 +158,41 @@ void setup() {
   }
   esp_task_wdt_add(NULL);
 
-  // U-96: the ESP32's RTC low-voltage detector trips at ~3.0V and resets the
-  // chip. On marginal supplies the WiFi AP+STA init spike can dip below this
-  // threshold momentarily. Raise the brownout threshold so only genuine
-  // undervoltage (not a brief init spike) triggers a reset.
-  // RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG: 0 = 2.69V, 1 = 2.42V (default 1).
-  // Setting to 0 raises it to 2.69V — still protects against real undervoltage,
-  // but the brief WiFi init spike (~2.8-2.9V) won't trip it.
-  // Note: this is a mitigation, not a cure. If the supply cannot sustain 3.3V
-  // under load the car WILL still brownout — the owner must fix the power source.
-  WRITE_PERI_REG(CONFIG_BROWNOUT_DET_LVL_SEL_REG, 0); // 0 = 2.69V, 1 = 2.42V (default 1)
+  // U-96 (CORRECTED): brownout threshold — there is nothing to set here, and
+  // the earlier attempt to set it was doubly wrong.
+  //
+  // The two mistakes this replaces, both of which cost a broken build:
+  //
+  //  1. THE REGISTER IS NOT REACHABLE. It used to be written directly as
+  //     RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG. On core 3.3.x there is no such
+  //     symbol anywhere — grepping all of esp32-libs finds no DET_LVL register
+  //     at all. Brownout moved to a Kconfig option compiled into the
+  //     prebuilt esp32-libs; the only public entry point, esp_brownout_init(),
+  //     takes no level argument. A sketch CANNOT change this threshold on this
+  //     core. The first fix swapped the old name for CONFIG_BROWNOUT_
+  //     DET_LVL_SEL_REG, which is simply the Kconfig symbol misread as a
+  //     register — it is not one, and it does not exist either.
+  //
+  //  2. THE INTENT WAS BACKWARDS. The old comment claimed "0 = 2.69V,
+  //     1 = 2.42V (default 1)" and wrote 0 to "raise" it. IDF's actual table
+  //     runs the other way: SEL_0 is the LOWEST of the eight levels (~2.43V)
+  //     and SEL_7 the highest (~2.80V). Writing 0 would have LOWERED the
+  //     threshold. So the change was not merely impossible, it was aimed the
+  //     wrong way round.
+  //
+  // The good news is that the mitigation is already in effect: the prebuilt
+  // core ships CONFIG_ESP_BROWNOUT_DET_LVL_SEL_0 — i.e. level 0, the LOWEST
+  // and therefore most tolerant setting available. The brief WiFi AP+STA init
+  // spike does not fake a brownout on this build. The compile-time guard below
+  // pins that fact so a future core bump that changes the default fails the
+  // BUILD rather than silently reintroducing spurious resets.
+  //
+  // This is still mitigation, not a cure. If the supply cannot sustain 3.3V
+  // under load the car WILL brownout — that is hardware, and the owner has to
+  // fix the power source. See FAILSAFE.md.
+#if defined(CONFIG_ESP_BROWNOUT_DET_LVL) && (CONFIG_ESP_BROWNOUT_DET_LVL != 0)
+#error "Brownout level is no longer 0 (most tolerant). U-96 assumed the prebuilt core ships level 0; it does not. Re-check the brownout mitigation in setup() against this core's IDF brownout table before removing this guard."
+#endif
 
   // U-96: power-budgeted boot. Stagger power-intensive init so marginal supplies
   // don't brownout-reset the car. Motors (H-bridge) deferred to end of setup.

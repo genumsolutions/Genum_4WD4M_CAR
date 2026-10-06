@@ -42,3 +42,33 @@ See `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md` § Phase 2.
 
 ## Phase 3 — device verification round (BLOCKED on Phase 1 + bench)
 See `TRACKS/DEVICE-TESTS.md` round 1.
+
+## Phase U-96 follow-up — 2026-10-06 — DONE
+- [x] **U-96a** fix the BROKEN BUILD: `WRITE_PERI_REG` on a brownout symbol that does not
+      exist on core 3.3.x (`Genum_4WD4M_CAR.ino`). Two commits in a row had guessed a symbol
+      wrong (`c3c29e6` then `d34b52c`); neither built. Removed — see FAILSAFE #12 for why it
+      cannot be done, and why the old comment's polarity was inverted.
+- [x] **U-96b** `#error` guard pinning `CONFIG_ESP_BROWNOUT_DET_LVL == 0`, so a future core
+      bump that changes the default fails the BUILD instead of silently reintroducing
+      spurious resets.
+- [x] **U-96c** close the gate blind spot: `tools/check-firmware-syntax.ps1` now sweeps the
+      `.ino` (was `-Filter *.cpp`) and **refuses to pass if it finds no `.ino`**. Proven to
+      fail on a deliberately broken sketch, not merely to pass — see FAILSAFE #13.
+- [x] **U-96d** app: surface the U-95 restart record. The car already sent
+      `reset_reason`/`boot_count`/`crash_count`/`last_crash_phase`/`last_crash_heap` on
+      `/status`; the app parsed `free_heap` from the same object and dropped these. Now
+      parsed + shown as a "Restarts" row. **No firmware change was needed** — this was
+      purely an app-side blind spot.
+- [ ] **U-96e** OWNER: flash `main` and confirm. Gates green ≠ builds green on your toolchain.
+- [ ] **U-96f** align core versions: the local gate runs **3.3.12**; `arduino-ci.yml` pins
+      **3.3.11**. They are not proving the same thing. Low risk, worth settling.
+- [ ] **U-96g** the reset LOOP itself is still uncured. U-95 made it *observable*, nothing
+      more. First read after flash: `/status` → restart record, or the app's Restarts row.
+      If `crash_count` is climbing, `reset_reason` + `last_crash_phase` name the culprit —
+      `http-root` and `relay-tls` are the two known suspects.
+- [ ] **U-96h** `RELAYCFG` has ZERO app surface (firmware U-94 Phase 2 has it; the app has no
+      hit for the string). Deliberate today — the `armed-handshake` gate blocks the relay by
+      design until the relay service is deployed + `RELAY_HOST` is set. **Do not unblock it.**
+- [ ] **U-96i** no firmware/app version handshake exists. The firmware reports no version at
+      all, and the app's `deviceRegistryService.ts` claims `fwVersion: "1.0.0"` against
+      firmware `1.2.0`. Cosmetic today, but it means a real handshake later needs BOTH repos.

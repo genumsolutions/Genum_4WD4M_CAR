@@ -11,9 +11,18 @@
 # It is NOT a substitute for flashing. F-61 stands: green here is necessary, never
 # sufficient.
 #
+# THE .ino IS IN THE SWEEP, AND IT MUST STAY IN THE SWEEP (U-96 gate break).
+# This used to filter `-Filter *.cpp`, which compiled the nine .cpp files and
+# reported "SYNTAX GATE PASS: 9 / 9" while the sketch itself did not build. That
+# is not a hypothetical: U-96 landed a broken `WRITE_PERI_REG` on a brownout
+# symbol that does not exist on core 3.3.x, in Genum_4WD4M_CAR.ino, and this
+# gate stayed green through it. A gate that reports success over 9 of the 10
+# files that make up the firmware is worse than no gate, because it converts an
+# uncompiled file into a trusted one.
+#
 # The include set below was derived from the real Arduino build layout on this
-# machine (core 3.3.12 + esp32-libs 3.3.12 + sketchbook libraries). Two orderings
-# matter and are easy to get wrong:
+# machine (core 3.3.12 + esp32-libs 3.3.12 + sketchbook libraries). Three
+# orderings matter and are easy to get wrong:
 #
 #   1. -DESP32 must NOT be defined. Config.h declares
 #      `enum class BoardType : uint8_t { ESP32 };` and a numeric ESP32 macro turns
@@ -25,13 +34,20 @@
 #      FreeRTOS-Kernel/include (FreeRTOS.h), and the xtensa portmacro.h before
 #      the kernel root.
 #
+#   3. The .ino needs `-x c++`. gcc does not infer a language from the .ino
+#      extension (it has none), so without it the driver declines to compile it
+#      rather than treating it as C++. It also needs -I <repo> so the sketch's
+#      own `#include "Config.h"` resolves; Arduino builds the sketch with the
+#      sketch directory on the include path, so this matches the real build.
+#
 # Usage:  pwsh -File tools/check-firmware-syntax.ps1
 #         pwsh -File tools/check-firmware-syntax.ps1 -Files WebServerComm.cpp
+#         pwsh -File tools/check-firmware-syntax.ps1 -Files Genum_4WD4M_CAR.ino
 # Exit 0 = every TU parses. Non-zero = first errors are printed.
 #
 # -Files narrows the sweep to named translation units. It exists for
 # tools/mutate-gates.mjs, which needs to prove that a static_assert FIRES once per
-# broken invariant, and paying 40 s for all nine units to learn something about one
+# broken invariant, and paying 40 s for all ten units to learn something about one
 # of them makes that harness too slow to run before every commit. Full sweeps (no
 # -Files) still cover everything; this only changes how fast a targeted check is.
 
@@ -93,6 +109,10 @@ if (Test-Path $sketchLib) {
   $inc += (Get-ChildItem $sketchLib -Directory | ForEach-Object { "$($_.FullName)\src" })
   $inc += (Get-ChildItem $sketchLib -Directory | ForEach-Object { $_.FullName })
 }
+# The sketch directory, so the .ino's own `#include "Config.h"` resolves. Arduino
+# compiles the sketch with this on the include path, so this is not an
+# accommodation for the gate — it is what the real build does.
+$inc += $repo
 $inc += $first + $rest
 $inc = $inc | Select-Object -Unique | ForEach-Object { '"' + ($_ -replace '\\', '/') + '"' }
 
@@ -106,8 +126,22 @@ $flags = @(
 $flags += ($inc | ForEach-Object { "-I$_" })
 Set-Content -Path $rsp -Value ($flags -join "`n") -Encoding ascii
 
-$sources = Get-ChildItem -Path $repo -Filter *.cpp -Recurse | Where-Object { $_.FullName -notmatch '\\build' }
-if (-not $sources) { Write-Error "no .cpp found under $repo"; exit 2 }
+# EVERY source the Arduino build compiles, not just the .cpp files. The sketch is
+# part of the firmware; leaving it out is what let U-96's broken brownout symbol
+# through this gate twice.
+$sources = Get-ChildItem -Path $repo -Include *.cpp,*.ino -Recurse |
+           Where-Object { $_.FullName -notmatch '\\build' }
+if (-not $sources) { Write-Error "no .cpp/.ino found under $repo"; exit 2 }
+
+# Coverage floor. The U-96 lesson is that a gate which quietly compiles fewer
+# files than it used to is worse than no gate: it reports success over a hole.
+# If the .ino ever stops being picked up — a renamed sketch, a moved file, a glob
+# typo — this fires instead of the sweep shrinking to 9 and staying green.
+$inoCount = @($sources | Where-Object { $_.Extension -eq '.ino' }).Count
+if ($inoCount -lt 1) {
+  Write-Error "SYNTAX GATE COVERAGE BREAK: no .ino found under $repo. The sketch is not being compiled. Refusing to report a pass over a partial build."
+  exit 2
+}
 
 if ($Files.Count -gt 0) {
   $wanted = $Files | ForEach-Object { $_.ToLower() }
@@ -118,7 +152,10 @@ if ($Files.Count -gt 0) {
 
 $failed = @()
 foreach ($f in $sources) {
-  $out = & $gcc "@$rsp" $f.FullName 2>&1
+  # gcc has no rule for the .ino extension; -x c++ is what tells it to treat the
+  # file as C++ the way the Arduino builder does.
+  $lang = if ($f.Extension -eq '.ino') { @('-x', 'c++') } else { @() }
+  $out = & $gcc "@$rsp" @lang $f.FullName 2>&1
   if ($LASTEXITCODE -ne 0) {
     $failed += $f.Name
     Write-Host "FAIL $($f.Name)"

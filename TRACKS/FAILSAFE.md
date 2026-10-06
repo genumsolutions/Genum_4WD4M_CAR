@@ -38,3 +38,25 @@ ruling + a ledger note BEFORE the change.
     ESTOP test and is therefore **stale**; safe stop is `S` / `SPD0` / disconnect, and
     `FAILSAFE_TIMEOUT_MS` (2000 ms, invariant 2) is the real backstop. Do not re-add an e-stop UI
     without an owner ruling on the firmware side first.
+12. **The brownout threshold is NOT settable from a sketch (U-96, 2026-10-06).** Core 3.3.x moved
+    brownout level to a Kconfig option compiled into the prebuilt `esp32-libs`. There is no
+    `DET_LVL` register in any public header, and `esp_brownout_init()` takes no level argument.
+    Two wrong symbols were committed in a row — `RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG`, then
+    `CONFIG_BROWNOUT_DET_LVL_SEL_REG` (a Kconfig name misread as a register) — and both broke the
+    build. **Do not reintroduce a register write for this.**
+    The old comment was also inverted: IDF runs SEL_0 = *lowest* (~2.43V) to SEL_7 = *highest*
+    (~2.80V), so "write 0 to raise it" would have *lowered* it. The mitigation is already in
+    effect — the core ships level 0, the most tolerant setting. An `#error` guard in `setup()`
+    pins that; if a core bump trips it, re-read the brownout table before touching anything.
+13. **The syntax gate MUST compile the `.ino`.** It used to filter `-Filter *.cpp` and reported
+    `PASS: 9/9` while the sketch itself did not build — which is exactly how two broken brownout
+    symbols shipped through a green gate. `tools/check-firmware-syntax.ps1` now sweeps `*.cpp`
+    **and** `*.ino` (with `-x c++` and the sketch dir on the include path) and refuses to report
+    a pass if it finds no `.ino`. A gate that compiles fewer files than it used to is worse than
+    no gate: it turns an uncompiled file into a trusted one. **If you ever narrow that sweep,
+    treat it as a build break.**
+    Also note the core-version split: the gate runs **3.3.12** locally while
+    `.github/workflows/arduino-ci.yml` pins **3.3.11**. They are not proving the same thing.
+14. **A green gate is not a build.** `tools/check-firmware-syntax.ps1` proves the sources PARSE.
+    The Arduino CI job is the real build. Neither proves behaviour, and neither substitutes for
+    flashing. F-61 stands.

@@ -1,4 +1,50 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-06: U-95 Phase 0 + Phase 1 pushed; firmware 1.2.0 NOT flashed; relay deployment BLOCKED by gate)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-06: U-96 BUILD FIX — `main` WAS BROKEN, now compiles again; still NOT flashed; relay still BLOCKED)
+
+> **READ THIS FIRST (added 2026-10-06, second pass).** `main` did not compile when this session
+> started. Two commits in a row had tried to fix U-96's brownout line and both guessed a symbol
+> that does not exist on ESP32 core 3.3.x (`c3c29e6`, `d34b52c`). The build is now fixed and
+> `tools/check-firmware-syntax.ps1` has been changed so this cannot happen silently again. Everything
+> below about U-95/U-96 is still source-level only — **nothing has been flashed.** Full detail in
+> `TRACKS/FAILSAFE.md` #12–#14 and `TRACKS/TODO.md` § Phase U-96 follow-up.
+
+## The three facts that matter most
+
+1. **The brownout threshold cannot be set from a sketch on core 3.3.x.** Not "hard to find" —
+   *not reachable*. It moved to a Kconfig option compiled into the prebuilt `esp32-libs`; there is
+   no `DET_LVL` register in any public header and `esp_brownout_init()` takes no level. The write is
+   gone. An `#error` guard now pins `CONFIG_ESP_BROWNOUT_DET_LVL == 0` so a core bump trips the build.
+2. **The old comment's polarity was inverted.** IDF runs SEL_0 = *lowest* (~2.43V) → SEL_7 =
+   *highest* (~2.80V). The code read "0 = 2.69V … default 1" and wrote 0 to *raise* the threshold; it
+   would have *lowered* it. The core already ships level 0 — the most tolerant setting — so the
+   mitigation U-96 was reaching for is **already in effect by default**.
+3. **The gate reported `PASS: 9/9` the whole time.** It filtered `-Filter *.cpp`, so it never
+   compiled the `.ino` — the one file the break was in. A gate that covers 9 of the 10 files that
+   make up the firmware is worse than no gate, because it converts an uncompiled file into a trusted
+   one. The sweep now includes `*.ino` (`-x c++` + sketch dir on the include path) and **exits 2 if
+   it finds no `.ino`**. Proven in both directions: a deliberately broken sketch makes it FAIL, the
+   restored sketch makes it PASS 10/10.
+
+**Also done this session — the app half (no firmware change needed).** The car already sent U-95's
+`reset_reason` / `boot_count` / `crash_count` / `last_crash_phase` / `last_crash_heap` on `/status`.
+The app parsed `free_heap` out of the *same JSON object* and silently dropped all six. U-95's whole
+purpose was to put the evidence where the owner already is — and the owner was looking at their
+phone. Now parsed, and shown as a **Restarts** row on the Tools panel: `None` for a real zero, the
+count plus `TASK_WDT during http-root`-style hint when it is climbing, and **no row at all** on
+pre-1.2.0 firmware rather than a dash the owner would read as reassurance. Offline ⇒ dash, because
+a stale record is not a current fact.
+
+**Gates after this session:** syntax **10/10** · `check-webpage-js.mjs` all stages pass ·
+`check-relay-contract.mjs` all checks passed · app: tsc 0, vitest **626/626** (was 615),
+expo-doctor 18/18, prettier clean.
+
+**STILL TRUE FROM BEFORE — the reset LOOP is not cured.** U-95 made it observable; nothing more.
+`http-root` and `relay-tls` remain the two named suspects. First read after flash: `/status` →
+restart record, or the app's Restarts row.
+
+---
+
+# (earlier session notes follow)
+
 **U-95 PHASE 0 AND PHASE 1 ARE WRITTEN AND PUSHED. FIRMWARE IS NOW `1.2.0` AND IS STILL NOT ON A
 CAR.** Everything below marked U-95 is source-level. The bench car is still running `1.0.5`. F-61.
 Commits, in order: `883626b` (crash record), `29b8eaf` (page-send budget + watchdog feed), `83ecf15`
