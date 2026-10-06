@@ -151,15 +151,22 @@ public:
   /** T-19 (W-10): true when the current mode is not LIVE (WIP or CS). */
   bool isCurrentModeStub() const { return registryFor(currentMode_).isStub(); }
 
-  /** Fleet availability map for clients: "4WD4M:LIVE;ESP_SER:LIVE;...;2WD1M:CS"
-   *  (device order). Sent on STATE lines as CAPS;... and in WS JSON "caps". */
-  void buildCapsMap(char* buf, size_t bufLen) const;
+  /** Fleet availability map for clients, built from MODE_REGISTRY in device
+   *  order — e.g. "4WD4M:LIVE;PATH:CS;…;2WD1M:CS". Sent on STATE lines as
+   *  CAPS;... and in WS JSON "caps".
+   *  The example previously shown here read "4WD4M:LIVE;ESP_SER:LIVE;…", which
+   *  this car cannot emit: ESP_SER was removed from the registry in U-79.
+   *  TRACKS/GUIDE.md documents the corrected CAPS line. */
+void buildCapsMap(char* buf, size_t bufLen) const;
 
   // ---- Authoritative state (F-22) ----
   void sendState();
-  /** T-35: sendState() to an EXPLICIT transport (used while comm_ points at a
-   *  no-op web transport in ESP_SER — the WIFICFG;STORED confirmation must
-   *  still reach the app over the Bluetooth channel). Shares sendState()'s
+  /** T-35: sendState() to an EXPLICIT transport. Used when the caller needs the
+   *  frame to leave over a named link rather than the current `comm_` — the
+   *  REPLY= fan-out sends to both transports when an app command needs a
+   *  confirmation. (The old comment here described "a no-op web transport in
+   *  ESP_SER"; there is no such thing — comm_ is the always-on web layer, set
+   *  once in setup(), and ESP_SER no longer exists.) Shares sendState()'s
    *  formatter, so pendingReply_ (REPLY=…) rides the line exactly once. */
   void sendStateOn(CommInterface& comm);
   void setStatusText(const char* s);

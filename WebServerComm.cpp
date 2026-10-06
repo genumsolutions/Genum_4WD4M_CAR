@@ -74,7 +74,9 @@ WebServerComm::WebServerComm()
 // ---- WiFi provisioning (v1.4.0: app → BT → car) ----
 // Consumed lines (ModeManager routes them here via the system-command hook):
 //   WIFICFG;<ssid>;<password>  store credentials, reply WIFICFG;STORED;<ssid>
-//                              and switch to ESP_SER (router join + web page)
+//                              and REJOIN that router. v2 does NOT switch the
+//                              car into a mode — ESP_SER is retired (U-79) and
+//                              the web layer is always-on regardless.
 //   WIFICFG?                   reply WIFICFG;SSID;<stored ssid> (never the password)
 //   WIFICFG;RESET              erase stored credentials → compile-time fallback
 bool WebServerComm::handleWifiConfigCommand(const char* cmd) {

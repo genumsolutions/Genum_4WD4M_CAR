@@ -118,8 +118,14 @@ public:
   // v2 (owner plan 2026-09-28, Phase 1): ALWAYS-ON web layer — bring up the
   // own AP + HTTP/WS servers once at boot and leave them running for the
   // whole uptime. The donor tied this lifecycle to ESP_SER (SERVER) mode;
-  // v2 has no mode-gated transport at all (stop() remains for shutdown/OTA
-  // style use, never called from loop()).
+  // v2 has no mode-gated transport at all.
+  //
+  // CORRECTION: this comment used to say stop() is "never called from loop()".
+  // That was false. `loop()` DOES call stop() — in the U-79 transport power
+  // arbitration, whenever a Bluetooth client takes over and the Wi-Fi layer is
+  // allowed to power down — and beginAlwaysOn() re-arms it. Anyone reasoning
+  // about the web layer's lifetime from the old text would have concluded it can
+  // never be torn down mid-session. It can, by design.
   void beginAlwaysOn();
   // T-34: force a disconnect + reconnect to the CURRENT stored credentials
   // (new WIFICFG pair). Fixes re-provisioning while already in ESP_SER: the
@@ -135,9 +141,14 @@ public:
   // ---- WiFi provisioning (v1.4.0: app → BT → car) ----
   // The app sends `WIFICFG;<ssid>;<password>` over the Bluetooth SPP link
   // while the car is in BT mode. The car stores the pair in Preferences
-  // (namespace "botcfg"), then switches itself to ESP_SER to join the
-  // router and host its web page. `WIFICFG?` asks the car for the stored
-  // SSID (never the password) for the app's pre-fill display.
+  // (namespace "botcfg") then rejoins the router. `WIFICFG?` asks the car for
+  // the stored SSID (never the password) for the app's pre-fill display.
+  //
+  // CORRECTION: this used to say the car "switches itself to ESP_SER to join
+  // the router and host its web page". That stopped being true in v2 — WIFICFG
+  // stores and rejoins WITHOUT switching mode (see handleWifiConfigCommand in
+  // the .cpp, which says so 55 lines below this header). ESP_SER was removed
+  // from the mode registry entirely in U-79; there is no mode to switch to.
   bool handleWifiConfigCommand(const char* cmd);
   // T-48 (round-5): saved-router registry commands — ROUTERS;LIST /
   // ROUTERS;ADD;<ssid>;<pass> / ROUTERS;USE;<ssid> / ROUTERS;DEL;<ssid>.
@@ -411,10 +422,18 @@ private:
   size_t readPos;
 
   // F-20a: non-blocking STA connect + guarded retry. connectingPending_ =
-  // a begin()/rejoinNetwork() is in flight (resolved by handle() on connect
-  // or WIFI_STA_TIMEOUT_MS → AP fallback); pendingRejoin_ (T-34) forces
-  // reconnection to the NEW credentials even while WiFi still reports
-  // WL_CONNECTED to the OLD network.
+  // a rejoinNetwork() is in flight (resolved by handle() on connect, or on
+  // staTimeoutMs_ → AP fallback).
+  //
+  // CORRECTION: this said "begin()/rejoinNetwork()" and "WIFI_STA_TIMEOUT_MS".
+  // Both were wrong. `begin()` is a no-op stub ({ return true; }) that exists
+  // only to satisfy the pure virtual — nothing calls it, the real entry is
+  // beginAlwaysOn(). And handle() resolves on `staTimeoutMs_`, which on the boot
+  // path is BOOT_STA_TIMEOUT_MS (6000 ms), not WIFI_STA_TIMEOUT_MS (8000 ms).
+  // Reading the old text would have meant budgeting the wrong number.
+  //
+  // pendingRejoin_ (T-34) forces reconnection to the NEW credentials even
+  // while WiFi still reports WL_CONNECTED to the OLD network.
   bool connectingPending_;
   bool pendingRejoin_;
   unsigned long connectStartMs_;

@@ -1,6 +1,10 @@
-Version 1.0.3
+Version 1.2.0
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
+
+> `Config.h:10` is the single source of truth for the version. Per-release notes
+> are appended at the bottom of this file; the full history is in
+> `TRACKS/CHANGELOG.md`.
 
 ## 1. Project Name
 **4WD4M Car (`Genum_4WD4M_CAR`) — 4WD modular car (Bluetooth SPP + Wi-Fi AP/STA setup-and-control + OLED + remote/app)**
@@ -16,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.0.5` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.2.0` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 

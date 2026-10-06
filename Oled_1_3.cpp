@@ -1,7 +1,10 @@
 // =====================================================================
 // Genum_4WD4M_CAR — multimode 4WD4M car firmware (ESP32 + L298N)
-// File: Oled_1_3.cpp — SH1106 1.3" UI: dashboards, stub COMING SOON frames,
-//       ESP_SER signal bars + RSSI + IP (see storyboard.md)
+// File: Oled_1_3.cpp — SH1106 1.3" UI: dashboards + stub COMING SOON frames.
+//       (The old header advertised "ESP_SER signal bars + RSSI + IP". ESP_SER
+//       was removed from the mode registry in U-79, so that layout cannot
+//       render; the guarded block below is retained only as dead code pending
+//       a decision — see storyboard.md, which is also out of date.)
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
 #include "OledDisplay.h"
@@ -99,7 +102,11 @@ void Oled_1_3::setLinkContext(const char* method, const char* type, bool connect
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
 
-  const bool isBluetooth = (strcmp(modeTokenBuf, "4WD4M") == 0) || (strcmp(modeTokenBuf, "BT") == 0);
+  // `isBluetooth` was removed here: it was computed and never read (one
+  // definition, zero uses repo-wide), costing two strcmp()s per OLED frame.
+  // `isWebServer` is always false — no registry token is "ESP_SER" any more —
+  // so its block below is dead. Kept, not deleted, because removing the layout
+  // is an owner call, not a cleanup.
   const bool isWebServer = (strcmp(modeTokenBuf, "ESP_SER") == 0);
 
   // Fleet-standard computed layout (2026-09-15): matches the SELF-BALANCE /

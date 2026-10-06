@@ -16,7 +16,10 @@
 // ESP_RST_TASK_WDT - could never be printed, because the watchdog was
 // configured with .trigger_panic = true, which routes a watchdog trip through
 // the panic path and reports ESP_RST_PANIC instead. The boot banner even told
-// the operator to look for the TASK WATCHDECK label that was unreachable.
+// the operator at a label that was therefore unreachable. (This used to quote the
+// banner verbatim as "TASK WATCHDECK"; that string was a typo that survives
+// nowhere else, and the banner it referred to has since been replaced — the
+// authoritative account is in Genum_4WD4M_CAR.ino's crashLogBegin() block.)
 //
 // So this module does three things the serial print could not:
 //   1. counts boots, so a reboot loop is visible as a NUMBER rather than a

@@ -90,7 +90,6 @@ static_assert(RELAY_MAX_OUT_BYTES >= 448,
 // this side can only guarantee it never grows.
 static_assert(RelayComm::kLineLen == CMD_BUF_LEN,
               "relay's inbound cap (128) is CMD_BUF_LEN; if this changes, change the relay too");
-static_assert(RELAY_MAX_OUT_BYTES >= 448, "STATE is built into a 448-byte buffer");
 
 // 2 s heartbeat, 5 s pong timeout, give up after 2 misses. This is not
 // politeness: without it a half-open TCP connection (phone in a lift) leaves

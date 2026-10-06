@@ -120,7 +120,11 @@ private:
   void noteDisconnect();
 
   bool queuePush(const char* line);
-  bool queuePopChar(char* out);
+  // NOTE: `queuePopChar` used to be declared here and defined NOWHERE. It was a
+  // leftover from copying WebServerComm's queue, whose RelayComm twin does not
+  // have — RelayComm::read() indexes the queue directly. Benign only because
+  // nothing called it; the first call site would have been an undefined
+  // reference at link time. Removed rather than left as a trap.
   void queueClear();
 
   static bool isControlFrame(const char* frame, size_t len);
