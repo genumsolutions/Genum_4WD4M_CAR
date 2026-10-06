@@ -210,7 +210,12 @@ const mutants = [
     why: "the restart row can never be shown, so evidence exists and nothing is displayed" },
 
   // ---- page-send watchdog (F-77) ----
-  { id: "M12", rule: "wdt-budget", file: WSC,
+  // This mutant is caught by `wdt-feed`, not by anything budget-shaped. Writing
+  // `wdt-budget` here first was wrong: starving the watchdog has nothing to do
+  // with the budget, and the harness correctly flagged the mismatch. The rule
+  // field is the claim being tested, so it has to name the rule that should
+  // actually fire.
+  { id: "M12", rule: "wdt-feed", file: WSC,
     find: "    esp_task_wdt_reset();\n    if (w == 0) {", repl: "    if (w == 0) {",
     also: [{ find: "        esp_task_wdt_reset();\n        delay(1);", repl: "        delay(1);" }],
     why: "the stall path stops feeding the watchdog entirely — the spin returns" },
