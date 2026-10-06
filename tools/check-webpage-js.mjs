@@ -75,6 +75,33 @@ if (!s) {
 const js = s[1];
 console.log(`script bytes: ${js.length}`);
 
+// ---- 0b. every element the script writes to must exist in the markup -----
+// F-83, the fourth instance. The sandbox below backs getElementById with a Map
+// that CREATES an element on demand for whatever id is asked for, so
+// `getElementById("rst-wrap")` always succeeds — including when the page has no
+// such element. Every behavioural check further down therefore ran against
+// synthetic elements, and the "is the restart row missing from the markup" test
+// could not fail: renaming or deleting any id in WebPage.h left this harness
+// green. That is the single most valuable check the page gate can make, because
+// a page whose script writes to an element that is not there is exactly the
+// "webpage is not functioning properly" report this whole file exists for.
+//
+// So the ids are read from the REAL markup here, before anything is stubbed.
+const markupIds = new Set([...html.matchAll(/\bid\s*=\s*["']([^"']+)["']/g)].map((m) => m[1]));
+// Only ids the SCRIPT asks for by name. Ids it creates itself, or reaches
+// through event delegation, are not this check's business.
+const askedIds = [...new Set([...js.matchAll(/getElementById\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1]))];
+const absentIds = askedIds.filter((id) => !markupIds.has(id));
+console.log(`markup ids: ${markupIds.size}, script asks for: ${askedIds.length}`);
+if (absentIds.length) {
+  console.error(`FAIL: the script writes to ${absentIds.length} element id(s) that do not exist in the page markup:`);
+  for (const id of absentIds) console.error(`     getElementById('${id}')`);
+  console.error("     On a real browser these are null, so the line that writes to one throws and the");
+  console.error("     rest of that handler never runs. Fix the markup or the id in WebPage.h.");
+  process.exit(1);
+}
+console.log("PASS: every element the script writes to exists in the markup");
+
 // ---- 1. it must parse ---------------------------------------------------
 try {
   new vm.Script(js, { filename: "WebPage-inline.js" });
