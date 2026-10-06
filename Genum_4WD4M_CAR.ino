@@ -167,7 +167,7 @@ void setup() {
   // but the brief WiFi init spike (~2.8-2.9V) won't trip it.
   // Note: this is a mitigation, not a cure. If the supply cannot sustain 3.3V
   // under load the car WILL still brownout — the owner must fix the power source.
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG, 0);
+  WRITE_PERI_REG(CONFIG_BROWNOUT_DET_LVL_SEL_REG, 0); // 0 = 2.69V, 1 = 2.42V (default 1)
 
   // U-96: power-budgeted boot. Stagger power-intensive init so marginal supplies
   // don't brownout-reset the car. Motors (H-bridge) deferred to end of setup.
