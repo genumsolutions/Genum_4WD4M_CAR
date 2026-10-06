@@ -21,10 +21,19 @@
 // bugs above survived. Revert the fix, confirm red, restore, confirm green.
 //
 // USAGE
-//   node tools/mutate-gates.mjs                 # every mutant (slow: compiles)
+//   node tools/mutate-gates.mjs                 # every mutant
 //   node tools/mutate-gates.mjs -k wdt          # only mutants matching /re/
 //   node tools/mutate-gates.mjs --list          # list mutants, run nothing
-//   node tools/mutate-gates.mjs --no-compile    # skip the compiler-backed ones
+//
+// A full run is ~35 s: two node gates per mutant, no compiler. The static_assert
+// invariants (HTTP_BODY_BUDGET_MS < LOOP_TASK_WDT_TIMEOUT_MS) are covered here by
+// M14/M15 through the source rule, and are additionally proven against the real
+// compiler by hand: restore the 6000 ms budget and read the failure, which names
+// F-77 in the diagnostic. That is done once per invariant rather than per run,
+// because all four static_assert mutants assert the same mechanism and four 40 s
+// compiles prove nothing the first one did not. For a future compiler-enforced
+// invariant, add `compile: true` to the mutant and a `gateSyntax([...])` call in
+// the runner — the classify() branch for it already exists.
 //
 // WHY THIS IS A REPO TOOL AND NOT A SCRATCH SCRIPT. The previous harness lived
 // in %TEMP% and was deleted mid-session by something outside the workspace, taking
@@ -50,7 +59,6 @@ const rel = (p) => join(root, p);
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
 const val = (f, d = null) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : d; };
-const compileBacked = !has("--no-compile");
 const filter = val("-k");
 const listOnly = has("--list");
 
@@ -73,11 +81,7 @@ function run(cmd, args, opts = {}) {
 
 const gateContract = () => run(process.execPath, [rel("tools/check-relay-contract.mjs")]);
 const gatePage = () => run(process.execPath, [rel("tools/check-webpage-js.mjs")]);
-const gateSyntax = (files) => {
-  const args = ["-ExecutionPolicy", "Bypass", "-File", rel("tools/check-firmware-syntax.ps1")];
-  for (const f of files) args.push("-Files", f);
-  return run("powershell", args, { shell: true, timeout: 600000 });
-};
+
 
 function gitDirty() {
   const { out } = run("git", ["status", "--porcelain"]);
