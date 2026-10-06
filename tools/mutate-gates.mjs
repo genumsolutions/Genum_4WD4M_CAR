@@ -107,13 +107,35 @@ function restoreAll() {
  *  A zero-match or multi-match is an error, not a shrug: it means the mutant
  *  does not describe the tree it is about to mutate, and a silently-inert
  *  mutant is how a bad mutant reports itself as a good gate. */
+// EOL-NORMALIZING ANCHORS. Multi-line anchors are written in the table below
+// with "\n", because a literal CRLF in a JS string is unreadable and cannot be
+// eyeballed against the source. This repo's .cpp files are CRLF on disk, so the
+// first version of this harness failed three mutants with "anchor matched 0
+// times" on correct code — the exact failure mode this file exists to catch,
+// committed by me in the file meant to catch it. Rather than paste invisible
+// \r characters into the table, anchors are normalized to the file's own line
+// endings before matching.
+//
+// This is also why the byte-exact restore check below matters: writing a mutated
+// file with the wrong endings would otherwise leave a diff behind that survives
+// the run.
+function detectEol(text) {
+  const crlf = (text.match(/\r\n/g) ?? []).length;
+  const lf = (text.match(/(?<!\r)\n/g) ?? []).length;
+  return crlf >= lf ? "\r\n" : "\n";
+}
+
+const fit = (text, needle) => text.includes(needle)
+  ? needle
+  : needle.replace(/\n/g, detectEol(text));
+
 function mutate(file, find, repl) {
   const before = readFileSync(rel(file), "utf8");
-  const parts = before.split(find);
+  const parts = before.split(fit(before, find));
   if (parts.length - 1 !== 1) {
     throw new Error(`anchor matched ${parts.length - 1} times in ${file} (need exactly 1):\n${JSON.stringify(find)}`);
   }
-  writeFileSync(rel(file), before.replace(find, repl), "utf8");
+  writeFileSync(rel(file), before.replace(fit(before, find), fit(before, repl)), "utf8");
 }
 
 // ---- the mutants --------------------------------------------------------
