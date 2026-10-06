@@ -191,9 +191,15 @@ const mutants = [
     repl: "  char buf[1200];\n  buildStatusJson(buf, sizeof(buf));\n  ws.broadcastTXT(buf);",
     why: "the two status-JSON buffers drift apart, so the two copies disagree about which got truncated" },
 
+  // Anchored on `server.send(200, "application/json", buf)`, which is the HTTP
+  // copy of the status JSON. An earlier version of this anchor guessed
+  // `server.sendContent(buf)` and matched nothing -- the harness reported it as
+  // an undetected mutant, which is the correct outcome for an anchor that does
+  // not describe the tree, and the reason anchors are never allowed to fail
+  // quietly.
   { id: "M8", rule: "status-buffer", file: WSC,
-    find: "  char buf[1536];\n  buildStatusJson(buf, sizeof(buf));\n  server.sendContent(buf);",
-    repl: "  char buf[900];\n  buildStatusJson(buf, sizeof(buf));\n  server.sendContent(buf);",
+    find: "  char buf[1536];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);",
+    repl: "  char buf[900];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);",
     why: "a buffer shrunk below what the fragments need: snprintf stops silently and the client gets malformed JSON" },
 
   { id: "M9", rule: "crash-visible", file: WSC,
@@ -205,8 +211,12 @@ const mutants = [
     find: "cc>0", repl: "cc>-1",
     why: "the page fabricates a restart row on a clean car instead of showing one only when crash_count > 0" },
 
+  // The row is a `<span id='rst-wrap'>` inside the status aside, not a div named
+  // restartRow -- the first version of this anchor guessed a name and matched
+  // nothing. Renaming the id breaks both the script that fills it and the page
+  // harness that checks it, which is the point: evidence exists, nothing is shown.
   { id: "M11", rule: "page-harness", file: "WebPage.h",
-    find: "<div id=\"restartRow\"", repl: "<div id=\"restartRowX\"",
+    find: "<span id='rst-wrap' style='display:none'>", repl: "<span id='rst-wrapX' style='display:none'>",
     why: "the restart row can never be shown, so evidence exists and nothing is displayed" },
 
   // ---- page-send watchdog (F-77) ----
