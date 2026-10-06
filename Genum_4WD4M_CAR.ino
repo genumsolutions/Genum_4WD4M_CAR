@@ -16,8 +16,7 @@
 #include "WebServerComm.h"
 #include <Arduino.h>
 #include "esp_task_wdt.h"
-#include "esp_system.h"   // U-70: esp_reset_reason() — why did the car boot?
-#include "esp_common.h"   // U-96: RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG
+#include <esp_system.h>  // U-70: esp_reset_reason();  U-96: RTC_CNTL_BROWN_OUT_DET_LVL_SEL_REG / WRITE_PERI_REG
 #include <Preferences.h>  // U-79: last-used transport persistence
 
 L298NControl motor;
@@ -257,7 +256,7 @@ void setup() {
   } else {
     Serial.println("[BOOT] Last used: Bluetooth - staying on hotspot + BT (router join skipped)");
   }
-  // U-96: motors deferred to end of setup � the H-bridge is the biggest
+  // U-96: motors deferred to end of setup — the H-bridge is the biggest
   // non-comms power load and the car is reachable before it loads.
   delay(500);  // give the supply time to stabilize after WiFi+Bluetooth+relay
   motor.begin();
