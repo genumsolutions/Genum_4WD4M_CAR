@@ -47,7 +47,7 @@ void WebServerComm::boardIdHex(char* out, size_t outLen) {
 
 WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
-  connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
+  connectingPending_(false), pendingRejoin_(false), retryBeginPending_(false), connectStartMs_(0), lastWifiRetryMs_(0),
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
   mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), modeWaitStartMs_(0), modeDropAttempts_(0), staConnectedAtMs_(0), apParked_(false), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
   scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
@@ -946,6 +946,10 @@ bool WebServerComm::beginStation() {
   }
   startedAsAP = true;
   connectingPending_ = false;
+  // U-95 Phase 2: a deferred retry begin must not survive a power-policy
+  // suspend/resume — the resume path's join decision belongs to the .ino
+  // (U-79), not to a retry armed before the suspend.
+  retryBeginPending_ = false;
 
   server.begin();
   serverRunning = true;
@@ -985,6 +989,16 @@ void WebServerComm::rejoinNetwork() {
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
   connectingPending_ = false;
+  // U-95 Phase 2: an explicit switch CANCELS an in-flight retry begin (the
+  // U-75 give-up pattern: a stale step must never land after the user asked
+  // for something else) and re-STAMPS the backoff. Without the re-stamp the
+  // retry branch fires on pass 1 of the step machine — its 10 s backoff is
+  // stale after any successful session — and disconnects the very teardown
+  // that is mid-walk. The T-34 comment that used to justify prompt retries
+  // here described a rejoinNetwork() that still did its own disconnect;
+  // U-71 removed that, but the stale stamp stayed.
+  retryBeginPending_ = false;
+  lastWifiRetryMs_ = millis();
   startedAsAP = true;
   rejoinStep_ = REJOIN_STEP_MODE;
   // U-95 Phase 2: a fresh request gets a fresh drop attempt budget, or the
@@ -1396,6 +1410,9 @@ void WebServerComm::stop() {
   FW_LOG_VERBOSE("DBG: stop() called, serverRunning=%d\n", serverRunning ? 1 : 0);
 
   connectingPending_ = false;
+  // U-95 Phase 2: shutdown must not leave a deferred begin armed for a
+  // later start() to fire.
+  retryBeginPending_ = false;
 
   if (serverRunning) {
     server.stop();
@@ -1501,8 +1518,21 @@ void WebServerComm::handle() {
   runScanIfDue();
   collectScanIfDone();
 
-  // F-20a: resolve the pending STA connect without blocking the loop.
-  if (connectingPending_) {
+  // U-95 Phase 2 (retry split): the begin deferred by the retry branch below
+  // lands here, on its OWN pass — one radio call per pass (U-71). The guard
+  // takes precedence over the resolve/retry chain for exactly one pass, then
+  // clears itself, so the fresh connect window is picked up by the normal
+  // resolve block on the next pass. One flag, one consumer, no interleaving:
+  // the arm and the begin can never be swept away by the give-up branch (it
+  // sits behind this chain) or re-entered by a second retry tick.
+  if (retryBeginPending_) {
+    retryBeginPending_ = false;
+    connectingPending_ = true;
+    connectStartMs_ = millis();
+    noteRadioStep("retry/begin");
+    WiFi.begin(storedSsid_, storedPass_);
+  } else if (connectingPending_) {
+    // F-20a: resolve the pending STA connect without blocking the loop.
     if (WiFi.status() == WL_CONNECTED) {
       connectingPending_ = false;
       pendingRejoin_ = false;
@@ -1585,20 +1615,23 @@ void WebServerComm::handle() {
         // invisible (no updateExtraInfo, no sendState - the app would sit on
         // "getting an address" while the car was already on the router), and
         // pendingRejoin_ would stay set so this branch kept yanking a WORKING
-        // association down every WIFI_RETRY_INTERVAL_MS. Arming
-        // connectingPending_ hands the outcome back to the block above, which
-        // clears both flags on success and re-arms the budget on the next
-        // timeout. WIFI_STA_TIMEOUT_MS is therefore the real per-attempt
+        // association down every WIFI_RETRY_INTERVAL_MS. The flags are armed
+        // when the begin actually RUNS (the deferred `retryBeginPending_`
+        // block above), which hands the outcome back to the resolve block,
+        // which clears both flags on success and re-arms the budget on the
+        // next timeout. WIFI_STA_TIMEOUT_MS is therefore the real per-attempt
         // spacing; WIFI_RETRY_INTERVAL_MS is only the floor.
-        connectingPending_ = true;
-        connectStartMs_ = now;
         // U-77: this branch had the only silent radio calls left — a hang here
         // produced a WDT reboot with no breadcrumb (U-75 rule: name the step
-        // BEFORE it runs).
+        // BEFORE it runs). U-95 Phase 2: this pass DISCONNECTS and arms the
+        // begin; the begin lands on the NEXT pass. Two radio calls in one
+        // pass is the U-75 shape that rebooted the car on the give-up path,
+        // and begin-immediately-after-disconnect races a driver that is still
+        // tearing the old association down (the plan: separate the
+        // disconnect/begin across passes).
         noteRadioStep("retry/disconnect");
         WiFi.disconnect();
-        noteRadioStep("retry/begin");
-        WiFi.begin(storedSsid_, storedPass_);
+        retryBeginPending_ = true;
       }
     } else if (hasStoredWifi_ && !staGiveUpLogged_) {
       // Budget spent: settle AP-only.

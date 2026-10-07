@@ -318,6 +318,30 @@ const mutants = [
     also: [{ find: "void WebServerComm::advanceRejoinStep() {",
             repl: "void WebServerComm::advanceRejoinStep() {\n  WiFi.persistent(false);" }],
     why: "the guard exists but not in the boot bring-up — it runs after the first config write it exists to prevent" },
+
+  // ---- retry split (U-95 Phase 2) ----
+  // The give-up path rebooted the car with exactly this shape (U-75): two
+  // radio calls back to back inside one loop pass. The retry branch still
+  // had it. Revert the split and the rule must go red.
+  { id: "M28", rule: "retry-split", file: WSC,
+    find: '        noteRadioStep("retry/disconnect");\n        WiFi.disconnect();\n        retryBeginPending_ = true;',
+    repl: '        noteRadioStep("retry/disconnect");\n        WiFi.disconnect();\n        noteRadioStep("retry/begin");\n        WiFi.begin(storedSsid_, storedPass_);',
+    why: "disconnect and begin share one pass again — the U-75 shape: two radio calls in one loop iteration, the begin racing the teardown" },
+
+  { id: "M29", rule: "retry-split", file: WSC,
+    find: "  if (retryBeginPending_) {\n    retryBeginPending_ = false;",
+    repl: "  if (false && retryBeginPending_) {\n    retryBeginPending_ = false;",
+    why: "the deferred-begin guard exists but can never fire — the flag is armed and the begin is never issued, leaving the STA down" },
+
+  { id: "M30", rule: "retry-split", file: WSC,
+    find: "  retryBeginPending_ = false;\n  lastWifiRetryMs_ = millis();",
+    repl: "  lastWifiRetryMs_ = millis();",
+    why: "rejoinNetwork() no longer cancels an in-flight retry begin — a stale deferred begin lands after the user asked for a different network (U-75 pattern)" },
+
+  { id: "M31", rule: "retry-split", file: WSC,
+    find: "  retryBeginPending_ = false;\n  lastWifiRetryMs_ = millis();",
+    repl: "  retryBeginPending_ = false;",
+    why: "rejoinNetwork() no longer re-stamps the backoff — the retry fires on pass 1 of the step machine and disconnects the teardown mid-walk" },
 ];
 
 // ---- runner -------------------------------------------------------------

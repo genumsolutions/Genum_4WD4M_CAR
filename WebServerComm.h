@@ -482,6 +482,15 @@ private:
   // while WiFi still reports WL_CONNECTED to the OLD network.
   bool connectingPending_;
   bool pendingRejoin_;
+  // U-95 Phase 2 (retry split): the retry's WiFi.disconnect() and
+  // WiFi.begin() no longer share ONE handle() pass. The disconnect arms
+  // this; the begin lands on the NEXT pass, with its own breadcrumb, so the
+  // two radio calls never run back to back inside one loop iteration — the
+  // U-75 shape that rebooted the car on the give-up path — and the begin
+  // cannot race a driver that is still tearing the old association down.
+  // Cleared by rejoinNetwork()/beginStation()/stop(): a deferred begin must
+  // never outlive the request that armed it (the U-75 pattern).
+  bool retryBeginPending_;
   unsigned long connectStartMs_;
   unsigned long lastWifiRetryMs_;
   // FIN-40/D2: capped-STA-retry bookkeeping (see STA_MAX_RETRIES above).

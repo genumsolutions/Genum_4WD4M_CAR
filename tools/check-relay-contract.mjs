@@ -916,6 +916,38 @@ if (pAb < 0 && pBs < 0) {
   pass("wifi-persistent", "WiFi.persistent(false) is set in the boot bring-up, before the radio is configured");
 }
 
+// The retry's disconnect and its begin must NOT share one handle() pass
+// (U-95 Phase 2). Same shape as the give-up path that rebooted the car (U-75):
+// two radio calls back to back inside one loop iteration, with the begin
+// racing a driver that is still tearing the old association down — the plan's
+// "separate the disconnect/begin across passes". Three structural facts, then
+// the two ways a deferred begin can still leak (a rejoin must cancel it, and
+// must re-stamp the backoff or the retry fires on pass 1, mid-teardown).
+const rejoinNetBody = body(wscCode, "void WebServerComm::rejoinNetwork()") ?? "";
+const rbArmAt = handleBody.search(/retryBeginPending_\s*=\s*true/);
+const rbGuardAt = handleBody.search(/if\s*\(\s*retryBeginPending_\s*\)/);
+const rbGuardBody = rbGuardAt >= 0 ? braced(handleBody, rbGuardAt) ?? "" : "";
+const samePassBegin = /WiFi\.disconnect\s*\(\s*\)\s*;\s*(?:noteRadioStep\s*\(\s*"[^"]*"\s*\)\s*;\s*)?WiFi\.begin\s*\(/.test(handleBody);
+if (!handleBody) {
+  fail("retry-split", "could not locate WebServerComm::handle() - check this rule still matches the code");
+} else if (rbArmAt < 0) {
+  fail("retry-split", "the retry branch never arms retryBeginPending_ - the deferred begin has no producer");
+} else if (rbGuardAt < 0) {
+  fail("retry-split", "no if (retryBeginPending_) guard - the deferred begin is never issued (the flag is armed and forgotten)");
+} else if (!/WiFi\.begin\s*\(/.test(rbGuardBody)) {
+  fail("retry-split", "the retryBeginPending_ guard does not contain WiFi.begin - the arm has no consumer, so a disconnect with no begin leaves the STA down until the give-up path settles");
+} else if (samePassBegin) {
+  fail("retry-split", "a WiFi.disconnect() still runs directly into a WiFi.begin() in handle() - the same-pass race the split removes (the U-75 shape: two radio calls in one loop pass)");
+} else if (!rejoinNetBody) {
+  fail("retry-split", "could not locate rejoinNetwork() - check this rule still matches the code");
+} else if (!/retryBeginPending_\s*=\s*false/.test(rejoinNetBody)) {
+  fail("retry-split", "rejoinNetwork() does not cancel an in-flight retry begin - a stale deferred begin lands after the user asked for a different network (the U-75 pattern)");
+} else if (!/lastWifiRetryMs_\s*=\s*millis\s*\(\s*\)/.test(rejoinNetBody)) {
+  fail("retry-split", "rejoinNetwork() does not re-stamp the retry backoff - the 10 s stamp is stale after any successful session, so the retry branch fires on pass 1 of the step machine and disconnects the teardown that is mid-walk");
+} else {
+  pass("retry-split", "disconnect and begin are on separate passes, the deferred begin has a guard and a producer, and rejoinNetwork() cancels + re-stamps");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that the
 // relay actually answers. That is the owner's bench (T-REL), not a laptop.
 console.log("\nrelay-contract: source checks only - no socket was opened, no hello was sent.");
