@@ -540,10 +540,14 @@ private:
   struct ScannedNetwork {
     char ssid[33];
     // U-95 Phase 2: dedupe key — one row per RADIO (BSSID), not per NAME.
-    // Internal only: deliberately NOT in the SPP line or the status JSON (the
-    // status buffer is sized to the fixed fragments; Phase 3 owns that).
+    // Internal only: deliberately NOT in the SPP line or the status JSON —
+    // no consumer needs the radio's MAC; the table is name/rssi/channel truth.
     char bssid[18];  // "AA:BB:CC:DD:EE:FF"
     int32_t rssi;
+    // U-95 Phase 3: the channel this result arrived on — a table column the
+    // car can answer and a client cannot. WiFi.channel(i) at collect time,
+    // while the scan results are still live in the driver.
+    uint8_t channel;
     bool open;
   };
   bool scanPending_;

@@ -643,9 +643,14 @@ if (!clCode) {
 // stops, so the client receives malformed JSON and reports "the page is not
 // working properly".
 const wsc = raw("WebServerComm.cpp");
-const bufSizes = [...wsc.matchAll(/char\s+buf\[(\d+)\]\s*;\s*\n\s*buildStatusJson/gm)].map((m) => Number(m[1]));
+// U-95 Phase 3: STATIC, not just equal. The network fields roughly doubled
+// the JSON (3584-byte buffers), and at that size a stack frame inside the
+// 8 KB loopTask — nested under the send path — is a quiet F-60-shaped risk,
+// so both copies must be function-static. The regex checks the declaration
+// AS WRITTEN: an accidental `char buf[3584]` no longer matches.
+const bufSizes = [...wsc.matchAll(/static\s+char\s+buf\[(\d+)\]\s*;\s*\n\s*buildStatusJson/gm)].map((m) => Number(m[1]));
 if (bufSizes.length < 2) {
-  fail("status-buffer", `found ${bufSizes.length} status-JSON buffer size(s) - expected the HTTP and WS copies`);
+  fail("status-buffer", `found ${bufSizes.length} status-JSON buffer size(s) - expected two STATIC char buf[N] (HTTP + WS copies; static keeps ~3.5 KB off the 8 KB loopTask stack)`);
 } else if (new Set(bufSizes).size !== 1) {
   fail("status-buffer", `the two status-JSON buffers differ (${bufSizes.join(" vs ")}) - one copy truncates differently`);
 } else {
@@ -655,7 +660,7 @@ if (bufSizes.length < 2) {
   const need =
     frag(/char\s+networks\[(\d+)\]/) + frag(/char\s+scanJson\[(\d+)\]/) +
     frag(/char\s+caps\[(\d+)\]/) + frag(/char\s+statusWord\[(\d+)\]/) +
-    frag(/char\s+boardId\[(\d+)\]/) + 400;  // ssid/ap/ip + every literal field
+    frag(/char\s+boardId\[(\d+)\]/) + 520;  // ssid/ap/ip/4 IPs + every literal field
   if (bufSizes[0] < need) {
     fail("status-buffer", `buffer is ${bufSizes[0]} but the fragments alone need ~${need} - snprintf will truncate into invalid JSON`);
   } else {
@@ -1042,6 +1047,50 @@ if (!mmHandle) {
   fail("mode-cycle", "the GPIO switch no longer calls cycleMode() - two implementations of the walk now exist and will drift");
 } else {
   pass("mode-cycle", "MODECYCLE/MODENEXT -> cycleMode(1), MODEPREV -> cycleMode(-1), wraps both ways, GPIO uses the same walk");
+}
+
+// U-95 Phase 3: the status data must carry the network facts a client cannot
+// compute itself — per-scan-row channel/own/saved/current (the page's table,
+// and the car is the only place the saved list and the association live) and
+// the four IP fields (station/ap/broadcast/subnet; softAPBroadcastIP() was
+// never called anywhere in this repository). Literals run on stripComments
+// views (code() blanks strings); structure on code views. Rule: `status-net-fields`.
+const scanJsonBody = body(wscCode, "size_t WebServerComm::buildScanJson") ?? "";
+const scanJsonLits = stripComments(body(raw("WebServerComm.cpp"), "size_t WebServerComm::buildScanJson") ?? "");
+const statusLits = scanLiterals;  // stripComments of the whole cpp — literals kept
+const statusBody = body(wscCode, "void WebServerComm::buildStatusJson") ?? "";
+// The format strings contain ESCAPED quotes (`\"station_ip\":\"%s\"`), so a
+// plain substring of `"station_ip":"%s"` never matches the source characters —
+// match the backslash-quote shape instead.
+const ipFieldRe = [
+  /\\+"station_ip\\+":\\+"%s/,
+  /\\+"ap_ip\\+":\\+"%s/,
+  /\\+"broadcast_ip\\+":\\+"%s/,
+  /\\+"subnet\\+":\\+"%s/,
+];
+const missingIp = ["station_ip", "ap_ip", "broadcast_ip", "subnet"].filter((_, i) => !ipFieldRe[i].test(statusLits));
+if (!scanJsonBody) {
+  fail("status-net-fields", "could not locate buildScanJson() - check this rule still matches the code");
+} else if (!/\\+"channel\\+"/.test(scanJsonLits)) {
+  fail("status-net-fields", "scan rows no longer carry channel - a table column only the radio can answer is gone");
+} else if (!/\\+"own\\+"/.test(scanJsonLits) || !/\\+"saved\\+"/.test(scanJsonLits) || !/\\+"current\\+"/.test(scanJsonLits)) {
+  fail("status-net-fields", "scan rows no longer carry own/saved/current - the page would have to guess which row is the car's own network, from three app modules that already disagree");
+} else if (!/WiFi\.channel\s*\(/.test(collectBody)) {
+  fail("status-net-fields", "collectScanIfDone() never reads WiFi.channel(i) - the channel field is declared but never captured from the radio at collect time, while the driver still holds it");
+} else if (!/savedRouterSsid_/.test(scanJsonBody)) {
+  fail("status-net-fields", "buildScanJson() no longer consults the saved-router list - `saved` is guessed, not car truth");
+} else if (!/WiFi\.status\s*\(\s*\)\s*==\s*WL_CONNECTED/.test(scanJsonBody)) {
+  fail("status-net-fields", "buildScanJson() no longer checks the association - `current` cannot distinguish an associated STA from a dropdown guess");
+} else if (!statusBody) {
+  fail("status-net-fields", "could not locate buildStatusJson() - check this rule still matches the code");
+} else if (missingIp.length > 0) {
+  fail("status-net-fields", `status JSON is missing ${missingIp.join(", ")} - the single legacy ip slot cannot say which interface is up, and the directed-broadcast path has no address to use`);
+} else if (!/WiFi\.softAPBroadcastIP\s*\(/.test(statusBody)) {
+  fail("status-net-fields", "WiFi.softAPBroadcastIP() is never called - the broadcast address was, until Phase 3, unreachable from anywhere in this repository");
+} else if (!/WiFi\.softAPSubnetMask\s*\(/.test(statusBody)) {
+  fail("status-net-fields", "the subnet mask is never read - broadcast without mask is an arithmetic guess");
+} else {
+  pass("status-net-fields", "scan rows carry channel/own/saved/current from car truth; station_ip/ap_ip/broadcast_ip/subnet are all computed");
 }
 
 // The one thing this gate cannot check is the thing that matters most: that the

@@ -195,8 +195,8 @@ const mutants = [
   // the HTTP copy of this JSON begins with the same two lines, so a three-line
   // anchor would match twice after Phase 1c split build and broadcast apart.
   { id: "M7", rule: "status-buffer", file: WSC,
-    find: "  char buf[1536];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c: the write gets its OWN fresh window.",
-    repl: "  char buf[1200];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c: the write gets its OWN fresh window.",
+    find: "  static char buf[3584];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c: the write gets its OWN fresh window.",
+    repl: "  static char buf[1200];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c: the write gets its OWN fresh window.",
     why: "the two status-JSON buffers drift apart, so the two copies disagree about which got truncated" },
 
   // Anchored on `server.send(200, "application/json", buf)`, which is the HTTP
@@ -206,8 +206,8 @@ const mutants = [
   // not describe the tree, and the reason anchors are never allowed to fail
   // quietly.
   { id: "M8", rule: "status-buffer", file: WSC,
-    find: "  char buf[1536];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);",
-    repl: "  char buf[900];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);",
+    find: "  static char buf[3584];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);",
+    repl: "  static char buf[900];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);",
     why: "a buffer shrunk below what the fragments need: snprintf stops silently and the client gets malformed JSON" },
 
   { id: "M9", rule: "crash-visible", file: WSC,
@@ -421,6 +421,62 @@ const mutants = [
     find: '  if (strcmp(cmdBuf, "MODEPREV") == 0) {\n    cycleMode(-1);',
     repl: '  if (strcmp(cmdBuf, "MODEPREV") == 0) {\n    cycleMode(1);',
     why: "MODEPREV walks FORWARDS — a 'previous' button that advances is the kind of silent inversion this project has learned to fear" },
+
+  // ---- network status data (U-95 Phase 3) ----
+  // The status buffers must be static and big enough together; the scan rows
+  // must carry channel/own/saved/current captured from car truth; the four IP
+  // fields must all be present with the broadcast getter actually called.
+  { id: "M51", rule: "status-buffer", file: WSC,
+    find: "  static char buf[3584];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c",
+    repl: "  static char buf[2000];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c",
+    also: [{ find: "  static char buf[3584];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);",
+             repl: "  static char buf[2000];\n  buildStatusJson(buf, sizeof(buf));\n  server.send(200, \"application/json\", buf);" }],
+    why: "both copies shrink TOGETHER — equal sizes pass the drift check, but below what the fragments need, so snprintf silently truncates into malformed JSON" },
+
+  { id: "M46", rule: "status-buffer", file: WSC,
+    find: "  static char buf[3584];\n  buildStatusJson(buf, sizeof(buf));\n  server.send",
+    repl: "  char buf[3584];\n  buildStatusJson(buf, sizeof(buf));\n  server.send",
+    why: "the HTTP copy goes back on the stack — a 3.5 KB frame inside the 8 KB loopTask, nested under the send path, is the F-60 shape again" },
+
+  { id: "M47", rule: "status-net-fields", file: WSC,
+    find: "      entry.channel = static_cast<uint8_t>(WiFi.channel(i));",
+    repl: "      entry.channel = 0;",
+    why: "the channel is never read from the radio — every row claims channel 0, a column only the hardware can answer" },
+
+  { id: "M48", rule: "status-net-fields", file: WSC,
+    find: "      if (strcasecmp(rowSsid, savedRouterSsid_[s]) == 0) saved = true;",
+    repl: "      if (false) saved = true;",
+    why: "the saved-flag loop never consults the saved-router list — `saved` is guessed, not car truth, and three app modules already disagree about that rule" },
+
+  { id: "M49", rule: "status-net-fields", file: WSC,
+    find: "    WiFi.softAPBroadcastIP().toString().toCharArray(bcastIp, sizeof(bcastIp));\n",
+    repl: "",
+    why: "the broadcast getter is never called — the directed-broadcast address (the whole point of Phase 3's IP work) stays empty and the 'find the car on this network' path has nothing to use" },
+
+  { id: "M50", rule: "status-net-fields", file: WSC,
+    find: '       "\\"station_ip\\":\\"%s\\",',
+    repl: '       ""',
+    why: "station_ip is dropped from the format — the single legacy `ip` slot cannot say which interface the lease belongs to" },
+
+  { id: "M55", rule: "status-net-fields", file: WSC,
+    find: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s,\\"current\\":%s}"',
+    repl: '                 "\\"own\\":%s,\\"saved\\":%s,\\"current\\":%s}"',
+    why: "the channel key is dropped from the row format — the column exists in the struct but never reaches a client" },
+
+  { id: "M52", rule: "status-net-fields", file: WSC,
+    find: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s,\\"current\\":%s}"',
+    repl: '                 "\\"channel\\":%u,\\"saved\\":%s,\\"current\\":%s}"',
+    why: "the own key is dropped — the page cannot label the car's own network from car truth (the owner's first-class-row ruling)" },
+
+  { id: "M54", rule: "status-net-fields", file: WSC,
+    find: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s,\\"current\\":%s}"',
+    repl: '                 "\\"channel\\":%u,\\"own\\":%s,\\"current\\":%s}"',
+    why: "the saved key is dropped — the table's saved column would be guessed client-side from three disagreeing modules" },
+
+  { id: "M53", rule: "status-net-fields", file: WSC,
+    find: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s,\\"current\\":%s}"',
+    repl: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s}"',
+    why: "the current key is dropped — 'the car is on THIS row' becomes a client guess against a dropdown that historically preselects unconfirmed networks" },
 ];
 
 // ---- runner -------------------------------------------------------------

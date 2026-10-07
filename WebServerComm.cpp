@@ -598,10 +598,12 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
 // The result is delivered two ways, so both link types and both app parsers
 // work without either being special:
 //   - as its own SPP line   `SCAN;<ssid>,<rssi>,<open>;…`  (or `SCAN;NONE`)
-//   - in the status JSON    `"scan":[{"ssid":…,"rssi":…,"open":…}]`
+//   - in the status JSON    `"scan":[{"ssid":…,"rssi":…,"open":…,
+//     "channel":…,"own":…,"saved":…,"current":…}]`  (the last four are
+//     U-95 Phase 3: per-row car truth for the page's network table)
 // Names only — a scan can never reveal a password (W-14). The BSSID is the
-// dedupe key only; it is deliberately NOT in either wire form (the status
-// buffer is sized to the fixed fragments, U-95 Phase 3 owns that change).
+// dedupe key only; it is deliberately NOT in either wire form (no consumer
+// needs the radio's MAC).
 //
 // While the STA is ASSOCIATED, ESP32 scan results are unreliable (the radio is
 // busy and the channel follows the router), so strength is reported only as a
@@ -690,6 +692,7 @@ void WebServerComm::collectScanIfDone() {
       snprintf(entry.ssid, sizeof(entry.ssid), "%s", name);
       snprintf(entry.bssid, sizeof(entry.bssid), "%s", bssid.c_str());
       entry.rssi = rssi;
+      entry.channel = static_cast<uint8_t>(WiFi.channel(i));
       entry.open = open;
       scanNetworks_.push_back(entry);
     }
@@ -741,14 +744,41 @@ void WebServerComm::buildScanLine(char* buf, size_t bufLen) const {
 
 size_t WebServerComm::buildScanJson(char* buf, size_t bufLen) const {
   if (!buf || bufLen == 0) return 0;
+  // U-95 Phase 3: per-row car truth for the page's network table (and the app):
+  //   channel - the radio channel the result arrived on (captured at collect
+  //             time, while the driver still held it);
+  //   own     - this row NAMES the car's own hotspot (first-class, selectable
+  //             — the owner's ruling; the page labels it);
+  //   saved   - the car has this SSID in its saved-router list;
+  //   current - the STA is ASSOCIATED to this row right now.
+  // own/saved/current are computed HERE and shipped as facts: three app
+  // modules already disagree about the own-network rule (U-95 Phase 4 will
+  // unify them), and the car's answer is the one every consumer converges on.
+  const bool staNow = (WiFi.status() == WL_CONNECTED);
+  const String curSsid = staNow ? WiFi.SSID() : String("");
+  const char* ownName = apName_.length() > 0 ? apName_.c_str() : WIFI_AP_NAME;
   size_t used = 0;
   int n = snprintf(buf, bufLen, "[");
   if (n > 0) used = static_cast<size_t>(n);
   for (size_t i = 0; i < scanNetworks_.size() && used < bufLen; ++i) {
-    n = snprintf(buf + used, bufLen - used, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"open\":%s}",
-                 i ? "," : "", scanNetworks_[i].ssid,
+    const char* rowSsid = scanNetworks_[i].ssid;
+    bool saved = false;
+    if (strcasecmp(rowSsid, WIFI_AP_NAME) == 0) saved = true;
+    for (int s = 0; !saved && s < savedRouterCount_; ++s) {
+      if (strcasecmp(rowSsid, savedRouterSsid_[s]) == 0) saved = true;
+    }
+    const bool own = (strcasecmp(rowSsid, ownName) == 0);
+    const bool current = staNow && curSsid.equalsIgnoreCase(rowSsid);
+    n = snprintf(buf + used, bufLen - used,
+                 "%s{\"ssid\":\"%s\",\"rssi\":%d,\"open\":%s,"
+                 "\"channel\":%u,\"own\":%s,\"saved\":%s,\"current\":%s}",
+                 i ? "," : "", rowSsid,
                  static_cast<int>(scanNetworks_[i].rssi),
-                 scanNetworks_[i].open ? "true" : "false");
+                 scanNetworks_[i].open ? "true" : "false",
+                 static_cast<unsigned>(scanNetworks_[i].channel),
+                 own ? "true" : "false",
+                 saved ? "true" : "false",
+                 current ? "true" : "false");
     if (n < 0) break;
     used += static_cast<size_t>(n);
   }
@@ -2152,7 +2182,10 @@ void WebServerComm::broadcastStatus() {
   // diagnostic. tools/check-relay-contract.mjs asserts this buffer is larger
   // than the sum of the fragment buffers it has to hold, so the next person to
   // add a field without growing it fails CI instead of shipping a broken page.
-  char buf[1536];
+  // U-95 Phase 3: static, and 3584 not 1536 — see the matching line in
+  // handleStatus() for why (network fields doubled the JSON; the loopTask
+  // stack is 8 KB; this buffer used to be a frame inside it).
+  static char buf[3584];
   buildStatusJson(buf, sizeof(buf));
   // U-95 Phase 1c: the write gets its OWN fresh window. To a client that
   // stopped draining TCP this call retried for 5 s of no progress with each
@@ -2340,7 +2373,13 @@ void WebServerComm::handleStatus() {
   // same size. These two had drifted apart once (1200 here vs a smaller value in
   // broadcastStatus) with no symptom at all except that the two copies of the
   // same JSON disagreed on which one got truncated. See broadcastStatus().
-  char buf[1536];
+  // U-95 Phase 3: static, and 3584 not 1536 — the network fields (scan rows
+  // with channel/own/saved/current, plus station_ip/ap_ip/broadcast_ip/subnet)
+  // roughly doubled the JSON, and a 3.5 KB frame on the 8 KB loopTask stack,
+  // nested under the send path, is exactly the kind of quiet risk F-60 was
+  // about. Single-task by construction (every caller pumps on loop); if a
+  // second task ever reaches buildStatusJson, revisit this line first.
+  static char buf[3584];
   buildStatusJson(buf, sizeof(buf));
   server.send(200, "application/json", buf);
 }
@@ -2371,7 +2410,27 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
     // (192.168.245.1 since FIN-48) — announce it like the OLED already does so
     // the JSON `ip` is never empty in ESP_SER (app deck + tap-to-open).
     WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
-  }  int speed = modeManager ? modeManager->getSpeed() : static_cast<int>(MIN_SPEED);
+  }
+  // U-95 Phase 3: the contract had ONE `ip` slot, which carries the STA lease
+  // when connected and the softAP gateway otherwise — so a client could not
+  // tell which network the car was on beyond that, nor reach it by directed
+  // broadcast (the "find the car on this network" path needs exactly that,
+  // and WiFi.softAPBroadcastIP() was never called anywhere in this repo).
+  // Four car-computed fields; empty string = that interface is down. The
+  // single `ip` slot stays as-is for older clients — additive only.
+  char stationIp[16] = "";
+  char apIp[16] = "";
+  char bcastIp[16] = "";
+  char subnetMask[16] = "";
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFi.localIP().toString().toCharArray(stationIp, sizeof(stationIp));
+  }
+  if (apRunning_) {
+    WiFi.softAPIP().toString().toCharArray(apIp, sizeof(apIp));
+    WiFi.softAPBroadcastIP().toString().toCharArray(bcastIp, sizeof(bcastIp));
+    WiFi.softAPSubnetMask().toString().toCharArray(subnetMask, sizeof(subnetMask));
+  }
+  int speed = modeManager ? modeManager->getSpeed() : static_cast<int>(MIN_SPEED);
   unsigned long uptime = millis();
   size_t free_heap = ESP.getFreeHeap();
   // T-19 (W-10): stub modes are announced in the JSON too so website/app UIs
@@ -2407,7 +2466,10 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // D3 (U-68): the car-side nearby-network scan as `"scan":[…]` — the WS half
   // of the same data the SPP `SCAN;…` line carries. `[]` until a scan has run,
   // so the app can tell "not scanned yet" from "scanned, found nothing".
-  char scanJson[512] = "";
+  // U-95 Phase 3: rows grew (channel/own/saved/current) — 12 rows at the worst
+  // case widths need ~1720 bytes, so the fragment is 1856, not 512. The
+  // status-buffer gate re-derives the sum and will fail before this truncates.
+  char scanJson[1856] = "";
   buildScanJson(scanJson, sizeof(scanJson));
   // Connections-Hub: the stable board id (fw:<id> profile key for WiFi cars).
   char boardId[8] = "";
@@ -2432,6 +2494,10 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
        "\"caps\":\"%s\","
        "\"connected\":%s,"
        "\"ip\":\"%s\","
+       "\"station_ip\":\"%s\","
+       "\"ap_ip\":\"%s\","
+       "\"broadcast_ip\":\"%s\","
+       "\"subnet\":\"%s\","
        "\"rssi\":%d,"
        "\"signal\":%d,"
        "\"uptime_ms\":%lu,"
@@ -2459,8 +2525,12 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
      stubMode ? "true" : "false",
      caps,
      conn ? "true" : "false",
-     ipStr,
-     rssi,
+      ipStr,
+      stationIp,
+      apIp,
+      bcastIp,
+      subnetMask,
+      rssi,
      pct,
       uptime,
       static_cast<unsigned int>(free_heap),
