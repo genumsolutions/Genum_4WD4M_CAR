@@ -361,6 +361,71 @@ else {
     pass("board-id", "boardIdHex prints 6 uppercase hex - the relay's BOARD_ID_RE");
   }
 }
+// (U-95 Phase 5) THE SAME PRODUCER MUST FEED THE APP-FACING `;ID=`.
+// The website's claim loader keys its digest map on the app's `fw:<id>`
+// profile key, which is built from `STATE;...;ID=` — so if ID= and the relay
+// hello ever stop coming from boardIdHex(), a car can be CLAIMED under one
+// identity and REFUSED at the hello under another. F-75 caught that split at
+// the relay; this pins the car side of it.
+// VIEW (F-83, declared): comments stripped, string LITERALS INTACT. The rule
+// matches the format literal `";ID=%s"` — which `code()` (above) would blank —
+// while prose in a comment ("plus the stable board id (`;ID=`)",
+// ModeManager.cpp:518) must NOT count. Raw would credit the comment;
+// literal-blanked cannot see the literal. This is the view where neither trap
+// applies, and the rule is proven both directions (break the producer, break
+// the consumer, break the pairing — each red; restore — green).
+const stripComments = (text) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+const mmLiterals = stripComments(raw("ModeManager.cpp"));
+const idProducerAt = mmLiterals.search(/boardIdHex\(\s*id\s*,/);
+const idWriteAt = mmLiterals.search(/";ID=%s",\s*id\s*\)/);
+if (idProducerAt < 0) {
+  fail("board-id", "ModeManager.cpp no longer fills `id` via boardIdHex() - what feeds STATE ;ID=?");
+} else if (idWriteAt < 0) {
+  fail(
+    "board-id",
+    "STATE ;ID= no longer prints boardIdHex()'s `id` buffer - the app's fw:<id> profile key " +
+      "now comes from somewhere else; re-verify BOTH consumers (website claim loader, relay hello)"
+  );
+} else if (idWriteAt < idProducerAt || idWriteAt - idProducerAt > 300) {
+  fail("board-id", ";ID= write and boardIdHex(id, ...) are no longer in the same block - re-verify they are one producer");
+} else {
+  pass("board-id", "STATE ;ID= prints boardIdHex()'s buffer - one producer for the app key and the relay hello");
+}
+// (U-95 Phase 5) THE CROSS-REPO HALF. The CONSUMER patterns live in
+// genumsolutions-website (relay-core: BOARD_ID_RE for the hello,
+// CLAIM_UNIQUE_ID_RE for the claim loader — both asserted by that repo's
+// tests/car-relay.test.ts). This checkout may or may not contain the sibling
+// repo; CI's checkout never does. When it is here, compare the literal
+// patterns; when it is not, say `skip`, never `ok`: a check that did not run
+// must not read as one that passed (F-83).
+const consumerRelay = join(root, "..", "genumsolutions-website", "supabase", "functions", "car-relay", "relay-core.ts");
+if (!existsSync(consumerRelay)) {
+  console.log("  skip  board-id-consumer - sibling genumsolutions-website absent (CI checkout); run this gate inside the workspace for the cross-repo comparison");
+} else {
+  const consumerSrc = readFileSync(consumerRelay, "utf8");
+  const rhsOf = (name) => {
+    const line = consumerSrc.split("\n").find((l) => l.includes(`const ${name}`));
+    return line ? line.slice(line.indexOf("=") + 1).trim().replace(/;.*$/, "") : null;
+  };
+  const want = {
+    BOARD_ID_RE: "/^[0-9A-F]{6}$/",
+    CLAIM_UNIQUE_ID_RE: "/^fw:([0-9A-F]{6})$/",
+  };
+  const wrong = Object.keys(want).filter((k) => rhsOf(k) !== want[k]);
+  if (wrong.length) {
+    fail(
+      "board-id-consumer",
+      `relay-core ${wrong.map((k) => `${k} = ${rhsOf(k)}`).join("; ")} — this car prints 6 uppercase hex ` +
+        "(WebServerComm::boardIdHex). If the website side changed ON PURPOSE, change the car and " +
+        "both gates in the same commit — a lone change here means every real car is refused"
+    );
+  } else {
+    pass("board-id-consumer", "website BOARD_ID_RE + CLAIM_UNIQUE_ID_RE are exactly the 6-hex forms this car produces");
+  }
+}
 // The hello must be role "car" at the relay's protocol version, or the relay
 // refuses it by name before it ever looks at the token.
 if (!/role\\"\s*:\s*\\"\s*car/.test(relayRaw)) {
