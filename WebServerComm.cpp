@@ -49,7 +49,7 @@ WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
   connectingPending_(false), pendingRejoin_(false), connectStartMs_(0), lastWifiRetryMs_(0),
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
-  mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), staConnectedAtMs_(0), apParked_(false), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
+  mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), modeWaitStartMs_(0), modeDropAttempts_(0), staConnectedAtMs_(0), apParked_(false), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
   scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
     serverRunning(false), startedAsAP(false), apRunning_(false),
     modeManager(nullptr), pendingModeAtMs(0)
@@ -893,6 +893,18 @@ bool WebServerComm::begin() { return true; }
 // network exactly as R-16 established for the donor. Replaces the donor's
 // SERVER-mode-entry beginStation() path.
 void WebServerComm::beginAlwaysOn() {
+  // U-95 Phase 2 (NVS wear): the Arduino-ESP32 default is persistent(true),
+  // which routes every esp_wifi_set_config through FLASH — so each
+  // WiFi.begin() rewrites the station credentials and each softAP() rewrites
+  // the AP config. A single router switch runs begin() up to STA_MAX_RETRIES
+  // times, the boot auto-join adds more, and none of it is data this
+  // firmware ever reads back: its credentials live in its OWN `botcfg`
+  // Preferences (storedSsid_/storedPass_, T-33), and the Arduino layer's
+  // shadow copy is pure write amplification against ~100k erase cycles.
+  // Set ONCE, before the first radio call of the session (beginStation below
+  // is the bring-up), and flash stops being written on every WiFi decision.
+  // Gate rule: `wifi-persistent`.
+  WiFi.persistent(false);
   beginStation();  // WIFI_AP + startOwnAP() + server.begin() + ws.begin()
   WiFi.mode(WIFI_AP_STA);  // ready for explicit router joins without a mode dance
   updateExtraInfo();
@@ -975,6 +987,9 @@ void WebServerComm::rejoinNetwork() {
   connectingPending_ = false;
   startedAsAP = true;
   rejoinStep_ = REJOIN_STEP_MODE;
+  // U-95 Phase 2: a fresh request gets a fresh drop attempt budget, or the
+  // second switch of a session would inherit the first one's spent retries.
+  modeDropAttempts_ = 0;
   // U-75: an in-flight give-up must be cancelled by a new request, or its stale
   // `WiFi.mode(WIFI_AP)` step would land AFTER the user asked to join a router
   // and yank the car off the network they just selected.
@@ -1193,41 +1208,55 @@ void WebServerComm::advanceRejoinStep() {
       return;
 
     case REJOIN_STEP_MODE:
-      // U-90 (2026-10-04, owner: *"the car seems stuck on one router and doesnt
-      // connect even if on same network"*): this step is now UNCONDITIONAL.
+      // U-95 Phase 2 (2026-10-07, plan: "make the teardown real"): U-90 made
+      // this step unconditional, and the claim written here at the time —
+      // "WiFi.mode(WIFI_AP_STA) restarts the WiFi driver, the stale STA state
+      // is torn down" — was verified FALSE against the installed core:
+      // WiFiGeneric.cpp:602+ returns early when the requested mode EQUALS the
+      // current one, and after the FIRST switch of the car's life the driver
+      // is already WIFI_AP_STA (beginAlwaysOn() leaves it there). So every
+      // later switch did no teardown at all — the stale association survived,
+      // the U-76 resolve defect ("stuck on one router") had a second life,
+      // and BEGIN raced a driver that was still busy (the serial evidence
+      // `E wifi:sta is connecting, cannot set config`).
       //
-      // It used to run only `if (WiFi.getMode() != WIFI_AP_STA)`. After the
-      // FIRST switch of the car's life the driver is already WIFI_AP_STA
-      // (beginAlwaysOn() left it there), so every LATER switch skipped the
-      // driver reset entirely — and REJOIN_STEP_BEGIN then issued WiFi.begin()
-      // ON TOP OF the still-associated STA. Two consequences, both proven by
-      // the U-76 serial evidence (`E wifi:sta is connecting, cannot set
-      // config`):
-      //
-      //   1. The IDF REFUSES the begin (the STA is busy), so the car never
-      //      even attempted the router it was asked for.
-      //   2. Worse: the resolve block keys on `WiFi.status() == WL_CONNECTED`
-      //      — which the OLD association still satisfied — so the switch
-      //      resolved as SUCCESS on the OLD network. The car reported the
-      //      old router as joined, the DHCP lease was never refreshed, and
-      //      no retry ever ran (no failure was ever seen). That is exactly
-      //      "stuck on one router, and it won't connect even to the same
-      //      network": the association and its lease went stale and every
-      //      later request was swallowed by the stale link.
-      //
-      // `WiFi.mode(WIFI_AP_STA)` restarts the WiFi driver: the stale STA
-      // state is torn down, and REJOIN_STEP_BEGIN now runs against a clean
-      // slate. The cost is one driver restart per explicit switch — the same
-      // cost the first-ever switch already paid, one radio call per loop
-      // pass (U-71), so the watchdog rule (F-24/F-60) is untouched.
-      noteRadioStep("rejoin/mode-AP_STA");
-      WiFi.mode(WIFI_AP_STA);
-      // U-76: `WiFi.mode()` RESTARTS the driver, which tears the softAP down -
-      // but `apRunning_` was still true, so every later startOwnAP() returned
-      // early at `if (apRunning_) return;` while the beacon was actually DOWN.
-      // That is why the owner's log shows `rejoin/softAP` and then silence: the
-      // AP step did nothing. Never trust apRunning_ across a driver restart.
-      apRunning_ = false;
+      // The teardown must therefore DROP the mode, not re-request it:
+      //   MODE (WIFI_AP — always unequal, so the call always does real work)
+      //   -> MODE_WAIT (poll getMode(), 0 radio calls, bounded)
+      //   -> AP (startOwnAP() while the STA is down — the one window
+      //      startOwnAP()'s staBusy() guard can never refuse, so the phone's
+      //      way in exists for the WHOLE switch: the plan's "reachable
+      //      throughout" requirement)
+      //   -> RAISE (WIFI_AP_STA — also always unequal, always works)
+      //   -> BEGIN (a clean slate: no association left to race).
+      // One radio call per pass (U-71) untouched; the watchdog rule (F-24)
+      // untouched. Gate rule: `switch-teardown`.
+      noteRadioStep("rejoin/mode-AP");
+      WiFi.mode(WIFI_AP);
+      modeWaitStartMs_ = millis();
+      modeDropAttempts_ = 1;
+      rejoinStep_ = REJOIN_STEP_MODE_WAIT;
+      return;
+
+    case REJOIN_STEP_MODE_WAIT:
+      // The drop is asynchronous: mode() returns once the set is ACCEPTED,
+      // not once the core's cached mode agrees. Poll it (no radio work).
+      if (WiFi.getMode() == WIFI_AP) {
+        rejoinStep_ = REJOIN_STEP_AP;
+        return;
+      }
+      if (millis() - modeWaitStartMs_ <= REJOIN_MODE_SETTLE_MS) return;  // still settling
+      // Not taken: re-issue the drop, bounded — a core that never confirms
+      // gets breadcrumbs and then PROCEEDS (give-up path's rule: never wedge
+      // a state machine, degrade honestly and say so).
+      if (modeDropAttempts_ < REJOIN_MODE_DROP_ATTEMPTS) {
+        ++modeDropAttempts_;
+        noteRadioStep("rejoin/mode-AP-retry");
+        WiFi.mode(WIFI_AP);
+        modeWaitStartMs_ = millis();
+        return;
+      }
+      noteRadioStep("rejoin/mode-AP-not-taken");
       rejoinStep_ = REJOIN_STEP_AP;
       return;
 
@@ -1239,9 +1268,33 @@ void WebServerComm::advanceRejoinStep() {
       // up (the car is mid-network-change and needs the fallback); once the new
       // router holds for AP_PARK_GRACE_MS, updateApPowerPolicy() parks it again.
       // So the beacon is up when it matters and down when it does not.
+      //
+      // U-95 Phase 2: this step now runs with the STA DOWN (the MODE drop
+      // above), so staBusy() — which refused this very call while the old
+      // association was settling (FIN-40/D1 "skip-softAP/sta-busy") — cannot
+      // refuse it: guaranteed legal window. The claim is forced false HERE,
+      // right before the restore, mirroring GIVEUP_AP: the AP_STA->AP switch
+      // can bounce the beacon (FIN-40/D1), so never trust apRunning_ across
+      // it. The RAISE step below does NOT touch the flag: AP->AP_STA only
+      // adds a mode bit (esp_wifi_set_mode, no stop), proven by
+      // beginAlwaysOn(), which raises WIFI_AP->WIFI_AP_STA at boot without
+      // touching apRunning_ — the path the owner uses every day.
       noteRadioStep("rejoin/softAP");
       apParked_ = false;   // this switch brought the beacon back on purpose
+      apRunning_ = false;  // forced, not trusted (FIN-40/D1)
       startOwnAP();
+      rejoinStep_ = REJOIN_STEP_RAISE;
+      return;
+
+    case REJOIN_STEP_RAISE:
+      // The STA side returns on a clean slate: the driver stopped the old
+      // association at the MODE drop, so there is no stale link for
+      // REJOIN_STEP_BEGIN to resolve against (the U-90/U-95 defect) and no
+      // busy STA to refuse the begin (`sta is connecting, cannot set config`
+      // can no longer occur). Unequal mode again — this call also always
+      // does real work.
+      noteRadioStep("rejoin/mode-AP_STA");
+      WiFi.mode(WIFI_AP_STA);
       rejoinStep_ = REJOIN_STEP_BEGIN;
       return;
 

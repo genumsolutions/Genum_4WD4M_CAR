@@ -847,6 +847,75 @@ if (!wdt) {
   pass("ws-budget", `the watchdog is ${wdt} ms - ${wdt - 8000} ms above the library's worst operation (read 5000, write ~8000), each fed immediately before it runs`);
 }
 
+// ---- 11. a router switch must be a real teardown (U-95 Phase 2) ---------
+// U-90 shipped the claim this rule enforces as a COMMENT: the MODE step's
+// prose said "WiFi.mode(WIFI_AP_STA) restarts the WiFi driver, the stale STA
+// state is torn down". The installed core does not restart anything when the
+// requested mode equals the current one (WiFiGeneric.cpp:602 early-returns),
+// and the current mode IS WIFI_AP_STA after the first switch — so the
+// teardown did not exist on any switch after the first, the stale
+// association survived, and every gate in this file stayed green through it.
+// Prose certified by plausibility, F-82 in one line.
+//
+// So the sequence is asserted, IN ORDER, against the comment-stripped body:
+//   drop (mode WIFI_AP, always unequal -> always real work)
+//   -> poll (getMode, confirms the drop took, 0 radio calls)
+//   -> restore (startOwnAP while the STA is down — the one window
+//      startOwnAP()'s staBusy() guard cannot refuse, so the phone keeps a
+//      way in for the WHOLE switch: T-65's "reachable throughout")
+//   -> raise (mode WIFI_AP_STA, always unequal)
+//   -> begin (WiFi.begin on a clean slate)
+// A missing step or a reordered one is the U-90 defect again: a begin that
+// races the old link, or a switch that leaves the car without its hotspot.
+const rejoinBody = body(wscCode, "void WebServerComm::advanceRejoinStep") ?? "";
+if (!rejoinBody) {
+  fail("switch-teardown", "could not locate advanceRejoinStep() - check this rule still matches the code");
+} else {
+  const dropAt = rejoinBody.search(/WiFi\s*\.\s*mode\s*\(\s*WIFI_AP\s*\)/);
+  const pollAt = rejoinBody.search(/WiFi\s*\.\s*getMode\s*\(\s*\)/);
+  const restoreAt = rejoinBody.search(/startOwnAP\s*\(\s*\)/);
+  const raiseAt = rejoinBody.search(/WiFi\s*\.\s*mode\s*\(\s*WIFI_AP_STA\s*\)/);
+  const beginAt = rejoinBody.search(/WiFi\s*\.\s*begin\s*\(/);
+  if (dropAt < 0) {
+    fail("switch-teardown", "the MODE step no longer DROPS the mode (WiFi.mode(WIFI_AP)) - mode(WIFI_AP_STA) on an already-AP_STA driver is the WiFiGeneric.cpp:602 early return: no teardown on any switch after the first (the U-90 defect)");
+  } else if (pollAt < 0) {
+    fail("switch-teardown", "the drop is never confirmed (no WiFi.getMode() poll) - mode() returns once the set is ACCEPTED, not once it took; proceeding blind is racing the driver");
+  } else if (restoreAt < 0) {
+    fail("switch-teardown", "the rejoin path never restores the hotspot (startOwnAP()) - the phone loses its way in during the switch (T-65)");
+  } else if (raiseAt < 0) {
+    fail("switch-teardown", "the STA side is never re-raised (no WiFi.mode(WIFI_AP_STA)) - the car would stay AP-only after a switch");
+  } else if (beginAt < 0) {
+    fail("switch-teardown", "the rejoin path never reaches WiFi.begin() - nothing ever joins the router");
+  } else if (!(dropAt < pollAt && pollAt < restoreAt && restoreAt < raiseAt && raiseAt < beginAt)) {
+    fail("switch-teardown", `the steps are out of order (drop=${dropAt}, poll=${pollAt}, restore=${restoreAt}, raise=${raiseAt}, begin=${beginAt}) - the sequence must be drop -> confirm -> restore -> raise -> begin`);
+  } else {
+    pass("switch-teardown", "drop -> confirm -> restore -> raise -> begin, in order, one radio call per pass");
+  }
+}
+
+// NVS wear (U-95 Phase 2). Arduino-ESP32 defaults to persistent(true), which
+// routes every esp_wifi_set_config through FLASH: each WiFi.begin() rewrites
+// the station credentials and each softAP() rewrites the AP config. A router
+// switch multiplies that by the retry budget (STA_MAX_RETRIES), the boot
+// auto-join adds more, and none of it is data this firmware reads back — its
+// credentials live in its own `botcfg` Preferences. The guard must exist AND
+// sit in the boot bring-up (beginAlwaysOn, or the top of beginStation before
+// it configures the radio): placed anywhere else in the file it runs after
+// the very first config write it exists to prevent.
+const abBody = body(wscCode, "void WebServerComm::beginAlwaysOn") ?? "";
+const bsBody = body(wscCode, "bool WebServerComm::beginStation") ?? "";
+const persistRe = /WiFi\s*\.\s*persistent\s*\(\s*false\s*\)/;
+const pAb = abBody ? abBody.search(persistRe) : -1;
+const pBs = bsBody ? bsBody.search(persistRe) : -1;
+const bsFirstRadio = bsBody ? bsBody.search(/WiFi\s*\.\s*(?:mode|softAP|begin)\s*\(/) : -1;
+if (pAb < 0 && pBs < 0) {
+  fail("wifi-persistent", "WiFi.persistent(false) is not in the boot bring-up (beginAlwaysOn/beginStation) - every WiFi.begin()/softAP() rewrites flash NVS against ~100k erase cycles (the Arduino default is persistent=true)");
+} else if (pAb < 0 && bsFirstRadio >= 0 && pBs > bsFirstRadio) {
+  fail("wifi-persistent", "WiFi.persistent(false) runs AFTER the first mode/softAP/begin inside beginStation() - the first config write still reaches flash, so the guard is decorative");
+} else {
+  pass("wifi-persistent", "WiFi.persistent(false) is set in the boot bring-up, before the radio is configured");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that the
 // relay actually answers. That is the owner's bench (T-REL), not a laptop.
 console.log("\nrelay-contract: source checks only - no socket was opened, no hello was sent.");

@@ -107,6 +107,15 @@
 #define LOOP_TASK_WDT_TIMEOUT_MS 10000ul
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
+// U-95 Phase 2: the rejoin MODE drop is asynchronous — WiFi.mode() returns
+// once the set is ACCEPTED, not once the core's cached mode agrees with it.
+// The REJOIN_STEP_MODE_WAIT step polls WiFi.getMode() (which does no radio
+// work) for this long before counting the drop as not-taken, then re-issues
+// the drop at most REJOIN_MODE_DROP_ATTEMPTS times total; after that the
+// machine proceeds with a breadcrumb (`rejoin/mode-AP-not-taken`) rather
+// than wedging — honest degradation, never a stuck switch.
+#define REJOIN_MODE_SETTLE_MS 500ul
+#define REJOIN_MODE_DROP_ATTEMPTS 2
 
 // U-86: how long the car must sit on a router before its setup beacon is
 // parked. Long enough that a router which fails within the first moments does
@@ -247,11 +256,24 @@ public:
   // switch from occupying loop() long enough to trip the 5 s task watchdog —
   // and a WDT trip is a reboot (F-24), which is the most plausible cause of
   // "the car restarted as soon as I tried to access the webpage".
+  // U-95 Phase 2 (2026-10-07): drop -> wait -> restore -> raise -> begin.
+  // U-90's step ran mode(WIFI_AP_STA) and claimed a driver restart, but the
+  // installed core (WiFiGeneric.cpp:602) returns EARLY when the requested
+  // mode equals the current one — and after the first switch of the car's
+  // life the mode IS already WIFI_AP_STA, so every later switch performed no
+  // teardown at all. The machine now DROPS the mode (WIFI_AP is always
+  // unequal to AP_STA, so the call always does real work), polls the core
+  // until it agrees (0 radio calls), restores the hotspot while the STA is
+  // down (the one window staBusy() cannot refuse), raises AP_STA (also
+  // always unequal), and only then begins. One radio call per pass (U-71)
+  // is preserved. Gate rule: `switch-teardown`.
   enum RejoinStep : uint8_t {
     REJOIN_STEP_IDLE = 0,
-    REJOIN_STEP_MODE,   // WiFi.mode(WIFI_AP_STA) if needed
-    REJOIN_STEP_AP,     // startOwnAP() — the hotspot stays up throughout
-    REJOIN_STEP_BEGIN,  // WiFi.begin(ssid, pass)
+    REJOIN_STEP_MODE,       // WiFi.mode(WIFI_AP) — drop the stale STA association
+    REJOIN_STEP_MODE_WAIT,  // poll WiFi.getMode() until the drop took (no radio)
+    REJOIN_STEP_AP,         // startOwnAP() — while the STA is down
+    REJOIN_STEP_RAISE,      // WiFi.mode(WIFI_AP_STA) — STA returns on a clean slate
+    REJOIN_STEP_BEGIN,      // WiFi.begin(ssid, pass)
   };
 
   // U-86 (owner): "the esp's own router seems to be active for the connection
@@ -284,6 +306,11 @@ public:
   bool apParked_;               // beacon intentionally down, someone is using the car
 void advanceRejoinStep();
   uint8_t rejoinStep_;
+  // U-95 Phase 2: MODE_WAIT bookkeeping. modeWaitStartMs_ is the base of the
+  // current drop's settle window; modeDropAttempts_ bounds the re-issues so a
+  // core that never confirms the drop cannot hold the machine forever.
+  unsigned long modeWaitStartMs_;
+  uint8_t modeDropAttempts_;
 
   // U-75 (2026-10-02): OWNER HARD EVIDENCE - the device finally told us why.
   //

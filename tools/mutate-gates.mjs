@@ -285,6 +285,39 @@ const mutants = [
     find: "#define LOOP_TASK_WDT_TIMEOUT_MS 10000ul",
     repl: "#define LOOP_TASK_WDT_TIMEOUT_MS 5000ul",
     why: "the watchdog ties the library's worst operation again — the stall races the reset instead of fitting under it" },
+
+  // ---- router switching (U-95 Phase 2) ----
+  // U-90 shipped the claim these rules enforce as a COMMENT: mode(WIFI_AP_STA)
+  // "restarts the driver". It early-returns when the mode already equals
+  // WIFI_AP_STA (WiFiGeneric.cpp:602), i.e. on every switch after the first —
+  // the teardown did not exist and every gate stayed green. Restore the no-op
+  // drop and the rule must go red.
+  { id: "M23", rule: "switch-teardown", file: WSC,
+    find: '      noteRadioStep("rejoin/mode-AP");\n      WiFi.mode(WIFI_AP);',
+    repl: '      noteRadioStep("rejoin/mode-AP_STA");\n      WiFi.mode(WIFI_AP_STA);',
+    why: "the drop reverts to mode(WIFI_AP_STA) — the WiFiGeneric.cpp:602 early-return no-op: no teardown on any switch after the first (the U-90 defect)" },
+
+  { id: "M24", rule: "switch-teardown", file: WSC,
+    find: "      if (WiFi.getMode() == WIFI_AP) {",
+    repl: "      if (true) {",
+    why: "the drop is never confirmed — the getMode() poll is gone, so the machine proceeds on a timer alone against a driver that may not have settled" },
+
+  { id: "M25", rule: "switch-teardown", file: WSC,
+    find: '      noteRadioStep("rejoin/mode-AP_STA");\n      WiFi.mode(WIFI_AP_STA);\n      rejoinStep_ = REJOIN_STEP_BEGIN;',
+    repl: '      rejoinStep_ = REJOIN_STEP_BEGIN;',
+    why: "the STA side is never re-raised — the car would stay AP-only after a switch, never joining the router it was asked for" },
+
+  { id: "M26", rule: "wifi-persistent", file: WSC,
+    find: "  WiFi.persistent(false);\n",
+    repl: "",
+    why: "the guard is gone: every WiFi.begin()/softAP() writes flash NVS again (Arduino default persistent=true) — router retries multiply the erase wear" },
+
+  { id: "M27", rule: "wifi-persistent", file: WSC,
+    find: "  WiFi.persistent(false);\n",
+    repl: "",
+    also: [{ find: "void WebServerComm::advanceRejoinStep() {",
+            repl: "void WebServerComm::advanceRejoinStep() {\n  WiFi.persistent(false);" }],
+    why: "the guard exists but not in the boot bring-up — it runs after the first config write it exists to prevent" },
 ];
 
 // ---- runner -------------------------------------------------------------
