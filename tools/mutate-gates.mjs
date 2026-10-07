@@ -342,6 +342,66 @@ const mutants = [
     find: "  retryBeginPending_ = false;\n  lastWifiRetryMs_ = millis();",
     repl: "  retryBeginPending_ = false;",
     why: "rejoinNetwork() no longer re-stamps the backoff — the retry fires on pass 1 of the step machine and disconnects the teardown mid-walk" },
+
+  // ---- honest + ranked scan (U-95 Phase 2c) ----
+  // startScan() used to refuse SILENTLY while the handler claimed STARTED
+  // unconditionally, and the collector capped at INSERT time in radio-order
+  // while deduping on names. Each mutant restores one half of that shape;
+  // scan-honest / scan-quality must go red for each.
+  { id: "M32", rule: "scan-honest", file: WSC,
+    find: '    if (startScan()) {\n      snprintf(reply, sizeof(reply), "ROUTERS;SCAN;STARTED");\n    } else {\n      snprintf(reply, sizeof(reply), "ROUTERS;SCAN;BUSY");\n    }',
+    repl: '    startScan();\n    snprintf(reply, sizeof(reply), "ROUTERS;SCAN;STARTED");',
+    why: "the handler claims STARTED unconditionally again — a dropped scan reports success and the app waits forever for a result that was never coming" },
+
+  { id: "M33", rule: "scan-honest", file: WSC,
+    find: "  if (connectingPending_) return false;         // associating - do not race the join\n",
+    repl: "",
+    why: "the associating gate is gone — a scan is kicked between WiFi.begin() and association, racing a driver that is mid-join and returning garbage" },
+
+  { id: "M38", rule: "scan-honest", file: WSC,
+    find: "  if (scanPending_ || scanBusy_) return false;  // armed or in flight already\n",
+    repl: "",
+    why: "the in-flight refusal is gone — a double-tap arms a second scan over one already running, and the reply lies about both" },
+
+  { id: "M34", rule: "scan-quality", file: WSC,
+    find: "      if (strcasecmp(scanNetworks_[k].bssid, bssid.c_str()) == 0) {",
+    repl: "      if (strcasecmp(scanNetworks_[k].ssid, name) == 0) {",
+    why: "dedupe falls back to names — two different routers broadcasting one SSID silently merge into one row, and a multi-AP router's second radio disappears" },
+
+  { id: "M35", rule: "scan-quality", file: WSC,
+    find: "    if (!merged) {\n      ScannedNetwork entry;",
+    repl: "    if (!merged && scanNetworks_.size() < SCAN_MAX_RESULTS) {\n      ScannedNetwork entry;",
+    why: "the insert-time cap is back — the first N results in radio-order survive, dropping strong networks on report-order luck" },
+
+  { id: "M36", rule: "scan-quality", file: WSC,
+    find: "    while (b > 0 && scanNetworks_[b - 1].rssi < key.rssi) {",
+    repl: "    while (false) {",
+    why: "the strongest-first sort is neutered — which rows survive the cap is again whichever the radio reported first" },
+
+  { id: "M37", rule: "scan-quality", file: WSC,
+    find: "  scanNetworks_.clear();\n  for (int i = 0; i < scanCount_; ++i) {",
+    repl: "  scanNetworks_.clear();\n  int n = scanCount_;\n  if (n > SCAN_MAX_RESULTS) n = SCAN_MAX_RESULTS;\n  for (int i = 0; i < n; ++i) {",
+    why: "the pre-truncation is back — the loop only ever sees the first SCAN_MAX_RESULTS results, before any ranking can run" },
+
+  { id: "M39", rule: "scan-quality", file: WSC,
+    find: "    const String bssid = WiFi.BSSIDstr(i);\n",
+    repl: "",
+    why: "the BSSID is never captured — the dedupe key does not exist at runtime, so the per-RADIO rule cannot hold" },
+
+  { id: "M41", rule: "scan-quality", file: WSC,
+    find: "  if (scanNetworks_.size() > SCAN_MAX_RESULTS) {\n    scanNetworks_.resize(SCAN_MAX_RESULTS);\n  }\n",
+    repl: "",
+    why: "the cap is gone entirely — an unbounded list bloats the status broadcast and the app's table with noise rows" },
+
+  { id: "M42", rule: "scan-quality", file: WSC,
+    find: "  for (size_t a = 1; a < scanNetworks_.size(); ++a) {\n    ScannedNetwork key = scanNetworks_[a];\n    size_t b = a;\n    while (b > 0 && scanNetworks_[b - 1].rssi < key.rssi) {\n      scanNetworks_[b] = scanNetworks_[b - 1];\n      --b;\n    }\n    scanNetworks_[b] = key;\n  }\n\n  // The ONE cap, last: the wire forms are buffer-bounded downstream, but an\n  // unbounded vector would still bloat the status broadcast (and the app's\n  // table) with noise rows nobody asked for.\n  if (scanNetworks_.size() > SCAN_MAX_RESULTS) {\n    scanNetworks_.resize(SCAN_MAX_RESULTS);\n  }",
+    repl: "  if (scanNetworks_.size() > SCAN_MAX_RESULTS) {\n    scanNetworks_.resize(SCAN_MAX_RESULTS);\n  }\n\n  for (size_t a = 1; a < scanNetworks_.size(); ++a) {\n    ScannedNetwork key = scanNetworks_[a];\n    size_t b = a;\n    while (b > 0 && scanNetworks_[b - 1].rssi < key.rssi) {\n      scanNetworks_[b] = scanNetworks_[b - 1];\n      --b;\n    }\n    scanNetworks_[b] = key;\n  }",
+    why: "the cap runs before the sort — rows are truncated while still in radio-order, so the ranking only ranks what survived the lottery" },
+
+  { id: "M40", rule: "scan-quality", file: WSH,
+    find: "    char bssid[18];  // \"AA:BB:CC:DD:EE:FF\"\n",
+    repl: "",
+    why: "the BSSID field is removed from ScannedNetwork — there is no per-RADIO dedupe key at all, forcing name-dedupe" },
 ];
 
 // ---- runner -------------------------------------------------------------
