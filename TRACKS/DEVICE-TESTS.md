@@ -3,7 +3,7 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
-## U-95 round — evidence gathering + the reset loop itself (2026-10-06, firmware 1.2.0 — DEVICE VERIFY PENDING)
+## U-95 round — evidence gathering + the reset loop itself (2026-10-06/07, firmware 1.2.2 — DEVICE VERIFY PENDING)
 
 > Owner report was `_the car resets again and again_` with no cause attached. Nothing could name a
 > cause: the only reset diagnostic was a Serial line, the bench car has no serial cable, and
@@ -12,7 +12,9 @@
 > not claim to have cured them.** Commits `883626b` (record), `29b8eaf` (page-send budget + watchdog
 > feed), `83ecf15` (idle attribution), `d78c27d` (relay guards).
 
-- [ ] **U-95-1 — flash 1.2.0 and read the record BEFORE anything else.** After the first boot, open
+- [ ] **U-95-1 — flash 1.2.2 and read the record BEFORE anything else.** (Covers 1.2.0's record,
+      1.2.1's WebSocket watchdog feeds, 1.2.2's router-switch + scan work — one flash, whole round.)
+      After the first boot, open
       the car's page: the header carries a restart row and `/status` carries `reset_reason`,
       `boot_count`, `crash_count`, `last_crash_phase`, `last_crash_heap`, `phase`. Record
       `boot_count` and `crash_count`. A `boot_count` climbing with `crash_count` tracking it means the
@@ -40,6 +42,28 @@
       handshake still runs on the loop task with a 120 s timeout against a 5 s watchdog (F-84). Do not
       work around this gate. T-REL-1..4 are blocked until the dial is moved to its own task. Record
       that fact here rather than attempting the relay.
+- [ ] **U-95-7 — the switch teardown walks all the way to `WiFi.begin()` (1.2.2, Phase 2a).** Car on
+      router X, phone on X: pick router Y → `REPLY=ROUTERS;USED;Y`, then serial `[RADIO]` steps in
+      order — `rejoin/mode-AP` → (confirmed by `getMode()`, no `rejoin/mode-AP-not-taken` breadcrumb)
+      → `rejoin/softAP` → raise → `WiFi.begin` — and the car actually arrives on Y (phone on Y can
+      reach `192.168.245.1`). The own hotspot may blink once at the softAP step (beacon restart) but
+      returns; it must never stay down. `ROUTERS;USED;Y` alone proves nothing — verify association.
+- [ ] **U-95-8 — the retry's disconnect and begin never share a pass (1.2.2, Phase 2b).** Configure a
+      router with a WRONG password and switch to it: serial shows `retry/disconnect` on one pass and
+      `retry/begin` on a LATER pass (distinct `[RADIO]` breadcrumbs, never back-to-back), the car
+      never resets mid-retry, and after a successful session the 10 s backoff has restarted (the
+      retry does not fire the instant the step machine starts walking).
+- [ ] **U-95-9 — the scan answers honestly (1.2.2, Phase 2c).** Tap scan twice quickly: first tap →
+      `Scanning for networks...` (green), second tap → `The car is busy - try the scan again in a
+      moment.` shown in the REFUSAL colour. If the second tap also says `Scanning...`, the handler
+      is claiming STARTED for a scan it never started — report immediately.
+- [ ] **U-95-10 — the scan list is ranked and one-row-per-radio (1.2.2, Phase 2c).** In range of two
+      routers broadcasting the SAME name: the list shows BOTH (one row per radio/BSSID), strongest
+      first overall, the same radio never appears twice, and at most 12 rows arrive. Name-dedupe
+      would show one row; radio-order would shuffle the strengths — both are the failure.
+- [ ] **U-95-11 — no scan during a switch (1.2.2, Phase 2c).** Tap a router switch, then immediately
+      tap scan: `The car is busy` (a scan kicked mid-join races the driver and returns garbage), never
+      `Scanning...` + a junk list. After the switch resolves, scan works again normally.
 ## U-92 round — own-hotspot: double entry gone, the return actually returns (2026-10-04, firmware 1.0.5 — DEVICE VERIFY PENDING)
 
 > Owner: _"webpage has double entry of esps own hotspot please remove that too"_ · _"through

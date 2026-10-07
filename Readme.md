@@ -1,4 +1,4 @@
-Version 1.2.1
+Version 1.2.2
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -20,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.2.1` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.2.2` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -80,6 +80,29 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.2.2 (2026-10-07, U-95 Phase 2)** — **router switching + scan**. (2a) The rejoin path walks
+  the switch as a step machine, one radio call per pass: drop to `WIFI_AP` (the old
+  `mode(WIFI_AP_STA)` was a guaranteed no-op — `WiFiGeneric.cpp:602` early-returns when the mode
+  already matches, i.e. on every switch after the first — the U-90 "teardown"), **confirm** the
+  drop with a `getMode()` poll (bounded re-issue, breadcrumb `rejoin/mode-AP-not-taken` on
+  timeout), restore the hotspot (`startOwnAP()` in the STA-down window; `apRunning_` forced false
+  first — `apParked_`/`apRunning_` tracked exactly, the beacon may blink but the state never
+  lies), raise `WIFI_AP_STA` (boot-path proof: no beacon bounce), then `WiFi.begin()`.
+  `WiFi.persistent(false)` runs as the first radio-touch of every boot — the Arduino default
+  rewrote flash NVS on every `WiFi.begin()`/`softAP()` (~100k erase cycles against retry traffic).
+  (2b) The retry's `disconnect()` and `begin()` no longer share a loop pass (the U-75 reboot
+  shape): `retryBeginPending_` arms on one pass, a guarded consumer issues the begin on a later
+  one; `rejoinNetwork()` cancels an in-flight begin and re-stamps the backoff so a stale retry
+  can't fire mid-teardown. (2c) The scan is honest and ranked: `startScan()` answers `bool`
+  (refuses an in-flight scan and a scan kicked while the STA is mid-join), the handler replies
+  `ROUTERS;SCAN;BUSY` instead of claiming `STARTED` for a scan it dropped, the page shows BUSY in
+  the refusal colour; results dedupe per BSSID (one row per RADIO — name-dedupe silently merged
+  two routers sharing an SSID), sort strongest-first (hand-rolled, no `<algorithm>` on the Arduino
+  TU), and the `SCAN_MAX_RESULTS` cap applies ONCE, after the sort (it used to apply before the
+  loop and at insert — first-N-in-radio-order, not strongest-first). Gate rules
+  `switch-teardown`/`wifi-persistent`/`retry-split`/`scan-honest`/`scan-quality` in
+  `check-relay-contract.mjs`, mutants M23-M42 (20 new), all mutation-proven both directions.
+  Still UNFLASHED.
 - **1.2.1 (2026-10-06, U-95 Phase 1b/1c)** — the two remaining WebSocket watchdog races:
   `ws.loop()`'s partial-frame read (up to 5000 ms, untunable — the library reads its timeout in
   its own translation unit) and `broadcastStatus()`'s write to a stalled client (5-8 s measured,
