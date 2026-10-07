@@ -477,6 +477,40 @@ const mutants = [
     find: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s,\\"current\\":%s}"',
     repl: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s}"',
     why: "the current key is dropped — 'the car is on THIS row' becomes a client guess against a dropdown that historically preselects unconfirmed networks" },
+
+  // ---- the car's own page (U-95 Phase 3) ----
+  // Rule names must contain "page" so runGate routes WebPage.h mutants to the
+  // PAGE harness, and must match the `FAIL <rule>` lines stage 10 prints.
+  { id: "M56", rule: "page-net-table", file: "WebPage.h",
+    find: "<th>Flags</th>", repl: "<th> </th>",
+    why: "a heading is deleted — the table stops saying what its last column means, which is the whole point of 'table with headings'" },
+
+  { id: "M57", rule: "page-net-table", file: "WebPage.h",
+    find: "if (r.own === true) fl.push('OWN');", repl: "",
+    why: "the OWN badge is dropped — the owner's first-class own-network row renders as an anonymous network" },
+
+  { id: "M58", rule: "page-net-table", file: "WebPage.h",
+    find: "sendCmd('ROUTERS;USE;' + name);", repl: "sendCmd('REQ_NETW');",
+    why: "tapping the own row no longer sends USE — the labelled row exists but the way back to the car's hotspot is dead" },
+
+  { id: "M59", rule: "page-net-table", file: "WebPage.h",
+    find: "if(sb) sb.onclick=function(){ sendCmd('ROUTERS;SCAN'); };",
+    repl: "if(sb) sb.onclick=function(){ sendCmd('S'); };",
+    why: "the Scan button sends the wrong command — STARTED/BUSY notes exist but nothing on the page can trigger a scan" },
+
+  { id: "M62", rule: "page-net-table", file: "WebPage.h",
+    find: ".nettable td{height:44px", repl: ".nettable td{height:14px",
+    why: "table rows shrink to 12-15px-class tap targets — the Phase 3 touch rule (rows >= 44px) is gone" },
+
+  { id: "M60", rule: "page-reconnect", file: "WebPage.h",
+    find: "wsDelay = (wsDelay === 0) ? 1000 : Math.min(wsDelay * 2, 15000);",
+    repl: "wsDelay = 3000;",
+    why: "the reconnect reverts to a fixed delay — no backoff, no cap: the old unbounded 3 s hammer, exactly what Phase 3 replaced" },
+
+  { id: "M61", rule: "page-reconnect", file: "WebPage.h",
+    find: "        wsDelay = 0;\n        initWebSocket();\n      });",
+    repl: "      });",
+    why: "the visibilitychange handler is registered but does nothing — returning to a hidden tab leaves the page 'Disconnected' until the next timer fires" },
 ];
 
 // ---- runner -------------------------------------------------------------

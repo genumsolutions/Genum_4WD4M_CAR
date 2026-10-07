@@ -157,7 +157,11 @@ const sandbox = {
   console,
   setInterval: () => 0,
   clearInterval: () => {},
-  setTimeout: () => 0,
+  // Phase 3 (reconnect backoff): the page schedules its own reconnects, so the
+  // sandbox records the DELAYS it is given instead of swallowing them.
+  timeouts: [],
+  setTimeout: (fn, d) => { sandbox.timeouts.push(d); return sandbox.timeouts.length; },
+  clearTimeout: () => {},
   WebSocket: function () {
     this.close = () => {};
     this.send = () => {};
@@ -167,7 +171,11 @@ const sandbox = {
     querySelector: () => null,
     querySelectorAll: () => [],
     createElement: (t) => el(`new-${t}`),
-    addEventListener() {},
+    // visibilitychange is registered with addEventListener; record the handler
+    // so stage 10 can dispatch it like a browser would.
+    listeners: {},
+    addEventListener(ev, fn) { sandbox.document.listeners[ev] = fn; },
+    visibilityState: "visible",
   },
 };
 sandbox.window = sandbox;
@@ -768,6 +776,179 @@ if (!bad) {
     "PASS: a WebSocket command is queued once and dispatched once, so it " +
       "produces exactly one answer",
   );
+}
+
+if (bad) {
+  console.error(`\n${bad} check(s) FAILED`);
+  process.exit(1);
+}
+
+// ---- 10. the network table, the own row, and the reconnect backoff --------
+//
+// U-95 Phase 3. Three claims, each one a rule the mutation harness can break:
+//   page-net-table   - the table reads j.scan's car-truth fields (headings in
+//                      the markup, OWN/CONNECTED/channel rendered, the own row
+//                      synthesised from j.ap when the scan missed it, a USE tap
+//                      that sends ROUTERS;USE, a Scan button that sends
+//                      ROUTERS;SCAN, rows >=44px, the table's own scrollbar),
+//                      and identical 1 Hz frames do not rewrite it.
+//   page-reconnect   - the old fixed 3 s setTimeout is gone: delays double,
+//                      cap at 15 s, reset on open, a hidden tab schedules
+//                      nothing, and visibilitychange reconnects on return.
+// These print `FAIL <rule>` (no colon) because tools/mutate-gates.mjs
+// classifies mutants by matching `FAIL\s+<rule>\b` in gate output.
+const needPage = (cond, msg, rule) => {
+  if (!cond) { console.error(`FAIL ${rule} - ${msg}`); bad++; }
+};
+
+// -- markup + CSS: the table must physically be there, tappable and scrollable
+needPage(/<th>Network<\/th>/.test(html) && /<th>Signal<\/th>/.test(html) &&
+         /<th>Ch<\/th>/.test(html) && /<th>Flags<\/th>/.test(html),
+  "the table headings (Network/Signal/Ch/Flags) are missing from the markup", "page-net-table");
+needPage(/\.nettable td\{height:44px/.test(html),
+  "table rows are not 44px touch targets (Phase 3 touch rule)", "page-net-table");
+needPage(/\.netwrap\{[^}]*overflow-y:auto/.test(html),
+  "the table has no scrollable wrapper - the fit-to-viewport page would clip rows instead", "page-net-table");
+needPage(/\.nets\{[^}]*max-height:28vh/.test(html) && /\.stage\{[^}]*overflow:hidden/.test(html),
+  "the table is not bounded inside an overflow-hidden stage, so it can push the page itself into scrolling", "page-net-table");
+
+// -- behaviour: a real frame with real scan rows
+const netTb = sandbox.document.getElementById("netlist");
+needPage(netTb && typeof netTb === "object", "the #netlist tbody does not exist", "page-net-table");
+if (typeof onmsg !== "function") {
+  console.error("FAIL page-net-table - the status-JSON handler from stage 7 is gone");
+  process.exit(1);
+}
+netTb.innerHTML = "";
+onmsg({ data: JSON.stringify({
+  status: "Stopped", mode: "4WD4M", speed: 200, connected: true,
+  ap: "4WDCar_Wifi", ssid: "HomeNet",
+  scan: [
+    { ssid: "HomeNet", rssi: -40, open: false, channel: 6, own: false, saved: true, current: true },
+    { ssid: "Neighbor", rssi: -70, open: true, channel: 11, own: false, saved: false, current: false },
+  ],
+}) });
+const tbl1 = netTb.innerHTML;
+needPage(/HomeNet/.test(tbl1), "a scan row never reached the table", "page-net-table");
+needPage(/ch 6/.test(tbl1), "the channel column is not rendered from j.scan", "page-net-table");
+needPage(/CONNECTED/.test(tbl1), "the current flag is not rendered - the table cannot say which row the car is on", "page-net-table");
+needPage(/saved/.test(tbl1), "the saved flag is not rendered", "page-net-table");
+needPage(/Neighbor/.test(tbl1) && /open/.test(tbl1), "an open neighbour network is missing", "page-net-table");
+needPage(/4WDCar_Wifi/.test(tbl1) && /OWN/.test(tbl1),
+  "the car's own hotspot has no labelled row - the owner's first-class-row ruling", "page-net-table");
+
+// Identical frames must not touch the table (the flicker rule, table edition).
+// The stage-7 counter watches the mode list; this one watches #netlist's
+// innerHTML directly, because the table has its own diff gate to prove.
+let tblWrites = 0;
+let tblVal = netTb.innerHTML;
+Object.defineProperty(netTb, "innerHTML", {
+  get: () => tblVal,
+  set: (x) => { tblWrites++; tblVal = x; },
+  configurable: true,
+});
+const sameFrame = JSON.stringify({
+  status: "Stopped", mode: "4WD4M", speed: 200, connected: true,
+  ap: "4WDCar_Wifi", ssid: "HomeNet",
+  scan: [
+    { ssid: "HomeNet", rssi: -40, open: false, channel: 6, own: false, saved: true, current: true },
+    { ssid: "Neighbor", rssi: -70, open: true, channel: 11, own: false, saved: false, current: false },
+  ],
+});
+onmsg({ data: sameFrame });
+onmsg({ data: sameFrame });
+needPage(tblWrites === 0,
+  `identical frames rewrote the table ${tblWrites} more time(s) - that is the flicker`, "page-net-table");
+
+// An empty scan is the honest hint; no own row is invented from nothing.
+onmsg({ data: JSON.stringify({ status: "Stopped", mode: "4WD4M", speed: 200,
+  ap: "4WDCar_Wifi", scan: [] }) });
+needPage(/Not scanned yet/.test(netTb.innerHTML),
+  "an empty scan did not render the not-scanned hint", "page-net-table");
+needPage(!/4WDCar_Wifi/.test(netTb.innerHTML),
+  "a row was invented from j.ap while the scan is empty - [] means nothing to show", "page-net-table");
+
+// The own row's tap is the USE path (the way back to the car's hotspot).
+// onload wires netlist/scan-btn/visibilitychange — run it before the taps.
+sandbox.onload();
+const frames10 = [];
+const realSend10 = sandbox.sendCmd;
+sandbox.sendCmd = (c) => frames10.push(c);
+netTb.onclick({
+  target: { getAttribute: (n) => (n === "data-ssid" ? "4WDCar_Wifi" : n === "data-usable" ? "1" : null) },
+});
+needPage(frames10.includes("ROUTERS;USE;4WDCar_Wifi"),
+  `tapping the own row sent ${JSON.stringify(frames10)} instead of ROUTERS;USE;<ap>`, "page-net-table");
+
+// An unsaved row must NOT promise a switch the car will refuse.
+noteEl.innerText = "";
+noteEl.style = {};
+frames10.length = 0;
+netTb.onclick({
+  target: { getAttribute: (n) => (n === "data-ssid" ? "Neighbor" : null) },
+});
+needPage(frames10.length === 0,
+  "tapping an unsaved row sent a switch the car will answer ERROR;Not saved to", "page-net-table");
+needPage(/Neighbor/.test(noteEl.innerText) && noteEl.style.color !== OK,
+  `an unsaved-row tap did not explain itself honestly: ${JSON.stringify(noteEl.innerText)}`, "page-net-table");
+
+// The Scan button must actually send the command STARTED/BUSY answer.
+frames10.length = 0;
+const sbBtn = sandbox.document.getElementById("scan-btn");
+needPage(typeof sbBtn.onclick === "function", "the Scan button is never wired", "page-net-table");
+if (typeof sbBtn.onclick === "function") sbBtn.onclick();
+needPage(frames10.includes("ROUTERS;SCAN"),
+  `the Scan button sent ${JSON.stringify(frames10)} instead of ROUTERS;SCAN`, "page-net-table");
+sandbox.sendCmd = realSend10;
+
+// -- reconnect: backoff, cap, reset-on-open, hidden-tab silence -------------
+const mark = sandbox.timeouts.length;
+needPage(typeof sock.onclose === "function", "the socket has no onclose handler", "page-reconnect");
+sock.readyState = 3;
+sock.onclose();  // 1000
+sock.onclose();  // 2000 — repeated closes stand in for repeated failed attempts
+sock.onclose();  // 4000
+sock.onclose();  // 8000
+sock.onclose();  // 15000
+sock.onclose();  // 15000 (cap)
+const backoff = sandbox.timeouts.slice(mark);
+needPage(JSON.stringify(backoff) === JSON.stringify([1000, 2000, 4000, 8000, 15000, 15000]),
+  `reconnect delays were ${JSON.stringify(backoff)} - expected doubling 1s..15s with a 15s cap`, "page-reconnect");
+
+// An open resets the penalty: the next failure starts at 1 s again.
+sock.readyState = 1;
+sock.onopen();
+const mark2 = sandbox.timeouts.length;
+sock.readyState = 3;
+sock.onclose();
+needPage(sandbox.timeouts[mark2] === 1000,
+  `after a successful open the next delay was ${sandbox.timeouts[mark2]}, not 1000`, "page-reconnect");
+
+// A hidden tab schedules NOTHING — visibilitychange owns the return.
+const mark3 = sandbox.timeouts.length;
+sandbox.document.visibilityState = "hidden";
+sock.onclose();
+needPage(sandbox.timeouts.length === mark3,
+  "a hidden tab still scheduled a reconnect - background retry churn is exactly the power bug", "page-reconnect");
+
+// Coming back reconnects immediately (new socket), with no penalty delay.
+let socketsMade = 0;
+const WSBase = sandbox.WebSocket;
+sandbox.WebSocket = function (u) { socketsMade++; return new WSBase(u); };
+sandbox.document.visibilityState = "visible";
+const visFn = sandbox.document.listeners["visibilitychange"];
+needPage(typeof visFn === "function", "no visibilitychange handler is registered", "page-reconnect");
+if (typeof visFn === "function") visFn();
+needPage(socketsMade === 1,
+  `visibilitychange created ${socketsMade} socket(s) - expected exactly one immediate reconnect`, "page-reconnect");
+needPage(sandbox.timeouts.length === mark3,
+  "returning to a visible tab scheduled a delayed reconnect instead of reconnecting now", "page-reconnect");
+sandbox.WebSocket = WSBase;
+sandbox.document.visibilityState = "visible";
+
+if (!bad) {
+  console.log("PASS: the network table renders j.scan with car-truth flags, the own row USE path, and a Scan button");
+  console.log("PASS: the reconnect doubles 1s to 15s, resets on open, stays silent while hidden, and returns on visibilitychange");
 }
 
 if (bad) {

@@ -51,13 +51,32 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     select{flex:1;min-width:0;height:46px;padding:0 10px;border-radius:6px;border:1px solid #555;background:#222;color:#fff;font-size:15px;text-overflow:ellipsis}
     /* T-70: the OPEN option list is compact so all 9 modes are visible at once. */
     select option{font-size:10px;padding:0 4px;line-height:1.25}
-    .stage{flex:1;min-height:0;display:flex;flex-direction:column}
+    .stage{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
     /* Data ribbons (portrait) / side columns (landscape). One type scale. */
     .side{display:flex;flex-wrap:wrap;gap:2px 12px;padding:2px 2px 5px;border-bottom:none;font-size:11px;color:#aab}
     .side span{display:inline-flex;align-items:baseline;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
     .side b{color:#fff;font-weight:bold;font-variant-numeric:tabular-nums}
     .side-l{justify-content:flex-start;border-bottom:1px solid #333}
     .side-r{justify-content:flex-end}
+    /* U-95 Phase 3: the network table IS the scrollable region the fit-to-viewport
+       rules forbid elsewhere — bounded INSIDE the stage, its own overflow, so the
+       page itself still never scrolls (html/body/frame stay overflow:hidden).
+       Rows are >=44px touch targets; the header row scrolls away with the table
+       only if sticky is unsupported, otherwise it sticks. */
+    .nets{flex:0 1 auto;min-height:120px;max-height:28vh;display:flex;flex-direction:column;min-width:0;padding-top:4px;border-top:1px solid #333}
+    .nets-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:#aab;padding:2px 0}
+    .scanbtn{min-height:44px;padding:0 16px;border-radius:6px;border:1px solid #555;background:#222;color:#fff;font-size:13px;font-weight:600}
+    .netwrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .nettable{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+    .nettable th{position:sticky;top:0;background:#111;color:#889;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:4px 6px;border-bottom:1px solid #333}
+    .nettable th:nth-child(1){width:44%}
+    .nettable th:nth-child(2){width:20%}
+    .nettable th:nth-child(3){width:14%}
+    .nettable th:nth-child(4){width:22%}
+    .nettable td{height:44px;padding:0 6px;border-bottom:1px solid #242424;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .nettable tr.hit{cursor:pointer}
+    .nettable tr.hit:active{background:#173}
+    .nettable .net-empty{color:#889;text-align:center;white-space:normal;height:auto;padding:10px 6px}
     .controls{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0;padding:4px 0}
     .row{display:flex;justify-content:center;align-items:center;margin:4px 0}
     .btn{width:clamp(80px,26vmin,132px);height:clamp(72px,24vmin,124px);margin:4px;padding:0;color:#fff;border:2px solid #666;border-radius:18px;font-size:20px;font-weight:bold;display:flex;align-items:center;justify-content:center;user-select:none;touch-action:none;background:linear-gradient(180deg,#2e2e2e,#1a1a1a);box-shadow:0 3px 0 #000,0 5px 12px rgba(0,0,0,.5);text-shadow:0 1px 2px rgba(0,0,0,.6)}
@@ -93,11 +112,18 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
        .range-wrap .val{min-width:38px;font-size:13px;font-weight:700}
        .range-wrap .lim{font-size:10px;color:#888}
        .small{font-size:9px;color:#888;margin-top:1px}
+       /* U-95 Phase 3: the table takes the seam — its own column between the
+          control cross and the right data rail (order does the move so portrait
+          DOM order stays untouched), full height, scrolling internally. */
+       .side-r{order:1}
+       .nets{order:0;flex:0 0 clamp(160px,28vw,300px);max-height:none;min-height:0;border-top:none;border-left:1px solid #333;padding:0 0 0 6px}
     }
   </style>
 
   <script>
     let ws, lastS=0, lastNetSig='', lastCapsSig='';
+    // U-95 Phase 3: the table's diff signature (1 Hz frames must not rewrite it).
+    var lastScanSig='';
     // U-81: render the car's own answer, in the car's own vocabulary, and never
     // invent a success. `ROUTERS;ADDED;x` / `WIFICFG;OK;x` are confirmations;
     // `ROUTERS;FULL` / `…;Reserved` / `…;Password too long` / `…;SSID length`
@@ -170,9 +196,26 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       // A whole router list rides REPLY= too; the 1 s JSON networks array is
       // what actually repaints the dropdown, so there is nothing to say.
     }
+    // U-95 Phase 3 (power): the old reconnect was a bare setTimeout(init, 3000)
+    // — no backoff, no cap, no visibility handling — so a car whose AP is down
+    // was re-dialled every 3 s forever, including from a background tab the
+    // user had forgotten. The schedule now doubles 1s -> 15s, resets the moment
+    // a socket opens, and a hidden tab schedules nothing at all: the
+    // visibilitychange handler reconnects when the user actually comes back.
+    var wsDelay = 0, wsTimer = null;
+    function wsScheduleReconnect(){
+      wsDelay = (wsDelay === 0) ? 1000 : Math.min(wsDelay * 2, 15000);
+      if (wsTimer) clearTimeout(wsTimer);
+      wsTimer = setTimeout(function(){ wsTimer = null; initWebSocket(); }, wsDelay);
+    }
     function initWebSocket(){
+      // One live (or opening) socket only — visibilitychange and the timer can
+      // race, and two sockets double every 1 Hz frame on the wire.
+      if (ws && ws.readyState <= 1) return;
       ws = new WebSocket("ws://" + window.location.hostname + ":81/");
       ws.onopen = () => {
+        wsDelay = 0;
+        if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
         document.getElementById("conn").innerText="Connected";
         switchNote = '';
         sendCmd("S");
@@ -182,7 +225,8 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         // U-79: during a router switch the drop is EXPECTED (the hotspot moves
         // to the router's channel). Say so instead of a bare "Disconnected".
         document.getElementById("conn").innerText = switchNote || "Disconnected";
-        setTimeout(initWebSocket, 3000);
+        if (document.visibilityState === 'hidden') return;  // visibilitychange owns the return
+        wsScheduleReconnect();
       };
       ws.onmessage = (evt) => {
         // U-81: the car now also sends TEXT lines on this socket — the STATE
@@ -249,6 +293,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             document.getElementById('ip').innerText=j.ip || '--';
             document.getElementById('signal').innerText=(j.signal!=null)?j.signal+'%':'--';
             document.getElementById('ssid').innerText=j.ssid || '--';
+            // U-95 Phase 3: the fields the page used to ignore entirely — the
+            // car's own hotspot name (j.ap) and the directed-broadcast address
+            // Phase 3 made the car compute (WiFi.softAPBroadcastIP()).
+            var apEl=document.getElementById('apname'); if(apEl) apEl.innerText=j.ap||'--';
+            var bcEl=document.getElementById('bcast'); if(bcEl) bcEl.innerText=j.broadcast_ip||'--';
             var up=j.uptime_ms||0, upS=Math.floor(up/1000);
             var mm=String(Math.floor(upS/60)).padStart(2,'0');
             var ss=String(upS%60).padStart(2,'0');
@@ -310,6 +359,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                 }
               }
             }
+            // U-95 Phase 3: the network table repaints from j.scan (+ j.ap for
+            // the own row). renderScan() is diff-gated, so the 1 Hz frame only
+            // touches the DOM when the rows actually changed.
+            renderScan(j);
           }
         } catch(e){ /* ignore non-JSON frames */ }
       };
@@ -404,6 +457,77 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     // hops networks (the hotspot link drops by design; the page reconnects
     // automatically once the phone follows the car onto the router).
     var switchNote = '';
+    // U-95 Phase 3: THE NETWORK TABLE. j.scan carries per-row car truth
+    // (ssid/rssi/open/channel/own/saved/current — computed ONCE, in
+    // buildScanJson, because three app modules already disagree about the
+    // own-network rule) and the page never read any of it. Headings come from
+    // the markup; rows are diff-gated like the mode/router lists (the 1 Hz
+    // frame must not rewrite the table under a scrolling finger).
+    function escHtml(s){
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    }
+    function renderScan(j){
+      var tb = document.getElementById('netlist');
+      if(!tb) return;
+      var rows = (j && Array.isArray(j.scan)) ? j.scan.filter(function(r){ return r && r.ssid; }) : [];
+      var show = rows;
+      var own = (j && j.ap) ? String(j.ap) : '';
+      // The own network is a FIRST-CLASS, labelled row (owner ruling). When the
+      // scan did not list it (parked beacon, hidden SSID), synthesise it from
+      // j.ap so the "back to the car" path always exists. An empty scan stays
+      // the honest "not scanned yet" hint — no row is invented from nothing.
+      if (own && rows.length > 0 &&
+          !rows.some(function(r){ return String(r.ssid).toLowerCase() === own.toLowerCase(); })) {
+        show = [{ ssid: own, rssi: null, channel: 0, open: false, own: true, saved: true,
+                  current: !!(j.connected === true && String(j.ssid) === own) }].concat(rows);
+      }
+      var sig = JSON.stringify(show);
+      if (sig === lastScanSig) return;
+      lastScanSig = sig;
+      if (show.length === 0) {
+        tb.innerHTML = "<tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr>";
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < show.length; i++) {
+        var r = show[i], fl = [];
+        if (r.own === true) fl.push('OWN');
+        if (r.current === true) fl.push('CONNECTED');
+        if (r.saved === true) fl.push('saved');
+        if (r.open === true) fl.push('open');
+        // Only rows the car would ACCEPT a USE for are tappable; anything else
+        // says so instead of promising a switch the car will refuse with
+        // "ERROR;Not saved".
+        var usable = (r.own === true || r.saved === true);
+        html += '<tr class="' + (usable ? 'hit' : 'dim') + '"' +
+                (usable ? ' data-usable="1"' : '') +
+                ' data-ssid="' + escHtml(r.ssid) + '">' +
+                '<td>' + escHtml(r.ssid) + '</td>' +
+                '<td>' + (r.rssi == null ? '--' : r.rssi + ' dBm') + '</td>' +
+                '<td>' + (r.channel ? 'ch ' + r.channel : '--') + '</td>' +
+                '<td>' + (fl.length ? fl.join(' ') : '-') + '</td></tr>';
+      }
+      tb.innerHTML = html;
+    }
+    function useNetwork(name){
+      sendCmd('ROUTERS;USE;' + name);
+      switchNote = 'Switching to ' + name + '… this page reconnects when this phone joins ' + name + '.';
+      var c = document.getElementById('conn');
+      if (c) c.innerText = 'Switching…';
+    }
+    var netlistClick = function(e){
+      var t = (e && e.target) ? e.target : null;
+      if (!t || !t.getAttribute) return;
+      var row = t.closest ? t.closest('tr') : t;
+      if (!row || !row.getAttribute) return;
+      var ssid = row.getAttribute('data-ssid');
+      if (!ssid) return;
+      if (row.getAttribute('data-usable') !== '1') {
+        note('The car has not saved ' + ssid + ' yet - tap "Add router…" to save it first.', false);
+        return;
+      }
+      useNetwork(ssid);
+    };
     function setRouter(){
       let sel = document.getElementById('r');
       if(!sel || !sel.value) return;
@@ -414,8 +538,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         sendCmd('WIFICFG;'+ssid+';'+pass);
         switchNote = 'Saving + switching to '+ssid+'… this page reconnects when this phone joins '+ssid+'.';
       } else {
-        sendCmd('ROUTERS;USE;'+sel.value);
-        switchNote = 'Switching to '+sel.value+'… this page reconnects when this phone joins '+sel.value+'.';
+        useNetwork(sel.value);
       }
       document.getElementById('conn').innerText = 'Switching…';
       sel.value = '';
@@ -427,6 +550,22 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       attachHold('btn-stop','stop');
       attachHold('btn-right','right');
       attachHold('btn-back','backward');
+      // U-95 Phase 3: the scan trigger (the BUSY/STARTED notes already existed,
+      // but nothing on this page could ever SEND the command they answer).
+      var sb=document.getElementById('scan-btn');
+      if(sb) sb.onclick=function(){ sendCmd('ROUTERS;SCAN'); };
+      var nl=document.getElementById('netlist');
+      if(nl) nl.onclick=netlistClick;
+      // U-95 Phase 3 (power): a tab that was hidden schedules no reconnect
+      // (onclose above); coming back reconnects IMMEDIATELY, no penalty delay —
+      // the old page sat "Disconnected" for up to 3 s after every app switch.
+      document.addEventListener('visibilitychange', function(){
+        if(document.visibilityState !== 'visible') return;
+        if(ws && ws.readyState <= 1) return;
+        if(wsTimer){ clearTimeout(wsTimer); wsTimer = null; }
+        wsDelay = 0;
+        initWebSocket();
+      });
       // F-57: do NOT preselect a mode. The dropdown starts on the empty
       // "— current mode —" option and is filled in by syncMode() once the car
       // reports, so the page never shows a mode the car is not actually in.
@@ -519,6 +658,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       <aside class='side side-r'>
         <span>IP: <b id='ip'>--</b></span>
         <span>SSID: <b id='ssid'>--</b></span>
+        <!-- U-95 Phase 3: j.ap and the directed-broadcast address, surfaced.
+             The page ignored j.ap entirely before, and softAPBroadcastIP() was
+             never called anywhere in the repository. -->
+        <span>Hotspot: <b id='apname'>--</b></span>
+        <span>Bcast: <b id='bcast'>--</b></span>
         <span>Heap: <b id='heap'>--</b></span>
         <span>Conn: <b id='conn'>...</b></span>
         <!-- U-95/F-79: the restart record, rendered from status JSON. Hidden
@@ -527,6 +671,19 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
              the owner to ignore the one line that matters. -->
         <span id='rst-wrap' style='display:none'>Last restart: <b id='rst'>--</b></span>
       </aside>
+      <!-- U-95 Phase 3: the network table — headings, per-row car truth from
+           j.scan, the own hotspot as a real labelled row, its own scrollable
+           region (the stage band is the seam), >=44px rows, and the Scan
+           trigger the STARTED/BUSY notes always answered but nothing sent. -->
+      <section class='nets' aria-label='Nearby networks'>
+        <div class='nets-head'><span>Nearby networks</span><button id='scan-btn' class='scanbtn' type='button'>Scan</button></div>
+        <div class='netwrap'>
+          <table class='nettable'>
+            <thead><tr><th>Network</th><th>Signal</th><th>Ch</th><th>Flags</th></tr></thead>
+            <tbody id='netlist'><tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
     <div class='range-wrap'>
