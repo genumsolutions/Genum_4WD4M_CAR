@@ -555,8 +555,19 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     // So the scan is started ASYNCHRONOUSLY and the result is collected in
     // handle(). The reply is the honest acknowledgement; the RESULT arrives as
     // its own line, exactly like the saved-network list does.
-    startScan();
-    snprintf(reply, sizeof(reply), "ROUTERS;SCAN;STARTED");
+    //
+    // U-95 Phase 2 (honest scan): the answer must be TRUE or BUSY. startScan()
+    // used to refuse silently when a scan was already armed/in flight (or the
+    // STA was associating) while this handler answered STARTED
+    // unconditionally — so a double-tap's second request reported success for
+    // a scan that never existed, and the app waited for a result that was
+    // never coming. A check that did not run must not read as one that
+    // passed (F-82/F-83). Gate rule: `scan-honest`.
+    if (startScan()) {
+      snprintf(reply, sizeof(reply), "ROUTERS;SCAN;STARTED");
+    } else {
+      snprintf(reply, sizeof(reply), "ROUTERS;SCAN;BUSY");
+    }
   } else {
     snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Syntax");
   }
@@ -571,26 +582,45 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
 // command path (that would starve loop() and trip the task watchdog — F-24 —
 // rebooting the car, which is exactly what F-60 forbids). Instead:
 //   startScan()         arms a short settle delay, then kicks ONE non-blocking
-//                       pass and remembers when it started;
+//                       pass and remembers when it started; REFUSES (false)
+//                       when a scan is already in flight or the STA is
+//                       mid-join, so the caller can answer BUSY honestly;
 //   runScanIfDue()      is that kick, called from handle();
 //   collectScanIfDone() reads the result once the radio reports it finished,
-//                       keeps the strongest reading per SSID, and broadcasts it.
+//                       dedupes per BSSID (one row per RADIO — a multi-AP
+//                       router legitimately shows each AP once, while the same
+//                       radio never repeats), sorts strongest-first, and only
+//                       then caps at SCAN_MAX_RESULTS. The cap used to apply
+//                       at INSERT time, so the list kept the FIRST N in
+//                       radio-report order — whichever the scan saw first,
+//                       not the strongest — and dropped the rest.
 //
 // The result is delivered two ways, so both link types and both app parsers
 // work without either being special:
 //   - as its own SPP line   `SCAN;<ssid>,<rssi>,<open>;…`  (or `SCAN;NONE`)
 //   - in the status JSON    `"scan":[{"ssid":…,"rssi":…,"open":…}]`
-// Names only — a scan can never reveal a password (W-14).
+// Names only — a scan can never reveal a password (W-14). The BSSID is the
+// dedupe key only; it is deliberately NOT in either wire form (the status
+// buffer is sized to the fixed fragments, U-95 Phase 3 owns that change).
 //
 // While the STA is ASSOCIATED, ESP32 scan results are unreliable (the radio is
 // busy and the channel follows the router), so strength is reported only as a
 // hint. The saved-router list remains the source of truth for what the car
-// will actually join.
+// will actually join. U-95 Phase 2: while the STA is ASSOCIATING (between
+// WiFi.begin() and association) a scan is not even STARTED — startScan()
+// refuses and the handler answers BUSY — because kicking a scan into a
+// driver that is mid-join races the join itself and returns garbage; the
+// hint above covers the settled case, BUSY covers the transition.
 
-void WebServerComm::startScan() {
-  if (scanPending_ || scanBusy_) return;  // armed or in flight already
+// U-95 Phase 2: startScan() now ANSWERS. The bool lets the handler report
+// `ROUTERS;SCAN;BUSY` instead of claiming STARTED for a scan it silently
+// dropped. Gate rule: `scan-honest`.
+bool WebServerComm::startScan() {
+  if (scanPending_ || scanBusy_) return false;  // armed or in flight already
+  if (connectingPending_) return false;         // associating - do not race the join
   scanPending_ = true;
   scanStartMs_ = 0;  // armed; handle() kicks it on a later pass
+  return true;
 }
 
 void WebServerComm::runScanIfDue() {
@@ -620,19 +650,33 @@ void WebServerComm::collectScanIfDone() {
   scanBusy_ = false;
   scanCount_ = (found >= 0) ? found : 0;
 
-  // Keep the strongest reading per SSID: one pass can report the same name
-  // more than once, and the app shows one row per router.
+  // U-95 Phase 2 (scan quality): collect EVERY result, dedupe per BSSID,
+  // sort strongest-first, and only then cap at SCAN_MAX_RESULTS.
+  //
+  // The old shape capped TWICE — before the loop (`if (n > SCAN_MAX_RESULTS)`)
+  // and at insert (`scanNetworks_.size() < SCAN_MAX_RESULTS`) — and never
+  // sorted, so the list kept whichever N results the radio reported first,
+  // dropping the strong networks in favour of radio-order luck. It also
+  // deduped on NAME, which silently merged two DIFFERENT routers broadcasting
+  // the same SSID (the owner's SSIDs are often shared across homes) and hid
+  // a multi-AP router's second radio.
+  //
+  // The BSSID is the honest dedupe key: one row per RADIO. Same radio seen
+  // twice across channels → merged (strongest wins); different radios, same
+  // name → BOTH shown, strongest-first; that is the truth of the air. The
+  // sort is hand-rolled on purpose — no <algorithm> on the Arduino TU (CI
+  // proved what an extra include costs) — insertion sort over at most a few
+  // dozen entries is noise next to the scan itself.
   scanNetworks_.clear();
-  int n = scanCount_;
-  if (n > SCAN_MAX_RESULTS) n = SCAN_MAX_RESULTS;
-  for (int i = 0; i < n; ++i) {
+  for (int i = 0; i < scanCount_; ++i) {
     const char* name = WiFi.SSID(i).c_str();
     if (!name || !name[0]) continue;
     const int32_t rssi = WiFi.RSSI(i);
     const bool open = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
+    const String bssid = WiFi.BSSIDstr(i);
     bool merged = false;
     for (size_t k = 0; k < scanNetworks_.size(); ++k) {
-      if (strcasecmp(scanNetworks_[k].ssid, name) == 0) {
+      if (strcasecmp(scanNetworks_[k].bssid, bssid.c_str()) == 0) {
         if (rssi > scanNetworks_[k].rssi) {
           scanNetworks_[k].rssi = rssi;
           scanNetworks_[k].open = open;
@@ -641,13 +685,33 @@ void WebServerComm::collectScanIfDone() {
         break;
       }
     }
-    if (!merged && scanNetworks_.size() < SCAN_MAX_RESULTS) {
+    if (!merged) {
       ScannedNetwork entry;
       snprintf(entry.ssid, sizeof(entry.ssid), "%s", name);
+      snprintf(entry.bssid, sizeof(entry.bssid), "%s", bssid.c_str());
       entry.rssi = rssi;
       entry.open = open;
       scanNetworks_.push_back(entry);
     }
+  }
+
+  // Strongest-first: insertion sort, descending RSSI. Runs BEFORE the cap so
+  // the rows that survive are the strongest, not the earliest.
+  for (size_t a = 1; a < scanNetworks_.size(); ++a) {
+    ScannedNetwork key = scanNetworks_[a];
+    size_t b = a;
+    while (b > 0 && scanNetworks_[b - 1].rssi < key.rssi) {
+      scanNetworks_[b] = scanNetworks_[b - 1];
+      --b;
+    }
+    scanNetworks_[b] = key;
+  }
+
+  // The ONE cap, last: the wire forms are buffer-bounded downstream, but an
+  // unbounded vector would still bloat the status broadcast (and the app's
+  // table) with noise rows nobody asked for.
+  if (scanNetworks_.size() > SCAN_MAX_RESULTS) {
+    scanNetworks_.resize(SCAN_MAX_RESULTS);
   }
 
   FW_LOG_VERBOSE("[SCAN] %u network(s) found\n",

@@ -210,12 +210,15 @@ public:
    * car answered `ROUTERS;ERROR;Syntax` every time — there was no "networks
    * near the car" list anywhere in the system. This is it.
    *
-   * ASYNCHRONOUS ON PURPOSE: `WiFi.scanNetworks()` blocks for seconds. Called
-   * from the command path it would starve loop() and trip the task watchdog
-   * (F-24), rebooting the car — the exact failure F-60 was written to stop.
-   * So the command only ARMS the scan; handle() runs and collects it.
-   */
-  void startScan();
+    * ASYNCHRONOUS ON PURPOSE: `WiFi.scanNetworks()` blocks for seconds. Called
+    * from the command path it would starve loop() and trip the task watchdog
+    * (F-24), rebooting the car — the exact failure F-60 was written to stop.
+    * So the command only ARMS the scan; handle() runs and collects it.
+    * U-95 Phase 2: answers. false = refused (a scan already in flight, or the
+    * STA is mid-join), so the caller replies `ROUTERS;SCAN;BUSY` instead of
+    * claiming STARTED for a scan it silently dropped. Gate: `scan-honest`.
+    */
+  bool startScan();
   void runScanIfDue();
   void collectScanIfDone();
   /** SPP form: `SCAN;<ssid>,<rssi>,<1|0>;…` or `SCAN;NONE`. */
@@ -536,6 +539,10 @@ private:
   // carrying it). scanCount_ is the raw pass count (diagnostics only).
   struct ScannedNetwork {
     char ssid[33];
+    // U-95 Phase 2: dedupe key — one row per RADIO (BSSID), not per NAME.
+    // Internal only: deliberately NOT in the SPP line or the status JSON (the
+    // status buffer is sized to the fixed fragments; Phase 3 owns that).
+    char bssid[18];  // "AA:BB:CC:DD:EE:FF"
     int32_t rssi;
     bool open;
   };

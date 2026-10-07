@@ -948,6 +948,64 @@ if (!handleBody) {
   pass("retry-split", "disconnect and begin are on separate passes, the deferred begin has a guard and a producer, and rejoinNetwork() cancels + re-stamps");
 }
 
+// U-95 Phase 2C: the SCAN answer must be TRUE or BUSY — never an unconditional
+// STARTED for a scan that was silently dropped — and startScan() must refuse
+// BOTH while a scan is in flight and while the STA is mid-join. Literals are
+// read from the comment-stripped view (F-83: stripComments KEEPS string
+// literals, so `"ROUTERS;SCAN;BUSY"` is a real reply only if the source
+// carries it; the string is written in code only, never quoted in a comment).
+const scanLiterals = stripComments(wsc);
+const scanStartBody = body(wscCode, "bool WebServerComm::startScan") ?? "";
+const routerCmdBody = body(wscCode, "bool WebServerComm::handleRouterCommand") ?? "";
+if (!scanStartBody) {
+  fail("scan-honest", "startScan() is no longer `bool WebServerComm::startScan` - void startScan() is the pre-U-95 shape: it refuses silently and the handler cannot answer BUSY");
+} else if ((scanStartBody.match(/return false/g) || []).length < 2) {
+  fail("scan-honest", "startScan() does not refuse in both cases - it must reject an in-flight scan AND a scan kicked while the STA is associating (mid-join scans race the driver and return garbage)");
+} else if (!/connectingPending_/.test(scanStartBody)) {
+  fail("scan-honest", "startScan() no longer gates on connectingPending_ - a scan is started between WiFi.begin() and association, racing a driver that is mid-join");
+} else if (!routerCmdBody) {
+  fail("scan-honest", "could not locate handleRouterCommand() - check this rule still matches the code");
+} else if (!/if\s*\(\s*startScan\s*\(\s*\)\s*\)/.test(routerCmdBody)) {
+  fail("scan-honest", "the SCAN handler does not key the reply on startScan()'s result - ROUTERS;SCAN;STARTED is claimed unconditionally, so a dropped scan still reports success and the app waits forever");
+} else if (!scanLiterals.includes('"ROUTERS;SCAN;BUSY"')) {
+  fail("scan-honest", "the source never answers ROUTERS;SCAN;BUSY - a refusal has no honest form");
+} else if (!scanLiterals.includes('"ROUTERS;SCAN;STARTED"')) {
+  fail("scan-honest", "the source never answers ROUTERS;SCAN;STARTED - a scan that DID start has no acknowledgement");
+} else {
+  pass("scan-honest", "startScan() answers (false = BUSY, gated on in-flight + associating) and the handler keys the reply on it");
+}
+
+// U-95 Phase 2C: the collected list must be ranked by STRENGTH, deduped per
+// RADIO (BSSID, not name), with exactly ONE cap applied AFTER the sort. The
+// old shape capped before the loop and at insert, never sorted, and deduped
+// on names — so it kept the first N results in radio-order, dropped strong
+// networks, and silently merged two different routers broadcasting one SSID.
+const collectBody = body(wscCode, "void WebServerComm::collectScanIfDone") ?? "";
+const hRaw = raw("WebServerComm.h");
+const sortAt = collectBody.search(/scanNetworks_\[\s*b\s*-\s*1\s*\]\s*\.\s*rssi\s*<\s*key\s*\.\s*rssi/);
+const capAt = collectBody.search(/scanNetworks_\s*\.\s*resize\s*\(\s*SCAN_MAX_RESULTS/);
+if (!collectBody) {
+  fail("scan-quality", "could not locate collectScanIfDone() - check this rule still matches the code");
+} else if (!/char\s+bssid\s*\[/.test(hRaw)) {
+  fail("scan-quality", "ScannedNetwork has no BSSID field - there is no per-RADIO dedupe key, so the list can only dedupe on names (merging different routers that share an SSID)");
+} else if (!/WiFi\.BSSIDstr\s*\(/.test(collectBody)) {
+  fail("scan-quality", "collectScanIfDone() never reads the BSSID - the dedupe key is declared but never captured");
+} else if (!/strcasecmp\s*\(\s*scanNetworks_\[\s*\w+\s*\]\s*\.\s*bssid/.test(collectBody)) {
+  fail("scan-quality", "the dedupe no longer compares BSSIDs - name-dedupe silently merges two different routers broadcasting one SSID and hides a multi-AP router's second radio");
+} else if (/if\s*\(\s*n\s*>\s*SCAN_MAX_RESULTS/.test(collectBody)) {
+  fail("scan-quality", "the list is still pre-truncated before the loop - the cap runs before the sort, keeping radio-report order instead of strength");
+} else if (/scanNetworks_\s*\.\s*size\s*\(\s*\)\s*<\s*SCAN_MAX_RESULTS/.test(collectBody)) {
+  fail("scan-quality", "the list is still capped at INSERT time - the first N results in radio-order survive, dropping the strong networks");
+} else if (sortAt < 0) {
+  fail("scan-quality", "no strongest-first sort (descending RSSI comparison) before the cap - the list is unordered, so which rows survive the cap is radio-report luck");
+} else if (capAt < 0) {
+  fail("scan-quality", "the SCAN_MAX_RESULTS cap is gone entirely - an unbounded list bloats the status broadcast and the app's table");
+} else if (sortAt > capAt) {
+  fail("scan-quality", "the cap runs BEFORE the sort - truncation must happen last, or the rows dropped are chosen before strength is known");
+} else {
+  pass("scan-quality", "dedupe on BSSID, sort strongest-first (hand-rolled), single cap applied last");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that the
 // relay actually answers. That is the owner's bench (T-REL), not a laptop.
 console.log("\nrelay-contract: source checks only - no socket was opened, no hello was sent.");

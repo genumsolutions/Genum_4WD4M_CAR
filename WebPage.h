@@ -137,6 +137,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       if(r.indexOf('ROUTERS;CLEARED') === 0){ note('All saved routers cleared.', true); return; }
       if(r.indexOf('ROUTERS;DELETED;') === 0){ note('Removed ' + r.slice(16) + '.', true); return; }
       if(r.indexOf('ROUTERS;SCAN;STARTED') === 0){ note('Scanning for networks...', true); return; }
+      // U-95 Phase 2: the car answers BUSY when it did NOT start a scan (one
+      // already in flight, or the STA is mid-join). A refusal must be shown
+      // in the refusal colour - the old page would have waited forever on a
+      // result that was never coming.
+      if(r.indexOf('ROUTERS;SCAN;BUSY') === 0){ note('The car is busy - try the scan again in a moment.', false); return; }
       if(r.indexOf('ROUTERS;FULL') === 0){
         note('The car already has 6 routers - delete one first.', false); return;
       }

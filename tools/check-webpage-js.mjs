@@ -189,6 +189,10 @@ const cases = [
   [S("ROUTERS;DELETED;HomeNet"), true, "HomeNet"],
   [S("ROUTERS;CLEARED"), true, "cleared"],
   [S("ROUTERS;SCAN;STARTED"), true, "Scanning"],
+  // U-95 Phase 2: the car refuses a second/ill-timed scan with BUSY. The page
+  // must show it as a REFUSAL (never green, never silent) or the user waits
+  // for a result that is never coming.
+  [S("ROUTERS;SCAN;BUSY"), false, "busy"],
   [S("ROUTERS;FULL"), false, "delete one first"],
   [S("ROUTERS;ERROR;Reserved"), false, "Reserved"],
   [S("ROUTERS;ERROR;Password too long"), false, "Password too long"],
