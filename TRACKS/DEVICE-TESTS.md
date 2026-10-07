@@ -3,7 +3,7 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
-## U-95 round — evidence gathering + the reset loop itself (2026-10-06/07, firmware 1.2.2 — DEVICE VERIFY PENDING)
+## U-95 round — evidence gathering + the reset loop itself (2026-10-06/07, firmware 1.2.3 — DEVICE VERIFY PENDING)
 
 > Owner report was `_the car resets again and again_` with no cause attached. Nothing could name a
 > cause: the only reset diagnostic was a Serial line, the bench car has no serial cable, and
@@ -12,8 +12,9 @@
 > not claim to have cured them.** Commits `883626b` (record), `29b8eaf` (page-send budget + watchdog
 > feed), `83ecf15` (idle attribution), `d78c27d` (relay guards).
 
-- [ ] **U-95-1 — flash 1.2.2 and read the record BEFORE anything else.** (Covers 1.2.0's record,
-      1.2.1's WebSocket watchdog feeds, 1.2.2's router-switch + scan work — one flash, whole round.)
+- [ ] **U-95-1 — flash 1.2.3 and read the record BEFORE anything else.** (Covers 1.2.0's record,
+      1.2.1's WebSocket watchdog feeds, 1.2.2's router-switch + scan work, 1.2.3's page/status Phase 3
+      — one flash, whole round.)
       After the first boot, open
       the car's page: the header carries a restart row and `/status` carries `reset_reason`,
       `boot_count`, `crash_count`, `last_crash_phase`, `last_crash_heap`, `phase`. Record
@@ -64,6 +65,30 @@
 - [ ] **U-95-11 — no scan during a switch (1.2.2, Phase 2c).** Tap a router switch, then immediately
       tap scan: `The car is busy` (a scan kicked mid-join races the driver and returns garbage), never
       `Scanning...` + a junk list. After the switch resolves, scan works again normally.
+- [ ] **U-95-12 — MODECYCLE walks both ways (1.2.3, Phase 3a).** From the page's note area (or app /
+      relay), send `MODECYCLE` → the mode advances one registry row; `MODEPREV` steps back; `MODECYCLE`
+      on the last row wraps to the first, `MODEPREV` on the first wraps to the last — the `#mode`
+      readout and the dropdown both track (F-57), no NACK for the three tokens.
+- [ ] **U-95-13 — the status data carries the network facts (1.2.3, Phase 3b).** `/status` (or the
+      page's WS frame) now shows `station_ip`/`ap_ip`/`broadcast_ip`/`subnet` all populated while the
+      AP is up (broadcast must be `192.168.245.255`, NOT empty — `WiFi.softAPBroadcastIP()` is called
+      for the first time anywhere in this repo), and after a scan every entry of `scan` has
+      `channel`/`own`/`saved`/`current`. A row naming the car's own hotspot must have `own:true`; a
+      saved router `saved:true`; the network the STA is associated to `current:true`. Old app rows
+      must still parse (`ip`/`ssid`/`networks` unchanged).
+- [ ] **U-95-14 — the page's network table (1.2.3, Phase 3c).** On the car's page: tap **Scan** →
+      `Scanning for networks...`, then a table with the headings Network/Signal/Ch/Flags appears with
+      >=44px rows inside its own scroll region (the page itself never scrolls). The car's own hotspot
+      appears as a labelled row with the OWN flag even when the scan did not list it; tapping it
+      answers `ROUTERS;USED;4WDCar_Wifi` and the phone ends up back on the car's hotspot. Tapping an
+      UNSAVED network shows a refusal-coloured note and sends nothing. The status rail shows the
+      Hotspot (`j.ap`) and Bcast (`broadcast_ip`) lines, not `--`.
+- [ ] **U-95-15 — the reconnect backs off and respects a hidden tab (1.2.3, Phase 3c).** Kill the
+      car's AP while the page is open: the Conn line goes Disconnected and reconnection attempts
+      visibly slow down (1s, 2s, 4s, 8s, then every 15s — Serial shows one dial per attempt, no
+      faster than the schedule). Put the phone in another app for a minute, return: the page
+      reconnects IMMEDIATELY (no 3s limbo) and the Conn line returns to Connected. During the hidden
+      minute the car must NOT see a reconnect attempt every 3s (the old fixed timer).
 ## U-92 round — own-hotspot: double entry gone, the return actually returns (2026-10-04, firmware 1.0.5 — DEVICE VERIFY PENDING)
 
 > Owner: _"webpage has double entry of esps own hotspot please remove that too"_ · _"through

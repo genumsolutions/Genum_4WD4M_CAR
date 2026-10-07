@@ -1,4 +1,4 @@
-Version 1.2.2
+Version 1.2.3
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -20,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.2.2` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.2.3` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -80,6 +80,19 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.2.3 (2026-10-07, U-95 Phase 3)** — **the car's own page**. (3a) `MODECYCLE`/`MODEPREV`/
+  `MODENEXT` tokens on the one shared `cycleMode()` walk (previously GPIO-only), wrap both ways.
+  (3b) Scan rows carry `channel`/`own`/`saved`/`current` computed ONCE car-side (three app modules
+  disagree about the own-network rule — the car's answer is the one everyone converges on); status
+  JSON gains `station_ip`/`ap_ip`/`broadcast_ip`/`subnet` — the first `WiFi.softAPBroadcastIP()`
+  call in the repository; both status buffers are `static char buf[3584]`, scan fragment 1856.
+  (3c) The page reads it: a real `<table>` (Network/Signal/Ch/Flags, >=44px rows, its own
+  scrollable region inside the stage — the page itself never scrolls), the own hotspot as a
+  labelled tappable row (`ROUTERS;USE` — the way back to the car), a Scan button, `j.ap`+
+  `broadcast_ip` surfaced, and the reconnect is now backoff 1s→15s capped, reset on open, silent
+  while hidden, immediate on `visibilitychange`. Gate rules `mode-cycle`/`status-net-fields`/
+  `page-net-table`/`page-reconnect`, mutants M43-M62 (20 new); full harness 62/62. Page 38,171
+  bytes. Still UNFLASHED.
 - **1.2.2 (2026-10-07, U-95 Phase 2)** — **router switching + scan**. (2a) The rejoin path walks
   the switch as a step machine, one radio call per pass: drop to `WIFI_AP` (the old
   `mode(WIFI_AP_STA)` was a guaranteed no-op — `WiFiGeneric.cpp:602` early-returns when the mode

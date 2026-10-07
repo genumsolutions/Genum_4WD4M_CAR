@@ -7,8 +7,12 @@ history had grown into a single 3,247-character line - 34% of that file - which
 made `Config.h` hard to read, diff and blame. The notes were worth keeping; the
 one-line dump was not. `Config.h:10` remains the source of truth for the value.
 
-> UNFLASHED. Everything from 1.2.2 down was source-only when written; the bench
+> UNFLASHED. Everything from 1.2.3 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
+
+## v1.2.3 - U-95 Phase 3 (the car's own page)
+
+U-95 Phase 3: (3a) `MODECYCLE` / `MODEPREV` / `MODENEXT` tokens ride the existing system-command hook into ONE shared `ModeManager::cycleMode(delta)` — the walk that used to be reachable only from the GPIO switch — with wrap both directions, so the page, the app and the relay all get the same implementation. (3b) The status data carries what only the car knows: every scan row gains `channel` (captured at collect time, while the driver still held it), `own` (names the car's hotspot), `saved` (consults the saved-router registry), `current` (the STA is ASSOCIATED to that row) — computed once in `buildScanJson`, shipped as facts, because three app modules already disagree about the own-network rule; the status JSON gains `station_ip` / `ap_ip` / `broadcast_ip` / `subnet`, the first call to `WiFi.softAPBroadcastIP()` anywhere in this repository; both status copies are now `static char buf[3584]` (8 KB loopTask, single-task by construction) and the scan fragment 512 → 1856, sized for the worst-case 12 rows. (3c) The page finally reads it: a `<table>` with Network/Signal/Ch/Flags headings, >=44px rows in its own scrollable region inside the stage band (the page itself still never scrolls), the car's own hotspot as a real LABELLED row (synthesised from `j.ap` when the scan missed it, tappable to `ROUTERS;USE` — the way back to the car), a Scan button (the STARTED/BUSY notes existed but nothing on the page could send the command), `j.ap` and `broadcast_ip` surfaced in the status rail, and the bare 3 s reconnect `setTimeout` replaced with backoff 1s → 15s capped, reset on open, silent while the tab is hidden, and an immediate reconnect on `visibilitychange`. Gate rules `mode-cycle` + `status-net-fields` (contract) and `page-net-table` + `page-reconnect` (page harness, which now also records scheduled delays), `status-buffer` moved to the static form; mutants M43-M62 (20 new), all mutation-proven both directions; full harness 62/62. Page 38,171 bytes (was 28,761), still served in 512-byte chunks under the Phase 1c budget. Still UNFLASHED - the bench car runs pre-1.2.1 firmware.
 
 ## v1.2.2 - U-95 Phase 2 (router switching + scan)
 
