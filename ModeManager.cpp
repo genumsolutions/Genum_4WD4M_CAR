@@ -288,9 +288,10 @@ void ModeManager::setMode(Mode newMode) {
   FW_LOG_VERBOSE("Free heap (Mode change): %d\n", static_cast<int>(ESP.getFreeHeap()));
 }
 
-void ModeManager::cycleMode() {
-  int next = static_cast<int>(currentMode_) + 1;
-  if (next >= MODE_COUNT || next < 0) next = 0;
+void ModeManager::cycleMode(int delta) {
+  int next = static_cast<int>(currentMode_) + delta;
+  if (next >= MODE_COUNT) next = 0;
+  if (next < 0) next = MODE_COUNT - 1;
   FW_LOG("[MODE] cycle button -> %s\n", modeToString(static_cast<Mode>(next)));
   setMode(static_cast<Mode>(next));
 }
@@ -320,6 +321,21 @@ void ModeManager::handleCommand(const char* cmdC, CmdSource src) {
 
   if (strncmp(cmdBuf, "MODE_", 5) == 0) {
     setModeFromString(cmdBuf + 5);
+    return;
+  }
+
+  // U-95 Phase 3: the mode-walk tokens. cycleMode() was reachable ONLY from
+  // the GPIO switch (.ino) — no token existed, so the page, the app and the
+  // relay could each have grown their own implementation and all three would
+  // have drifted. One hook, one walk, ±1 with wrap (MAN's registry token is
+  // MAN — the walk visits it like any other row; stub rows stay gated by
+  // setMode()'s own rules, unchanged here). Gate rule: `mode-cycle`.
+  if (strcmp(cmdBuf, "MODECYCLE") == 0 || strcmp(cmdBuf, "MODENEXT") == 0) {
+    cycleMode(1);
+    return;
+  }
+  if (strcmp(cmdBuf, "MODEPREV") == 0) {
+    cycleMode(-1);
     return;
   }
 

@@ -1006,6 +1006,44 @@ if (!collectBody) {
   pass("scan-quality", "dedupe on BSSID, sort strongest-first (hand-rolled), single cap applied last");
 }
 
+// U-95 Phase 3: MODECYCLE/MODEPREV/MODENEXT must be ONE walk (cycleMode)
+// behind three tokens. The walk existed only on the GPIO switch, so without
+// tokens the page, the app and the relay would each grow their own — three
+// implementations, three wrap rules, three drift stories. The rule checks the
+// tokens reach cycleMode with the right SIGN (prev must not walk forward),
+// that cycleMode wraps both ways (a missing negative wrap hands setMode() an
+// out-of-range enum), and that the GPIO still uses the same walk.
+// The token checks run on stripComments(mmHandle), NOT mmHandle: code() BLANKS
+// string literals, so a strcmp against `"MODECYCLE"` reads as strcmp against
+// nothing there — while raw would let the comment above the tokens (which
+// NAMES them) pass for code. stripComments is the only view that is both.
+const mmHandle = stripComments(body(raw("ModeManager.cpp"), "void ModeManager::handleCommand") ?? "");
+const mmCycleBody = body(mmCode, "void ModeManager::cycleMode") ?? "";
+const inoSrc = raw("Genum_4WD4M_CAR.ino");
+if (!mmHandle) {
+  fail("mode-cycle", "could not locate ModeManager::handleCommand - check this rule still matches the code");
+} else if (!/strcmp\s*\(\s*cmdBuf\s*,\s*"MODECYCLE"\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "no MODECYCLE token - the walk is GPIO-only, so page/app/relay must each invent their own and drift apart");
+} else if (!/strcmp\s*\(\s*cmdBuf\s*,\s*"MODEPREV"\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "no MODEPREV token - there is no way to walk backwards");
+} else if (!/strcmp\s*\(\s*cmdBuf\s*,\s*"MODENEXT"\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "no MODENEXT token - the forward step has no explicit alias for consumers that mean 'next' rather than 'cycle'");
+} else if (!/cycleMode\s*\(\s*1\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "the forward tokens do not call cycleMode(1) - the shared walk is bypassed");
+} else if (!/cycleMode\s*\(\s*-1\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "MODEPREV does not call cycleMode(-1) - 'prev' walks forwards");
+} else if (!mmCycleBody) {
+  fail("mode-cycle", "could not locate cycleMode() - check this rule still matches the code");
+} else if (!/next\s*>=\s*MODE_COUNT/.test(mmCycleBody)) {
+  fail("mode-cycle", "cycleMode() never wraps past the end of the registry");
+} else if (!/next\s*<\s*0\s*\)\s*next\s*=\s*MODE_COUNT\s*-\s*1/.test(mmCycleBody)) {
+  fail("mode-cycle", "cycleMode() never wraps below 0 - MODEPREV from the first mode hands setMode() an out-of-range enum");
+} else if (!/cycleMode\s*\(\s*\)/.test(inoSrc)) {
+  fail("mode-cycle", "the GPIO switch no longer calls cycleMode() - two implementations of the walk now exist and will drift");
+} else {
+  pass("mode-cycle", "MODECYCLE/MODENEXT -> cycleMode(1), MODEPREV -> cycleMode(-1), wraps both ways, GPIO uses the same walk");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that the
 // relay actually answers. That is the owner's bench (T-REL), not a laptop.
 console.log("\nrelay-contract: source checks only - no socket was opened, no hello was sent.");

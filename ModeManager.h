@@ -62,7 +62,12 @@ public:
   ~ModeManager();
 
   void setMode(Mode newMode);
-  void cycleMode();
+  /** One implementation of the mode walk for every caller: the GPIO switch
+   *  (.ino) uses the default +1, and MODECYCLE/MODENEXT/MODEPREV (U-95 Phase 3
+   *  tokens) pass ±1 so the page, app and relay all get the SAME behaviour.
+   *  Wraps both directions: +1 past the last registry row returns to 0, -1
+   *  below 0 lands on MODE_COUNT-1. */
+  void cycleMode(int delta = 1);
   void handleCommand(const char* cmd, CmdSource src = CmdSource::BLUETOOTH);
   void run();
   void checkFailsafe();

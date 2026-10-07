@@ -160,6 +160,7 @@ const WSC = "WebServerComm.cpp";
 const WSH = "WebServerComm.h";
 const INO = "Genum_4WD4M_CAR.ino";
 const RELAY = "RelayComm.cpp";
+const MM = "ModeManager.cpp";
 
 const mutants = [
   // ---- crash record (F-79) ----
@@ -402,6 +403,24 @@ const mutants = [
     find: "    char bssid[18];  // \"AA:BB:CC:DD:EE:FF\"\n",
     repl: "",
     why: "the BSSID field is removed from ScannedNetwork — there is no per-RADIO dedupe key at all, forcing name-dedupe" },
+
+  // ---- mode-walk tokens (U-95 Phase 3) ----
+  // cycleMode() lived only on the GPIO switch: three tokens, one walk, both
+  // wrap directions. Each mutant removes one fact the rule states.
+  { id: "M43", rule: "mode-cycle", file: MM,
+    find: '  if (strcmp(cmdBuf, "MODECYCLE") == 0 || strcmp(cmdBuf, "MODENEXT") == 0) {',
+    repl: '  if (strcmp(cmdBuf, "MODENEXT") == 0) {',
+    why: "MODECYCLE is gone — the walk is reachable only under the MODENEXT alias, and every consumer keyed on MODECYCLE gets an NACK" },
+
+  { id: "M44", rule: "mode-cycle", file: MM,
+    find: "  if (next < 0) next = MODE_COUNT - 1;\n",
+    repl: "",
+    why: "the negative wrap is gone — MODEPREV from the first registry row passes an out-of-range enum to setMode()" },
+
+  { id: "M45", rule: "mode-cycle", file: MM,
+    find: '  if (strcmp(cmdBuf, "MODEPREV") == 0) {\n    cycleMode(-1);',
+    repl: '  if (strcmp(cmdBuf, "MODEPREV") == 0) {\n    cycleMode(1);',
+    why: "MODEPREV walks FORWARDS — a 'previous' button that advances is the kind of silent inversion this project has learned to fear" },
 ];
 
 // ---- runner -------------------------------------------------------------
