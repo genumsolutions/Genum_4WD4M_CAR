@@ -190,9 +190,12 @@ const mutants = [
     why: "the opposite regression: no write floor at all, so flash writes become unbounded" },
 
   // ---- status JSON (silently malformed output) ----
+  // The anchor runs through the Phase 1c feed line and the first comment line:
+  // the HTTP copy of this JSON begins with the same two lines, so a three-line
+  // anchor would match twice after Phase 1c split build and broadcast apart.
   { id: "M7", rule: "status-buffer", file: WSC,
-    find: "  char buf[1536];\n  buildStatusJson(buf, sizeof(buf));\n  ws.broadcastTXT(buf);",
-    repl: "  char buf[1200];\n  buildStatusJson(buf, sizeof(buf));\n  ws.broadcastTXT(buf);",
+    find: "  char buf[1536];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c: the write gets its OWN fresh window.",
+    repl: "  char buf[1200];\n  buildStatusJson(buf, sizeof(buf));\n  // U-95 Phase 1c: the write gets its OWN fresh window.",
     why: "the two status-JSON buffers drift apart, so the two copies disagree about which got truncated" },
 
   // Anchored on `server.send(200, "application/json", buf)`, which is the HTTP
@@ -261,6 +264,27 @@ const mutants = [
   { id: "M18", rule: "armed-handshake", file: "Config.h",
     find: '#define RELAY_HOST ""', repl: '#define RELAY_HOST "xyzcompany.supabase.co"',
     why: "the relay is armed while the 120 s handshake is still unbounded — the interlock must refuse this" },
+
+  // ---- WebSocket pump vs the watchdog (U-95 1b/1c) ----
+  { id: "M19", rule: "ws-loop-feed", file: WSC,
+    find: "  esp_task_wdt_reset();\n  ws.loop();",
+    repl: "  ws.loop();",
+    why: "the partial-frame read spends whatever the rest of the pass left in the window instead of a fresh one" },
+
+  { id: "M20", rule: "ws-guard", file: WSC,
+    find: "  if (!hasWsClients()) return;\n  // 1536: status JSON",
+    repl: "  // 1536: status JSON",
+    why: "the client guard is gone: the 1 s ticker builds the JSON and walks sockets with nobody listening" },
+
+  { id: "M21", rule: "ws-broadcast-feed", file: WSC,
+    find: "  esp_task_wdt_reset();\n  ws.broadcastTXT(buf);",
+    repl: "  ws.broadcastTXT(buf);",
+    why: "the stalled-client write (5-8 s) runs on a window a ws.loop() may have already spent" },
+
+  { id: "M22", rule: "ws-budget", file: WSH,
+    find: "#define LOOP_TASK_WDT_TIMEOUT_MS 10000ul",
+    repl: "#define LOOP_TASK_WDT_TIMEOUT_MS 5000ul",
+    why: "the watchdog ties the library's worst operation again — the stall races the reset instead of fitting under it" },
 ];
 
 // ---- runner -------------------------------------------------------------

@@ -487,6 +487,14 @@ if (!beginBodyRaw) {
 }
 
 // ---- 7b. the relay must not be ARMED while the handshake is unbounded ----
+// The numbers this section and sections 9/10 all reason about, parsed ONCE so
+// the armed-handshake message, the budget rule and the ws rules can never
+// disagree about what the watchdog currently is (F-82: one source or two
+// copies that drift).
+const wsh = raw("WebServerComm.h");
+const budget = Number(wsh.match(/#define\s+HTTP_BODY_BUDGET_MS\s+(\d+)ul/)?.[1] ?? 0);
+const wdt = Number(wsh.match(/#define\s+LOOP_TASK_WDT_TIMEOUT_MS\s+(\d+)ul/)?.[1] ?? 0);
+
 // This is the interlock for a measured, still-unfixed defect, and it is the
 // reason U-94's deployment is blocked rather than merely discouraged.
 //
@@ -494,7 +502,8 @@ if (!beginBodyRaw) {
 //   - NetworkClientSecure sets sslclient->handshake_timeout = 120000.
 //   - ssl_starttls_handshake() loops on that value and nothing else.
 //   - WebSocketsClient::loop() runs it, on the loop task.
-//   - The loop task is subscribed to a 5000 ms task watchdog, and that watchdog
+//   - The loop task is subscribed to the task watchdog (LOOP_TASK_WDT_TIMEOUT_MS
+//     in WebServerComm.h, 10000 ms since Phase 1b), and that watchdog
 //     measures WALL-CLOCK time since the last esp_task_wdt_reset() — so the
 //     vTaskDelay(2) inside the handshake loop does not save it.
 // Therefore a relay host that completes TCP and then stalls TLS resets the car
@@ -517,7 +526,7 @@ const handshakeBounded =
   /xTaskCreate|RelayTask|relayTask/.test(relayCode);
 if (hostIsSet && !handshakeBounded) {
   fail("armed-handshake",
-    "RELAY_HOST is set, but the relay TLS handshake still runs on the loop task with a 120000 ms handshake_timeout against a 5000 ms watchdog. " +
+      "RELAY_HOST is set, but the relay TLS handshake still runs on the loop task with a 120000 ms handshake_timeout against a " + wdt + " ms watchdog. " +
     "This is how the car reboots. Either keep RELAY_HOST empty, or move the dial to its own task (see RelayComm.cpp) before deploying.");
 } else if (hostIsSet) {
   pass("armed-handshake", "RELAY_HOST is set and the handshake is bounded");
@@ -696,11 +705,7 @@ function braced(text, from) {
 // zero-byte writes for up to a 6 s budget against a 5 s watchdog, feeding it
 // never. A client that stops reading resets the car EVERY time. The numbers were
 // asserted by a comment; the loop was asserted by nothing, so the loop is what
-// these two rules check.
-
-const wsh = raw("WebServerComm.h");
-const budget = Number(wsh.match(/#define\s+HTTP_BODY_BUDGET_MS\s+(\d+)ul/)?.[1] ?? 0);
-const wdt = Number(wsh.match(/#define\s+LOOP_TASK_WDT_TIMEOUT_MS\s+(\d+)ul/)?.[1] ?? 0);
+// these two rules check. (wsh/budget/wdt are parsed once at section 7b.)
 
 // The sketch's REAL watchdog config must be the same number the header declares.
 // Two copies of the timeout, one used by the compiler for the static_assert and
@@ -776,6 +781,70 @@ if (!loopBody) {
   } else {
     pass("wdt-budget", "the budget is checked before every write");
   }
+}
+
+// ---- 10. the WebSocket pump cannot race the watchdog (U-95 1b/1c) -------
+// ws.loop() contains a read the sketch cannot shorten: WebSockets 2.7.2 waits
+// WEBSOCKETS_TCP_TIMEOUT = 5000 ms for a partial frame, inside the library's
+// own translation unit (#define in this TU is a no-op; the owner's Arduino IDE
+// passes no build flags - the same reasoning the armed-handshake rule states).
+// broadcastStatus() contains a write that measured 5-8 s to a client that
+// stopped draining TCP (U-77: 5 s of no-progress retries plus the core's 3 s
+// socket send timeout). Both run on the loop task, both used to draw on
+// whatever was left of the pass's window, and against a 5000 ms watchdog fed
+// once per pass both were stopwatches racing the reset. Phase 1b/1c do three
+// things, and each gets a rule - a budget that ties the watchdog is the reset,
+// not the budget (the F-77 static_assert says the same about HTTP):
+//
+//   1. feed IMMEDIATELY before each untunable operation;
+//   2. client-guard the broadcast (the plan's Phase 1c gate);
+//   3. hold LOOP_TASK_WDT_TIMEOUT_MS strictly above the larger operation.
+const handleBody = body(wscCode, "void WebServerComm::handle()") ?? "";
+const broadcastBody = body(wscCode, "void WebServerComm::broadcastStatus") ?? "";
+
+if (!handleBody) {
+  fail("ws-loop-feed", "could not locate WebServerComm::handle() - check this rule still matches the code");
+} else if (!/esp_task_wdt_reset\s*\(\s*\)\s*;\s*ws\.loop\s*\(\s*\)\s*;/.test(handleBody)) {
+  fail("ws-loop-feed", "ws.loop() is not immediately preceded by a watchdog feed - the untunable partial-frame read (up to 5000 ms) spends whatever the rest of the pass left in the window, not a fresh one");
+} else {
+  pass("ws-loop-feed", "ws.loop() is fed immediately before it - the untunable read gets a fresh window");
+}
+
+// The guard must be INSIDE broadcastStatus and must run before the write -
+// a guard anywhere else (or after it) is the no-client case the plan named,
+// still walking the sockets. Comment-stripped view: the prose above the guard
+// explains it and would otherwise satisfy the rule (F-82).
+const guardAt = broadcastBody.search(/hasWsClients\s*\(\s*\)|connectedClients\s*\(\s*\)/);
+const bcastAt = broadcastBody.indexOf("broadcastTXT");
+if (!broadcastBody) {
+  fail("ws-guard", "could not locate broadcastStatus() - check this rule still matches the code");
+} else if (guardAt < 0) {
+  fail("ws-guard", "broadcastStatus() has no connectedClients() guard - the 1 s ticker builds a 1536-byte JSON and walks every socket with nobody listening (U-95 Phase 1c)");
+} else if (bcastAt >= 0 && guardAt > bcastAt) {
+  fail("ws-guard", "the client guard runs AFTER broadcastTXT() - it must return before the JSON is built and the sockets are walked");
+} else {
+  pass("ws-guard", "broadcastStatus() is client-guarded, before the JSON build and the write");
+}
+
+if (!broadcastBody) {
+  fail("ws-broadcast-feed", "could not locate broadcastStatus() - check this rule still matches the code");
+} else if (!/esp_task_wdt_reset\s*\(\s*\)\s*;\s*ws\.broadcastTXT/.test(broadcastBody)) {
+  fail("ws-broadcast-feed", "ws.broadcastTXT() is not immediately preceded by a watchdog feed - a stalled-client write (5-8 s measured) can run after a ws.loop() that already spent 5000 ms of the same window");
+} else {
+  pass("ws-broadcast-feed", "the broadcast write is fed immediately before it");
+}
+
+// The watchdog must sit STRICTLY above the library's worst single operation:
+// 8000 ms is the U-77 write measurement (5000 ms no-progress retry + a 3000 ms
+// inner socket block); the partial-frame read is 5000 ms. A watchdog EQUAL to
+// either is the F-77 tie again - both clocks expire together and correctness
+// is whichever the scheduler reaches first.
+if (!wdt) {
+  fail("ws-budget", "LOOP_TASK_WDT_TIMEOUT_MS is gone or unparseable - check this rule still matches the code");
+} else if (wdt <= 8000) {
+  fail("ws-budget", `the watchdog is ${wdt} ms - it does not exceed the WebSockets library's worst single operation (8000 ms measured: 5000 ms no-progress retry + 3000 ms socket send timeout); the stall ties the watchdog instead of fitting under it`);
+} else {
+  pass("ws-budget", `the watchdog is ${wdt} ms - ${wdt - 8000} ms above the library's worst operation (read 5000, write ~8000), each fed immediately before it runs`);
 }
 
 // The one thing this gate cannot check is the thing that matters most: that the

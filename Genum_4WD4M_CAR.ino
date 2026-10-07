@@ -132,7 +132,10 @@ void setup() {
   // F-24: esp32 core 3.x task watchdog - reconfigure FIRST (the core
   // pre-initializes the TWDT), loopTask ONLY (idle_core_mask = 0; subscribing
   // idle tasks caused a ~19s reboot loop). A genuine loop hang still aborts
-  // after 5s; normal loop work can never starve an idle task.
+  // after LOOP_TASK_WDT_TIMEOUT_MS (10 s since U-95 Phase 1b, 5 s before — the
+  // WebSockets library's untunable 5 s read / 5-8 s write fit strictly under
+  // it now, each fed immediately before it runs); normal loop work can never
+  // starve an idle task.
   //
   // U-95/F-79: .trigger_panic = false. This is the fix for the unreachable
   // label described above. With panic escalation on, a starved loop() is

@@ -73,9 +73,11 @@
 // 3500 ms is chosen with the arithmetic visible rather than by feel. Worst case
 // is N × (per-write cap) + N × (spin interval), which for a 28 kB page in 512 B
 // chunks is 56 × (500 + 10) = 28.6 s of blocked time, so the budget is what
-// actually ends the loop, and it must end it before the watchdog at 5 s. 3.5 s
-// leaves 1.5 s of headroom for the HTTP parser's own work plus the rest of the
-// loop pass. Below the watchdog, with margin - not merely under it.
+// actually ends the loop, and it must end it before the watchdog (10 s since
+// U-95 Phase 1b). 3.5 s leaves 6.5 s of headroom for the HTTP parser's own
+// work plus the rest of the loop pass — and the budget did NOT grow when the
+// watchdog did; only the untunable library operations forced that move.
+// Below the watchdog, with margin - not merely under it.
 #define HTTP_BODY_BUDGET_MS 3500ul
 // The gap between a zero-byte write and the next attempt. This exists so a
 // stalled client cannot turn into a busy spin, and it is the term the budget
@@ -85,7 +87,24 @@
 // The watchdog timeout, in ONE place, so a gate can compare against it. The
 // sketch owns the real configuration (esp_task_wdt_config_t in the .ino); this
 // is the number the contract gate reads and the reason the two must agree.
-#define LOOP_TASK_WDT_TIMEOUT_MS 5000ul
+//
+// U-95 Phase 1b: 5000 was a TIE with the one operation in loop() that nobody
+// can shorten. WebSockets 2.7.2 waits WEBSOCKETS_TCP_TIMEOUT = 5000 ms for a
+// partial frame inside the library's own translation unit (WebSockets.cpp
+// 610-661), and a write to a client that stopped draining TCP retried for 5 s
+// of no progress with each inner tcp->write() blocked up to the core's 3 s
+// socket send timeout — the U-77 measurement, 5-8 s total. Against a 5000 ms
+// watchdog fed once per pass those are not budgets, they are stopwatches
+// racing the reset; and the library's timeout cannot be tuned from the sketch
+// (#define in our TU is a no-op — read in its own; the owner's Arduino IDE
+// passes no build flags; see the armed-handshake rule for the same reasoning).
+// So the watchdog moves ABOVE the library's worst single operation: 10000 ms
+// sits 5000 ms over the read and 2000 ms over the worst write, and both
+// operations are fed immediately before they run in WebServerComm.cpp, so
+// neither depends on what the rest of the pass already spent. The cost: a
+// genuine hang resets in 10 s instead of 5 s. The benefit: a phone sending a
+// half-frame can no longer reboot the car. The gate rule is `ws-budget`.
+#define LOOP_TASK_WDT_TIMEOUT_MS 10000ul
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
 

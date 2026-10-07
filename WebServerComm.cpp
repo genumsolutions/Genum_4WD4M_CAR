@@ -17,10 +17,12 @@
 // does not "mostly work" — it is a reset with extra steps, and the failure is
 // deterministic rather than racy, so it will happen on the bench every time.
 //
-// The second half is the margin. `>=` would permit a budget of exactly 5000 ms,
-// which leaves the watchdog and the budget expiring in the same millisecond and
-// makes correctness depend on which one the scheduler reaches first. 1500 ms of
-// slack absorbs the HTTP parser's own work and the rest of the loop pass.
+// The second half is the margin. `>=` would permit a budget of exactly the
+// watchdog's value, which leaves the watchdog and the budget expiring in the
+// same millisecond and makes correctness depend on which one the scheduler
+// reaches first. The slack (6500 ms since the watchdog moved to 10000 ms for
+// Phase 1b — it was 1500 ms at 5000) absorbs the HTTP parser's own work and
+// the rest of the loop pass.
 static_assert(HTTP_BODY_BUDGET_MS < LOOP_TASK_WDT_TIMEOUT_MS,
               "F-77: the page-send budget must be below the watchdog timeout, or a "
               "slow client resets the car instead of getting a truncated page");
@@ -1405,6 +1407,15 @@ String WebServerComm::joinedSsid() const {
 
 void WebServerComm::handle() {
   if (serverRunning) server.handleClient();
+  // U-95 Phase 1b: a fresh window for the one call here nobody can tune.
+  // ws.loop() can sit inside a partial-frame read for up to
+  // WEBSOCKETS_TCP_TIMEOUT (5000 ms — the library's own TU, untunable from the
+  // sketch). Without this feed the stall spent whatever was LEFT of the pass's
+  // budget — the feed at the top of loop() minus the switch check and
+  // ModeManager::run() — racing the reset instead of fitting under it. Fed
+  // here, the read gets the full LOOP_TASK_WDT_TIMEOUT_MS (10000 ms) to
+  // finish, with 5000 ms to spare. The gate rule is `ws-loop-feed`.
+  esp_task_wdt_reset();
   ws.loop();
 
   // U-86: park the setup beacon once the car is genuinely reachable on a
@@ -1970,6 +1981,15 @@ void WebServerComm::redactForAck(const char* cmd, char* out, size_t outLen) {
 
 void WebServerComm::broadcastStatus() {
   if (!modeManager) return;
+  // U-95 Phase 1c: nobody listening, nothing to build or send. The 1 s ticker
+  // (and the scan-complete and REQ_STATE/REQ_NETW paths) used to build this
+  // 1536-byte JSON and walk every socket every second of every uptime with no
+  // connectedClients() guard at all — the plan's "client-guarded" gate.
+  // hasWsClients() is already the app's link evidence (the .ino's webClient
+  // and ModeManager's wsClients read it), so an idle car now returns here
+  // before the JSON exists. A client that just disconnected gets skipped on
+  // its last request — there is nobody left to deliver it to.
+  if (!hasWsClients()) return;
   // 1536: status JSON + ssid(32) + ap(21) + caps map(~90) + networks (6×33 ≈ 200)
   // + scan (D3, 12 × ~48 ≈ 600) + the U-95 crash fields (~120). Grown for the
   // scan field, then again for the crash record.
@@ -1984,6 +2004,16 @@ void WebServerComm::broadcastStatus() {
   // add a field without growing it fails CI instead of shipping a broken page.
   char buf[1536];
   buildStatusJson(buf, sizeof(buf));
+  // U-95 Phase 1c: the write gets its OWN fresh window. To a client that
+  // stopped draining TCP this call retried for 5 s of no progress with each
+  // inner tcp->write() blocked up to 3 s (the U-77 measurement) — and it can
+  // run AFTER a ws.loop() that already spent 5000 ms of the same window, so
+  // feeding only before ws.loop() does not cover it. Fed here, the worst write
+  // has all of LOOP_TASK_WDT_TIMEOUT_MS (10000 ms, 2000 ms over the measured
+  // 8000 ms worst) to itself. The long-lived staller is the heartbeat's
+  // problem (dropped in ~8-9 s, U-77); this covers the FIRST wedge. The gate
+  // rule is `ws-broadcast-feed`.
+  esp_task_wdt_reset();
   ws.broadcastTXT(buf);
 }
 
