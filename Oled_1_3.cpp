@@ -129,16 +129,6 @@ void Oled_1_3::setSavedRouterCount(int count) {
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
 
-  // Handle network cycling in AP mode - cycle through saved networks every 3 seconds
-  if (networkCyclingActive && (strcmp(linkMethodBuf, "WiFi") == 0 || strcmp(linkMethodBuf, "WiFi") == 0)) {
-    uint32_t now = millis();
-    if (now - lastNetworkCycleMs >= 3000) {
-      lastNetworkCycleMs = now;
-      currentNetworkIndex = (currentNetworkIndex + 1) % 3;  // Cycle through up to 3 networks
-      // The next draw will pick up the new network
-    }
-  }
-
   // `isBluetooth` was removed here: it was computed and never read (one
   // definition, zero uses repo-wide), costing two strcmp()s per OLED frame.
   // `isWebServer` is always false — no registry token is "ESP_SER" any more —
@@ -293,11 +283,25 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   char ipBuf[32] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
   // U-98: Cycle through saved networks in AP mode every 3 seconds
-  if (isApFallback && networkCyclingActive && savedRouterCount_ > 1) {
+  if (isApFallback && networkCyclingActive) {
     uint32_t now = millis();
     if (now - lastNetworkCycleMs >= 3000) {
       lastNetworkCycleMs = millis();
-      currentNetworkIndex = (currentNetworkIndex + 1) % savedRouterCount_;
+      // Parse router count from extraBuf: format "AP:name,ip|Nets:ssid1,ssid2,ssid3"
+      int routerCount = 0;
+      const char* netsPtr = strstr(extraBuf, "|Nets:");
+      if (netsPtr) {
+        const char* nets = netsPtr + 6; // Skip "|Nets:"
+        const char* p = nets;
+        while (*p) {
+          if (*p == ',') routerCount++;
+          p++;
+        }
+        routerCount++; // Last one doesn't have trailing comma
+      }
+      if (routerCount > 1) {
+        currentNetworkIndex = (currentNetworkIndex + 1) % routerCount;
+      }
     }
   }
   if (isApFallback) {
@@ -313,8 +317,8 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
       safeCopy(netBuf, sizeof(netBuf), extraBuf + 3);
     }
     // U-98: Show cycling network indicator
-    if (networkCyclingActive && savedRouterCount_ > 1) {
-      snprintf(netBuf, sizeof(netBuf), "%s [%d/%d]", netBuf, currentNetworkIndex + 1, savedRouterCount_);
+    if (networkCyclingActive && routerCount > 1) {
+      snprintf(netBuf, sizeof(netBuf), "%s [%d/%d]", netBuf, currentNetworkIndex + 1, routerCount);
     }
   } else if (extraBuf[0] != '\0') {
     const char* f2 = strchr(extraBuf, ',');
