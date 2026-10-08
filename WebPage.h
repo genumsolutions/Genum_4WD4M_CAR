@@ -354,6 +354,10 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                   var add=document.createElement('option');
                   add.value='__add__'; add.text='＋ Add router…';
                   sel.add(add);
+                  // U-98: add delete router option
+                  var del=document.createElement('option');
+                  del.value='__delete__'; del.text='🗑 Delete router…';
+                  sel.add(del);
                   // U-92 (owner: *"webpage doesnt show the router name but
                   // shows select router"*): the placeholder DISPLAYS the
                   // network the car reports it is on - car truth, never an
@@ -545,6 +549,10 @@ renderScan(j);
         let pass = prompt('Router password (leave empty for an open network):', '') || '';
         sendCmd('WIFICFG;'+ssid+';'+pass);
         switchNote = 'Saving + switching to '+ssid+'… this page reconnects when this phone joins '+ssid+'.';
+      } else if(sel.value === '__delete__'){
+        let ssid = prompt('Router name to delete:');
+        if(!ssid){ sel.value=''; return; }
+        if(confirm('Delete '+ssid+' from car?')) sendCmd('ROUTERS;DEL;'+ssid);
       } else {
         useNetwork(sel.value);
       }
