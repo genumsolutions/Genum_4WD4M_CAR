@@ -1497,7 +1497,10 @@ void WebServerComm::armBootAutoJoin() {
   // function now sets the full explicit-switch budget for every caller. Order
   // matters: this is a boot-time concession, not a policy for the session.
   staTimeoutMs_ = BOOT_STA_TIMEOUT_MS;
-  staRetryCap_ = BOOT_STA_MAX_RETRIES;
+  // U-94: reduced boot auto-join budget to 1 attempt so the car does not
+  // repeatedly switch routers on power-up; the user can explicitly switch
+  // via the app if desired.
+  staRetryCap_ = 1;
 }
 
 void WebServerComm::stop() {
