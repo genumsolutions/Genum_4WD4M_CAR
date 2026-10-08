@@ -96,28 +96,32 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         takes a 3-column stage so the readouts never sit under the controls.
         Overflow protection: constrain the stage height and allow scrolling
         only if content truly exceeds the viewport. */
-     @media (orientation:landscape){
-       .frame{max-width:none;padding:2px 6px;overflow:hidden}
-       h1{font-size:13px;margin:2px 0 0;font-weight:700}
-       .top-selects{margin:4px 0 2px}
-       select{height:38px;font-size:13px;padding:0 8px;font-weight:600}
-       .stage{flex-direction:row;align-items:stretch;gap:8px;min-height:0;overflow:hidden}
-       .side{flex:0 0 clamp(84px,24vw,170px);flex-direction:column;flex-wrap:nowrap;justify-content:center;gap:5px;font-size:11px;color:#aab;border-bottom:none;padding:0;min-width:0;font-weight:500}
-       .side span{display:flex;justify-content:space-between;gap:4px}
-       .side b{color:#fff;font-weight:600}
-       .controls{justify-content:center;align-items:center;padding:2px 0}
-       .row{flex:1;width:100%;margin:2px 0;align-items:stretch}
-       .btn{flex:1;max-width:150px;height:100%;margin:2px;border-radius:14px;font-size:14px;font-weight:700}
-       .range-wrap{margin:2px 0}
-       .range-wrap .val{min-width:38px;font-size:13px;font-weight:700}
-       .range-wrap .lim{font-size:10px;color:#888}
-       .small{font-size:9px;color:#888;margin-top:1px}
-       /* U-95 Phase 3: the table takes the seam — its own column between the
-          control cross and the right data rail (order does the move so portrait
-          DOM order stays untouched), full height, scrolling internally. */
-       .side-r{order:1}
-       .nets{order:0;flex:0 0 clamp(160px,28vw,300px);max-height:none;min-height:0;border-top:none;border-left:1px solid #333;padding:0 0 0 6px}
-    }
+@media (orientation:landscape){
+        .frame{max-width:none;padding:2px 6px;overflow:hidden}
+        h1{font-size:13px;margin:2px 0 0;font-weight:700}
+        .top-selects{margin:4px 0 2px}
+        select{height:38px;font-size:13px;padding:0 8px;font-weight:600}
+        .stage{flex-direction:row;align-items:stretch;gap:8px;min-height:0;overflow:hidden}
+        .side{flex:0 0 clamp(84px,24vw,170px);flex-direction:column;flex-wrap:nowrap;justify-content:center;gap:5px;font-size:11px;color:#aab;border-bottom:none;padding:0;min-width:0;font-weight:500}
+        .side span{display:flex;justify-content:space-between;gap:4px}
+        .side b{color:#fff;font-weight:600}
+        .controls{justify-content:center;align-items:center;padding:2px 0}
+        .row{flex:1;width:100%;margin:2px 0;align-items:stretch}
+        .btn{flex:1;max-width:150px;height:100%;margin:2px;border-radius:14px;font-size:14px;font-weight:700}
+        .range-wrap{margin:2px 0}
+        .range-wrap .val{min-width:38px;font-size:13px;font-weight:700}
+        .range-wrap .lim{font-size:10px;color:#888}
+        .small{font-size:9px;color:#888;margin-top:1px}
+        /* U-95 Phase 3: the table takes the seam — its own column between the
+           control cross and the right data rail (order does the move so portrait
+           DOM order stays untouched), full height, scrolling internally. */
+        .side-r{order:1}
+        .nets{order:0;flex:0 0 clamp(160px,28vw,300px);max-height:none;min-height:0;border-top:none;border-left:1px solid #333;padding:0 0 0 6px;display:flex;flex-direction:column}
+        /* Fix: ensure netwrap and nettable properly scroll within the nets column */
+        .nets .netwrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+        .nets .nettable{width:100%;border-collapse:collapse;table-layout:fixed}
+        .nets .nettable th{position:sticky;top:0;background:#111}
+      }
   </style>
 
   <script>
@@ -162,12 +166,13 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       }
       if(r.indexOf('ROUTERS;CLEARED') === 0){ note('All saved routers cleared.', true); return; }
       if(r.indexOf('ROUTERS;DELETED;') === 0){ note('Removed ' + r.slice(16) + '.', true); return; }
-      if(r.indexOf('ROUTERS;SCAN;STARTED') === 0){ note('Scanning for networks...', true); return; }
+      if(r.indexOf('ROUTERS;SCAN;STARTED') === 0){ note('Scanning for networks...', true); document.getElementById('scan-btn').style.display='none'; document.getElementById('scan-cancel').style.display='inline-block'; return; }
       // U-95 Phase 2: the car answers BUSY when it did NOT start a scan (one
       // already in flight, or the STA is mid-join). A refusal must be shown
       // in the refusal colour - the old page would have waited forever on a
       // result that was never coming.
       if(r.indexOf('ROUTERS;SCAN;BUSY') === 0){ note('The car is busy - try the scan again in a moment.', false); return; }
+      if(r.indexOf('ROUTERS;SCAN;CANCELLED') === 0){ note('Scan cancelled.', false); document.getElementById('scan-cancel').style.display='none'; document.getElementById('scan-btn').style.display='inline-block'; return; }
       if(r.indexOf('ROUTERS;FULL') === 0){
         note('The car already has 6 routers - delete one first.', false); return;
       }
@@ -362,10 +367,13 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
             // U-95 Phase 3: the network table repaints from j.scan (+ j.ap for
             // the own row). renderScan() is diff-gated, so the 1 Hz frame only
             // touches the DOM when the rows actually changed.
-            renderScan(j);
-          }
-        } catch(e){ /* ignore non-JSON frames */ }
-      };
+renderScan(j);
+            // Scan complete - hide cancel button, show scan button
+            document.getElementById('scan-cancel').style.display='none';
+            document.getElementById('scan-btn').style.display='inline-block';
+           }
+         } catch(e){ /* ignore non-JSON frames */ }
+       };
     }
     function sendCmd(cmd){
       if(ws && ws.readyState===WebSocket.OPEN) ws.send(cmd);
@@ -553,7 +561,9 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       // U-95 Phase 3: the scan trigger (the BUSY/STARTED notes already existed,
       // but nothing on this page could ever SEND the command they answer).
       var sb=document.getElementById('scan-btn');
-      if(sb) sb.onclick=function(){ sendCmd('ROUTERS;SCAN'); };
+      if(sb) sb.onclick=function(){ sendCmd('ROUTERS;SCAN'); document.getElementById('scan-btn').style.display='none'; document.getElementById('scan-cancel').style.display='inline-block'; };
+      var sc=document.getElementById('scan-cancel');
+      if(sc) sc.onclick=function(){ sendCmd('ROUTERS;SCAN;CANCEL'); document.getElementById('scan-cancel').style.display='none'; document.getElementById('scan-btn').style.display='inline-block'; };
       var nl=document.getElementById('netlist');
       if(nl) nl.onclick=netlistClick;
       // U-95 Phase 3 (power): a tab that was hidden schedules no reconnect
@@ -675,9 +685,8 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
            j.scan, the own hotspot as a real labelled row, its own scrollable
            region (the stage band is the seam), >=44px rows, and the Scan
            trigger the STARTED/BUSY notes always answered but nothing sent. -->
-      <section class='nets' aria-label='Nearby networks'>
-        <div class='nets-head'><span>Nearby networks</span><button id='scan-btn' class='scanbtn' type='button'>Scan</button></div>
-        <div class='netwrap'>
+<section class='nets' aria-label='Nearby networks'>
+         <div class='nets-head'><span>Nearby networks</span><button id='scan-btn' class='scanbtn' type='button'>Scan</button><button id='scan-cancel' class='scanbtn' type='button' style='display:none'>Cancel</button></div>
           <table class='nettable'>
             <thead><tr><th>Network</th><th>Signal</th><th>Ch</th><th>Flags</th></tr></thead>
             <tbody id='netlist'><tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr></tbody>
