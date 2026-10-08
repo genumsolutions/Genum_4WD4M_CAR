@@ -2034,9 +2034,22 @@ void WebServerComm::updateExtraInfo() {
     // Own-network session: show the broadcast ID + the softAP IP on the
     // OLED so the user knows which network to join (the IP contains a dot,
     // which keeps isConnectedNow() true for the SERVER branch).
+    // Also list saved routers so the user sees available networks without connecting.
     char ipStr[32];
     WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
-    snprintf(extra, sizeof(extra), "AP:%s,%s", apName_.c_str(), ipStr);
+    char netList[80] = "";
+    if (savedRouterCount_ > 0) {
+      char list[80] = "";
+      for (int i = 0; i < savedRouterCount_ && i < 3; ++i) {
+        if (i > 0) strncat(extra, ",", sizeof(extra) - strlen(extra) - 1);
+        strncat(extra, savedRouterSsid_[i], sizeof(extra) - strlen(extra) - 1);
+      }
+    }
+    if (extra[0] != '\0') {
+      snprintf(extra, sizeof(extra), "AP:%s,%s|Nets:%s", apName_.c_str(), ipStr, extra);
+    } else {
+      snprintf(extra, sizeof(extra), "AP:%s,%s", apName_.c_str(), ipStr);
+    }
   } else {
     extra[0] = '\0';
   }
