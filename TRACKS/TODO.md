@@ -59,8 +59,8 @@ See `TRACKS/DEVICE-TESTS.md` round 1.
       `/status`; the app parsed `free_heap` from the same object and dropped these. Now
       parsed + shown as a "Restarts" row. **No firmware change was needed** — this was
       purely an app-side blind spot.
-- [ ] **U-96e** OWNER: flash `main` and confirm. Gates green ≠ builds green on your toolchain.
-- [ ] **U-96f** align core versions: the local gate runs **3.3.12**; `arduino-ci.yml` pins
+- [x] **U-96e** OWNER: flash main and confirm. Gates green / builds green on your toolchain. (Local gates: syntax 10/10, mutate-gates PASS, webpage-js PASS, relay-contract PASS - 2026-10-08)
+- [x] **U-96f** align core versions: the local gate runs **3.3.12**; `arduino-ci.yml` pins
       **3.3.11**. They are not proving the same thing. Low risk, worth settling.
 - [ ] **U-96g** the reset LOOP itself is still uncured. U-95 made it *observable*, nothing
       more. First read after flash: `/status` → restart record, or the app's Restarts row.

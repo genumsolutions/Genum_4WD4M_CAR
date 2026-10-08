@@ -3,7 +3,7 @@ name: Arduino CI — Genum_4WD4M_CAR
 # Compile-gate the 4WD4M car firmware. This job does NOT touch any device:
 # it proves the sketch still compiles for the exact fqbn the owner flashes
 # (`esp32:esp32:esp32:PartitionScheme=huge_app` — README: Huge APP **REQUIRED**,
-# Arduino core 3.3.11) and reports the flash/SRAM deltas so the round-13 matrix
+# Arduino core 3.3.12) and reports the flash/SRAM deltas so the round-13 matrix
 # rows (R-20/R-20b, T-71a) that currently read "compile figures PENDING" get
 # real numbers.
 #
@@ -70,7 +70,7 @@ jobs:
             - .
           platforms: |
             - name: esp32:esp32
-              version: 3.3.11
+              version: 3.3.12
           libraries: |
             - name: WebSockets
             - name: U8g2
