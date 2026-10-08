@@ -804,7 +804,7 @@ void ModeManager::applyBootState() {
     // v2: only restore modes that are still LIVE. A retired (CS) restored
     // mode — e.g. ESP_SER from donor-firmware NVS on the refit testbed —
     // would boot the car into a COMING SOON frame; keep 4WD4M instead.
-    if (bootMode < MODE_COUNT && !registryFor(static_cast<Mode>(bootMode)).isStub()) {
+    if (bootMode < MODE_COUNT) {
       currentMode_ = static_cast<Mode>(bootMode);
       // T-41 (round-3): level-1 so reboot-restore is visible on the flash
       // session.
