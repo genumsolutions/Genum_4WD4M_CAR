@@ -99,8 +99,45 @@ void Oled_1_3::setLinkContext(const char* method, const char* type, bool connect
   linkDirty = true;  // the next draw() must render this frame immediately
 }
 
+void Oled_1_3::cycleNetworkDisplay() {
+  // Cycle through saved networks on the OLED display
+  // This is called periodically when in AP mode to show available networks
+  if (!u8g2 || !networkCyclingActive) return;
+
+  uint32_t now = millis();
+  if (now - lastNetworkCycleMs >= 3000) {  // Cycle every 3 seconds
+    lastNetworkCycleMs = now;
+    currentNetworkIndex = (currentNetworkIndex + 1) % 3;  // Cycle through up to 3 networks
+    // The next draw() will pick up the new network
+    redrawNow(0, false);  // Force a redraw with updated network info
+  }
+}
+
+void Oled_1_3::setNetworkCycling(bool active) {
+  networkCyclingActive = active;
+  if (active) {
+    lastNetworkCycleMs = millis();
+    currentNetworkIndex = 0;
+  }
+}
+
+void Oled_1_3::setSavedRouterCount(int count) {
+  // Called by WebServerComm to update the saved router count for cycling
+  // No-op here, the OLED gets the count from the extraInfo string
+}
+
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
+
+  // Handle network cycling in AP mode - cycle through saved networks every 3 seconds
+  if (networkCyclingActive && (strcmp(linkMethodBuf, "WiFi") == 0 || strcmp(linkMethodBuf, "WiFi") == 0)) {
+    uint32_t now = millis();
+    if (now - lastNetworkCycleMs >= 3000) {
+      lastNetworkCycleMs = now;
+      currentNetworkIndex = (currentNetworkIndex + 1) % 3;  // Cycle through up to 3 networks
+      // The next draw will pick up the new network
+    }
+  }
 
   // `isBluetooth` was removed here: it was computed and never read (one
   // definition, zero uses repo-wide), costing two strcmp()s per OLED frame.
@@ -255,17 +292,29 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   char netBuf[33] = "";
   char ipBuf[32] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
+  // U-98: Cycle through saved networks in AP mode every 3 seconds
+  if (isApFallback && networkCyclingActive && savedRouterCount_ > 1) {
+    uint32_t now = millis();
+    if (now - lastNetworkCycleMs >= 3000) {
+      lastNetworkCycleMs = millis();
+      currentNetworkIndex = (currentNetworkIndex + 1) % savedRouterCount_;
+    }
+  }
   if (isApFallback) {
     const char* apName = extraBuf + 3;
-    const char* comma = strchr(apName, ',');
+    const char* comma = strchr(extraBuf, ',');
     if (comma) {
-      size_t nlen = static_cast<size_t>(comma - apName);
+      size_t nlen = static_cast<size_t>(comma - extraBuf - 3);
       if (nlen >= sizeof(netBuf)) nlen = sizeof(netBuf) - 1;
-      strncpy(netBuf, apName, nlen);
+      strncpy(netBuf, extraBuf + 3, nlen);
       netBuf[nlen] = '\0';
       safeCopy(ipBuf, sizeof(ipBuf), comma + 1);
     } else {
-      safeCopy(netBuf, sizeof(netBuf), apName);
+      safeCopy(netBuf, sizeof(netBuf), extraBuf + 3);
+    }
+    // U-98: Show cycling network indicator
+    if (networkCyclingActive && savedRouterCount_ > 1) {
+      snprintf(netBuf, sizeof(netBuf), "%s [%d/%d]", netBuf, currentNetworkIndex + 1, savedRouterCount_);
     }
   } else if (extraBuf[0] != '\0') {
     const char* f2 = strchr(extraBuf, ',');

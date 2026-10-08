@@ -2037,21 +2037,30 @@ void WebServerComm::updateExtraInfo() {
     // Also list saved routers so the user sees available networks without connecting.
     char ipStr[32];
     WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
-    char netList[80] = "";
+    char extraBuf[128];
+    extraBuf[0] = '\0';
     if (savedRouterCount_ > 0) {
-      char list[80] = "";
       for (int i = 0; i < savedRouterCount_ && i < 3; ++i) {
-        if (i > 0) strncat(extra, ",", sizeof(extra) - strlen(extra) - 1);
-        strncat(extra, savedRouterSsid_[i], sizeof(extra) - strlen(extra) - 1);
+        if (i > 0) strncat(extraBuf, ",", sizeof(extraBuf) - strlen(extraBuf) - 1);
+        strncat(extraBuf, savedRouterSsid_[i], sizeof(extraBuf) - strlen(extraBuf) - 1);
       }
     }
-    if (extra[0] != '\0') {
-      snprintf(extra, sizeof(extra), "AP:%s,%s|Nets:%s", apName_.c_str(), ipStr, extra);
+    if (extraBuf[0] != '\0') {
+      snprintf(extra, sizeof(extra), "AP:%s,%s|Nets:%s", apName_.c_str(), ipStr, extraBuf);
     } else {
       snprintf(extra, sizeof(extra), "AP:%s,%s", apName_.c_str(), ipStr);
     }
+    // U-98: Enable network cycling on OLED display
+    if (modeManager && modeManager->getOledDisplay()) {
+      modeManager->getOledDisplay()->setNetworkCycling(true);
+      modeManager->getOledDisplay()->setSavedRouterCount(savedRouterCount_);
+    }
   } else {
     extra[0] = '\0';
+    // U-98: Disable network cycling when not in AP mode
+    if (modeManager && modeManager->getOledDisplay()) {
+      modeManager->getOledDisplay()->setNetworkCycling(false);
+    }
   }
   modeManager->setExtraInfo(extra);
 }

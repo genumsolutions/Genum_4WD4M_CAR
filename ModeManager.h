@@ -104,6 +104,9 @@ public:
   bool isConnectedNowPublic() const;
   void setNowProvider(NowFn nowFn);
 
+  // U-98: Get OLED display for network cycling control
+  OledDisplay* getOledDisplay() const { return oled_; }
+
   // ---- System-command hook (v1.4.0 provisioning) ----
   // Runs BEFORE every other command path. Return true = consumed (never a
   // mode token, so registry matching is unaffected). Used by WebServerComm
