@@ -169,35 +169,13 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     curY += bodyH + gapBetween;
   }
 
-  // Header 1: bold + underline (fleet standard) — T-43: project name from Config
-  //
-  // U-95/F-79: header 1 doubles as the restart notice. The car reboots, the
-  // owner picks it up, and the FIRST thing on the screen says what killed the
-  // last boot — which is the one piece of information that turns "it just
-  // resets" into a diagnosis. It replaces the project name on that row rather
-  // than adding a row: R-18 established that the 4-row body already sits ~2 px
-  // from the bottom border, so there is no honest space for a fifth row, and
-  // clipping a diagnostic off the bottom of the screen is worse than not
-  // having it. Same row, same font, same baseline — no layout risk.
+  // Header 1: bold + underline (fleet standard) — T-43: project name from Config.
+  // The project name is ALWAYS shown here. Crash/restart diagnostics are moved
+  // to the car profile and app Diagnostics screen (U-95/F-79), not the header.
   u8g2->setFont(fontH1);
-  char crashH1[40] = "";
-  if (crashLogInfo().crashCount > 0) {
-    // The phase is included because the reason alone is often not enough:
-    // "TASK_WDT" says loop() hung, "TASK_WDT/http-root" says it hung while
-    // serving the page, which is a specific bug with a specific fix.
-    if (crashLogInfo().phase[0] != '\0') {
-      snprintf(crashH1, sizeof(crashH1), "RST:%u %s/%s",
-               (unsigned)(crashLogInfo().crashCount % 100), crashLogInfo().label, crashLogInfo().phase);
-    } else {
-      snprintf(crashH1, sizeof(crashH1), "RST:%u %s",
-               (unsigned)(crashLogInfo().crashCount % 100), crashLogInfo().label);
-    }
-  }
-  const char* h1 = (crashH1[0] != '\0') ? crashH1 : FW_NAME;
+  const char* h1 = FW_NAME;
   int h1W = u8g2->getStrWidth(h1);
   if (h1W > usableW) {
-    // Fall back to the small font BEFORE truncating. A clipped "RST:12 TASK_WD"
-    // is a lie about the reason; the same text in 5x8 fits and is honest.
     u8g2->setFont(fontBody);
     h1W = u8g2->getStrWidth(h1);
   }
