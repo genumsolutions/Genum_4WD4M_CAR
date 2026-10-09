@@ -168,13 +168,13 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
       }
       if(r.indexOf('ROUTERS;CLEARED') === 0){ note('All saved routers cleared.', true); return; }
       if(r.indexOf('ROUTERS;DELETED;') === 0){ note('Removed ' + r.slice(16) + '.', true); return; }
-      if(r.indexOf('ROUTERS;SCAN;STARTED') === 0){ note('Scanning for networks...', true); document.getElementById('scan-btn').style.display='none'; document.getElementById('scan-cancel').style.display='inline-block'; return; }
+      if(r.indexOf('ROUTERS;SCAN;STARTED') === 0){ note('Scanning for networks...', true); return; }
       // U-95 Phase 2: the car answers BUSY when it did NOT start a scan (one
       // already in flight, or the STA is mid-join). A refusal must be shown
       // in the refusal colour - the old page would have waited forever on a
       // result that was never coming.
       if(r.indexOf('ROUTERS;SCAN;BUSY') === 0){ note('The car is busy - try the scan again in a moment.', false); return; }
-      if(r.indexOf('ROUTERS;SCAN;CANCELLED') === 0){ note('Scan cancelled.', false); document.getElementById('scan-cancel').style.display='none'; document.getElementById('scan-btn').style.display='inline-block'; return; }
+      if(r.indexOf('ROUTERS;SCAN;CANCELLED') === 0){ note('Scan cancelled.', false); return; }
       if(r.indexOf('ROUTERS;FULL') === 0){
         note('The car already has 6 routers - delete one first.', false); return;
       }
@@ -370,13 +370,12 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                 }
               }
             }
-            // U-95 Phase 3: the network table repaints from j.scan (+ j.ap for
-            // the own row). renderScan() is diff-gated, so the 1 Hz frame only
-            // touches the DOM when the rows actually changed.
+// U-95 Phase 3: the network table repaints from j.scan (+ j.ap for
+// the own row). renderScan() is diff-gated, so the 1 Hz frame only
+// touches the DOM when the rows actually changed.
 renderScan(j);
-            // Scan complete - hide cancel button, show scan button
-            document.getElementById('scan-cancel').style.display='none';
-            document.getElementById('scan-btn').style.display='inline-block';
+// Scan feature removed - using router dropdown for network management
+// Scan complete - hide cancel button, show scan button
            }
          } catch(e){ /* ignore non-JSON frames */ }
        };
@@ -568,12 +567,7 @@ renderScan(j);
       attachHold('btn-stop','stop');
       attachHold('btn-right','right');
       attachHold('btn-back','backward');
-      // U-95 Phase 3: the scan trigger (the BUSY/STARTED notes already existed,
-      // but nothing on this page could ever SEND the command they answer).
-      var sb=document.getElementById('scan-btn');
-      if(sb) sb.onclick=function(){ sendCmd('ROUTERS;SCAN'); document.getElementById('scan-btn').style.display='none'; document.getElementById('scan-cancel').style.display='inline-block'; };
-      var sc=document.getElementById('scan-cancel');
-      if(sc) sc.onclick=function(){ sendCmd('ROUTERS;SCAN;CANCEL'); document.getElementById('scan-cancel').style.display='none'; document.getElementById('scan-btn').style.display='inline-block'; };
+      // U-95 Phase 3: the scan feature removed - using router dropdown for network management
       var nl=document.getElementById('netlist');
       if(nl) nl.onclick=netlistClick;
       // U-95 Phase 3 (power): a tab that was hidden schedules no reconnect
@@ -683,33 +677,15 @@ renderScan(j);
           </div>
         </div>
       </div>
-      <aside class='side side-r'>
+<aside class='side side-r'>
         <span>IP: <b id='ip'>--</b></span>
         <span>SSID: <b id='ssid'>--</b></span>
-        <!-- U-95 Phase 3: j.ap and the directed-broadcast address, surfaced.
-             The page ignored j.ap entirely before, and softAPBroadcastIP() was
-             never called anywhere in the repository. -->
         <span>Hotspot: <b id='apname'>--</b></span>
         <span>Bcast: <b id='bcast'>--</b></span>
         <span>Heap: <b id='heap'>--</b></span>
         <span>Conn: <b id='conn'>...</b></span>
-        <!-- U-95/F-79: the restart record, rendered from status JSON. Hidden
-             until the car actually has a crash to report, so a healthy car shows
-             no row at all rather than a permanent "RST:0 POWER_ON" that trains
-             the owner to ignore the one line that matters. -->
         <span id='rst-wrap' style='display:none'>Last restart: <b id='rst'>--</b></span>
       </aside>
-      <!-- U-95 Phase 3: the network table — headings, per-row car truth from
-           j.scan, the own hotspot as a real labelled row, its own scrollable
-           region (the stage band is the seam), >=44px rows, and the Scan
-           trigger the STARTED/BUSY notes always answered but nothing sent. -->
-<section class='nets' aria-label='Nearby networks'>
-<div class='nets-head'><span>Nearby networks</span><button id='scan-btn' class='scanbtn' type='button'>Scan</button><button id='scan-cancel' class='scanbtn' type='button' style='display:none'>Cancel</button></div>
-           <table class='nettable'>
-             <thead><tr><th>Network</th><th>Signal</th><th>Ch</th><th>Flags</th></tr></thead>
-             <tbody id='netlist'><tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr></tbody>
-           </table>
-</section>
     </div>
 
     <p class='small'>Speed 100&#8211;255 (car floor). Hold a button to move; release to stop.</p>

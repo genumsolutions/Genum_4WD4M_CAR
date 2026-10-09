@@ -406,8 +406,8 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
       // Bluetooth: firmware keeps the plain Bluetooth label + SPP transport.
       // The controller's friendly name is shown by the APP banner (owner
       // ruling 2026-09-30, Q2=B) -- there is no peer-name channel here.
-      snprintf(line3, sizeof(line3), "Bluetooth");
-      snprintf(line4, sizeof(line4), "Type: SPP");
+      snprintf(line3, sizeof(line3), "BT");
+      snprintf(line4, sizeof(line4), "SPP   IP: %s", ipText);
     } else if (strcmp(method, "WiFi") == 0 || strcmp(method, "Wi-Fi") == 0) {
       // WiFi: row 3 shows the SSID / AP name, row 4 the transport type + IP.
       // 2.5s turn-by-turn blink between the two rows (F-53/F-33).
@@ -423,12 +423,12 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
         snprintf(line4, sizeof(line4), "IP: %s", ipText);
       } else {
         snprintf(line3, sizeof(line3), "WiFi: %s", netName);
-        snprintf(line4, sizeof(line4), "Type: %s   IP: %s", type, ipText);
+        snprintf(line4, sizeof(line4), "%s  IP: %s", type, ipText);
       }
     } else {
       // None or unknown
       snprintf(line3, sizeof(line3), "Link: %s", method);
-      snprintf(line4, sizeof(line4), "Type: %s   IP: %s", type, ipText);
+      snprintf(line4, sizeof(line4), "%s  IP: %s", type, ipText);
     }
 
     u8g2->setFont(fontBody);
@@ -437,6 +437,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     const int linkTextWide = usableW - 26;
     for (int i = 0; i < 2; ++i) {
       char* row = (i == 0) ? line3 : line4;
+      // Trim from end but preserve words where possible
       while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
         row[strlen(row) - 1] = '\0';
       }
