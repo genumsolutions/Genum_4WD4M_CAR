@@ -794,8 +794,23 @@ const needPage = (cond, msg, rule) => {
   if (!cond) { console.error(`FAIL ${rule} - ${msg}`); bad++; }
 };
 
-// -- behaviour: router dropdown lists saved routers and handles USE/ADD/DEL/CLEAR
+// -- the router dropdown: the only network control left after scan was removed
+// The sandbox's addEventListener is a no-op, so a change event cannot be fired
+// here; the wiring is asserted against the page's own source, exactly as the
+// retired page-net-table rule asserted its markup/CSS. Every assertion below is
+// mutation-proven in tools/mutate-gates.mjs (page-router-dropdown, M56-M62).
+needPage(/<select id='r'>/.test(html), "the router dropdown (#r) is missing from the markup", "page-router-dropdown");
 needPage(rSel && typeof rSel === "object", "the #r select does not exist", "page-router-dropdown");
+needPage(/sendCmd\('ROUTERS;USE;' \+ name\)/.test(js),
+  "selecting a saved router no longer sends ROUTERS;USE - the dropdown cannot switch networks", "page-router-dropdown");
+needPage(/if\(sel\.value === '__add__'\)/.test(js),
+  "the Add option is no longer handled - a new router can never be saved", "page-router-dropdown");
+needPage(/sendCmd\('WIFICFG;'\+ssid\+';'\+pass\)/.test(js),
+  "the Add option no longer saves the router with WIFICFG (save+switch in one)", "page-router-dropdown");
+needPage(/if\(sel\.value === '__delete__'\)/.test(js),
+  "the Delete option is no longer handled - a saved router can never be removed", "page-router-dropdown");
+needPage(/sendCmd\('ROUTERS;DEL;'\+ssid\)/.test(js),
+  "the Delete option no longer sends ROUTERS;DEL", "page-router-dropdown");
 
 // The dropdown should have the car's own AP as a protected entry
 onmsg({ data: JSON.stringify({

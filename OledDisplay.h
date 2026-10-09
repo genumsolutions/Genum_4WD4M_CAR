@@ -70,7 +70,6 @@ private:
   bool linkDirty = false;  // set by setLinkContext; consumed by the next draw()
   bool modeIsStub = false;           // registry avail != LIVE → "COMING SOON"
   bool modeIsWip = false;            // registry avail == WIP → "IN PROGRESS"
-  bool modeHasDash = false;          // registry drive mode → full status layout
 
   uint32_t lastDrawMs = 0;
   uint32_t minDrawIntervalMs = 100;

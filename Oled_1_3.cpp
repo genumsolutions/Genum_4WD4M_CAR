@@ -1,10 +1,9 @@
 // =====================================================================
 // Genum_4WD4M_CAR — multimode 4WD4M car firmware (ESP32 + L298N)
 // File: Oled_1_3.cpp — SH1106 1.3" UI: dashboards + stub COMING SOON frames.
-//       (The old header advertised "ESP_SER signal bars + RSSI + IP". ESP_SER
-//       was removed from the mode registry in U-79, so that layout cannot
-//       render; the guarded block below is retained only as dead code pending
-//       a decision — see storyboard.md, which is also out of date.)
+//       (The old ESP_SER "signal bars + RSSI + IP" layout was removed from the
+//       mode registry in U-79; its now-unreachable drawing block is retained as
+//       dead code pending an owner decision, not deleted here.)
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
 #include "OledDisplay.h"
@@ -18,7 +17,6 @@ Oled_1_3::Oled_1_3() {
   extraBuf[0] = '\0';
   modeTokenBuf[0] = '\0';
   modeIsStub = false;
-  modeHasDash = false;
 }
 
 Oled_1_3::~Oled_1_3() {
@@ -81,11 +79,10 @@ void Oled_1_3::safeCopy(char* dst, size_t dstLen, const char* src) {
 
 // T-18 (W-8): ModeManager pushes registry truth — canonical token + capability
 // flags — on every mode change. No display-string strcmp anywhere below.
-void Oled_1_3::setModeContext(const char* modeToken, bool isStub, bool isWip, bool hasDriveDashboard) {
+void Oled_1_3::setModeContext(const char* modeToken, bool isStub, bool isWip, bool /*hasDriveDashboard*/) {
   safeCopy(modeTokenBuf, TOKEN_BUF_LEN, modeToken);
   modeIsStub = isStub;
   modeIsWip = isWip;
-  modeHasDash = hasDriveDashboard;
 }
 
 // v1.0.1 (owner OLED directive): live link truth — WHICH method is connected

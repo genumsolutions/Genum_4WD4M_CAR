@@ -478,29 +478,29 @@ const mutants = [
     repl: '                 "\\"channel\\":%u,\\"own\\":%s,\\"saved\\":%s}"',
     why: "the current key is dropped — 'the car is on THIS row' becomes a client guess against a dropdown that historically preselects unconfirmed networks" },
 
-  // ---- the car's own page (U-95 Phase 3) ----
+  // ---- the car's own page (U-95 Phase 3; re-aimed at the router dropdown) ----
   // Rule names must contain "page" so runGate routes WebPage.h mutants to the
   // PAGE harness, and must match the `FAIL <rule>` lines stage 10 prints.
-  { id: "M56", rule: "page-net-table", file: "WebPage.h",
-    find: "<th>Flags</th>", repl: "<th> </th>",
-    why: "a heading is deleted — the table stops saying what its last column means, which is the whole point of 'table with headings'" },
-
-  { id: "M57", rule: "page-net-table", file: "WebPage.h",
-    find: "if (r.own === true) fl.push('OWN');", repl: "",
-    why: "the OWN badge is dropped — the owner's first-class own-network row renders as an anonymous network" },
-
-  { id: "M58", rule: "page-net-table", file: "WebPage.h",
+  { id: "M56", rule: "page-router-dropdown", file: "WebPage.h",
     find: "sendCmd('ROUTERS;USE;' + name);", repl: "sendCmd('REQ_NETW');",
-    why: "tapping the own row no longer sends USE — the labelled row exists but the way back to the car's hotspot is dead" },
+    why: "selecting a saved router no longer sends ROUTERS;USE - the dropdown lists networks but cannot switch to one" },
 
-  { id: "M59", rule: "page-net-table", file: "WebPage.h",
-    find: "if(sb) sb.onclick=function(){ sendCmd('ROUTERS;SCAN'); };",
-    repl: "if(sb) sb.onclick=function(){ sendCmd('S'); };",
-    why: "the Scan button sends the wrong command — STARTED/BUSY notes exist but nothing on the page can trigger a scan" },
+  { id: "M57", rule: "page-router-dropdown", file: "WebPage.h",
+    find: "sendCmd('WIFICFG;'+ssid+';'+pass);", repl: "sendCmd('ROUTERS;ADD;'+ssid);",
+    why: "the add option stops saving the pair with WIFICFG - the router is never stored, so the car refuses every later USE with Not saved" },
 
-  { id: "M62", rule: "page-net-table", file: "WebPage.h",
-    find: ".nettable td{height:44px", repl: ".nettable td{height:14px",
-    why: "table rows shrink to 12-15px-class tap targets — the Phase 3 touch rule (rows >= 44px) is gone" },
+  { id: "M58", rule: "page-router-dropdown", file: "WebPage.h",
+    find: "sendCmd('ROUTERS;DEL;'+ssid)", repl: "sendCmd('REQ_NETW');",
+    why: "the delete option no longer sends ROUTERS;DEL - a saved router can never be removed from the car" },
+
+  { id: "M59", rule: "page-router-dropdown", file: "WebPage.h",
+    find: "if(sel.value === '__add__'){",
+    repl: "if(false){",
+    why: "the Add option is never taken - a new router is never saved (WIFICFG unreachable from the dropdown)" },
+
+  { id: "M62", rule: "page-router-dropdown", file: "WebPage.h",
+    find: "if(sel.value === '__delete__'){", repl: "if(false){",
+    why: "the Delete option is never taken - a saved router cannot be removed from the dropdown" },
 
   { id: "M60", rule: "page-reconnect", file: "WebPage.h",
     find: "wsDelay = (wsDelay === 0) ? 1000 : Math.min(wsDelay * 2, 15000);",

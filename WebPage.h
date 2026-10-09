@@ -58,25 +58,6 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     .side b{color:#fff;font-weight:bold;font-variant-numeric:tabular-nums}
     .side-l{justify-content:flex-start;border-bottom:1px solid #333}
     .side-r{justify-content:flex-end}
-    /* U-95 Phase 3: the network table IS the scrollable region the fit-to-viewport
-       rules forbid elsewhere — bounded INSIDE the stage, its own overflow, so the
-       page itself still never scrolls (html/body/frame stay overflow:hidden).
-       Rows are >=44px touch targets; the header row scrolls away with the table
-       only if sticky is unsupported, otherwise it sticks. */
-    .nets{flex:0 1 auto;min-height:120px;max-height:28vh;display:flex;flex-direction:column;min-width:0;padding-top:4px;border-top:1px solid #333}
-    .nets-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:#aab;padding:2px 0}
-    .scanbtn{min-height:44px;padding:0 16px;border-radius:6px;border:1px solid #555;background:#222;color:#fff;font-size:13px;font-weight:600}
-    .netwrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-    .nettable{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
-    .nettable th{position:sticky;top:0;background:#111;color:#889;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:4px 6px;border-bottom:1px solid #333}
-    .nettable th:nth-child(1){width:44%}
-    .nettable th:nth-child(2){width:20%}
-    .nettable th:nth-child(3){width:14%}
-    .nettable th:nth-child(4){width:22%}
-    .nettable td{height:44px;padding:0 6px;border-bottom:1px solid #242424;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .nettable tr.hit{cursor:pointer}
-    .nettable tr.hit:active{background:#173}
-    .nettable .net-empty{color:#889;text-align:center;white-space:normal;height:auto;padding:10px 6px}
     .controls{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0;padding:4px 0}
     .row{display:flex;justify-content:center;align-items:center;margin:4px 0}
     .speed-row{margin:6px 0 2px}
@@ -114,22 +95,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         .range-wrap .val{min-width:38px;font-size:13px;font-weight:700}
         .range-wrap .lim{font-size:10px;color:#888}
         .small{font-size:9px;color:#888;margin-top:1px}
-        /* U-95 Phase 3: the table takes the seam — its own column between the
-           control cross and the right data rail (order does the move so portrait
-           DOM order stays untouched), full height, scrolling internally. */
-        .side-r{order:1}
-        .nets{order:0;flex:0 0 clamp(160px,28vw,300px);max-height:none;min-height:0;border-top:none;border-left:1px solid #333;padding:0 0 0 6px;display:flex;flex-direction:column}
-        /* Fix: ensure netwrap and nettable properly scroll within the nets column */
-        .nets .netwrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-        .nets .nettable{width:100%;border-collapse:collapse;table-layout:fixed}
-        .nets .nettable th{position:sticky;top:0;background:#111}
       }
   </style>
 
   <script>
     let ws, lastS=0, lastNetSig='', lastCapsSig='';
-    // U-95 Phase 3: the table's diff signature (1 Hz frames must not rewrite it).
-    var lastScanSig='';
     // U-81: render the car's own answer, in the car's own vocabulary, and never
     // invent a success. `ROUTERS;ADDED;x` / `WIFICFG;OK;x` are confirmations;
     // `ROUTERS;FULL` / `…;Reserved` / `…;Password too long` / `…;SSID length`

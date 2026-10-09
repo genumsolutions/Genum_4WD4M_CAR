@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-06: U-96 BUILD FIX — `main` WAS BROKEN, now compiles again; still NOT flashed; relay still BLOCKED)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-09: scan removed from the car's own page; page gate + mutation harness re-aimed; still NOT flashed; relay still BLOCKED)
 
 > **READ THIS FIRST (added 2026-10-06, second pass).** `main` did not compile when this session
 > started. Two commits in a row had tried to fix U-96's brownout line and both guessed a symbol
@@ -6,6 +6,17 @@
 > `tools/check-firmware-syntax.ps1` has been changed so this cannot happen silently again. Everything
 > below about U-95/U-96 is still source-level only — **nothing has been flashed.** Full detail in
 > `TRACKS/FAILSAFE.md` #12–#14 and `TRACKS/TODO.md` § Phase U-96 follow-up.
+
+> **READ THIS FIRST (added 2026-10-09).** The car's own page no longer offers a scan: the
+> network table, its Scan button, the `lastScanSig` gate and both `.nets` CSS blocks are gone
+> (`78b15e9`, `fb218dc`, and this sweep). The router dropdown is now the page's only network
+> control; the firmware scan and the app's `ROUTERS;SCAN` are untouched, and the page still
+> narrates `STARTED`/`BUSY`/`CANCELLED` replies. The page gate rule `page-net-table` was
+> retired; the mutation harness's five orphans (M56-M62) were re-aimed at
+> `page-router-dropdown`, and that rule was made non-vacuous, so a mutant that breaks
+> switching is now caught instead of passing. The dead `modeHasDash` OLED member was removed;
+> the unreachable ESP_SER drawing block is retained (its header comment corrected to say so).
+> **No firmware was flashed** - this is all source-only. Details in `TRACKS/TODO.md` § Sweep.
 
 ## The three facts that matter most
 

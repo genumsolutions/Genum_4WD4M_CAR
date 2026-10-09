@@ -72,3 +72,23 @@ See `TRACKS/DEVICE-TESTS.md` round 1.
 - [ ] **U-96i** no firmware/app version handshake exists. The firmware reports no version at
       all, and the app's `deviceRegistryService.ts` claims `fwVersion: "1.0.0"` against
       firmware `1.2.0`. Cosmetic today, but it means a real handshake later needs BOTH repos.
+
+## Sweep — scan removed from the car's own page (2026-10-09) — DONE
+- [x] **owner** the car's own page no longer offers a scan. The network table, its Scan
+      button, the `lastScanSig` diff gate and both `.nets` CSS blocks (portrait + the
+      landscape seam move) are gone (`78b15e9`, `fb218dc`, and this sweep). The router
+      dropdown is now the page's only network control; the saved-router registry, the
+      protocol and the app's scan are untouched.
+- [x] **gate** `page-net-table` is retired. `page-router-dropdown` was vacuous (its only
+      assertion was `rSel` truthy, and the sandbox manufactures an element for any id), so
+      it now asserts the dropdown's markup and the wired commands against the page source:
+      `ROUTERS;USE` on select, `WIFICFG` save on Add, `ROUTERS;DEL` on Delete, and the two
+      `__add__`/`__delete__` option branches.
+- [x] **harness** the five orphans left by the scan removal (M56-M62, still labelled
+      `page-net-table`) are re-aimed at `page-router-dropdown`; the full harness runs green.
+- [x] **OLED** the dead `modeHasDash` member (dangling since the drive-dashboard assignment
+      was dropped) is removed. The unreachable ESP_SER drawing block is retained; the file
+      header comment was corrected to say "retained", matching the in-code note.
+- [x] **decision** the app still sends `ROUTERS;SCAN`; the page keeps the
+      `STARTED`/`BUSY`/`CANCELLED` reply notes so a scan the app fires is still narrated on
+      the page. Firmware scan is unchanged.
