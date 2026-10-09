@@ -1,4 +1,24 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-09: scan removed from the car's own page; page gate + mutation harness re-aimed; still NOT flashed; relay still BLOCKED)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-09 round 2: 4WD4M OLED network lines, v1.2.4; still NOT flashed; relay still BLOCKED; backup branch added)
+
+## This session (2026-10-09, round 2) — the 4WD4M OLED's network lines are done, v1.2.4
+
+Owner directive (2026-10-09), delivered and corrected in-session:
+
+- Row 3 (2nd-last line) = the current method + network: `Wifi : <ssid>` for the WiFi
+  method, `Bluetooth : <transport status>` (SPP / Off) for Bluetooth, the hotspot's name
+  while the own AP broadcasts.
+- Row 4 (last line) = **the car's CURRENT IP** — the number the app shows (`WiFi · <ip>`),
+  NOT the network's directed-broadcast address (the first rendering, corrected same-session
+  on the owner's bench: *"broadcast ip shown by car oled is wrong. fix this in car oled
+  like the app"*).
+- Removed the "LAN ready" message repo-wide, dropped the 2.5 s blink, moved the link bars
+  to the Speed row so lines 3/4 own the full width. Broadcast still lives on `/status
+  broadcast_ip` + the page's `Bcast:` row. Commits `7731f2b` + `0285eee`; full detail in
+  `TRACKS/CHANGELOG.md` § v1.2.4; gates 10/10, 62/62.
+- A `backup` branch now tracks `main` at 0285eee on origin.
+
+**STILL NOT FLASHED. Relay still BLOCKED (RELAY_HOST unset). The reset loop is still open —
+first read after flash is the app's Restarts row / `/status`.**
 
 > **READ THIS FIRST (added 2026-10-06, second pass).** `main` did not compile when this session
 > started. Two commits in a row had tried to fix U-96's brownout line and both guessed a symbol

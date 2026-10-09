@@ -7,8 +7,33 @@ history had grown into a single 3,247-character line - 34% of that file - which
 made `Config.h` hard to read, diff and blame. The notes were worth keeping; the
 one-line dump was not. `Config.h:10` remains the source of truth for the value.
 
-> UNFLASHED. Everything from 1.2.3 down was source-only when written; the bench
+> UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
+
+## v1.2.4 - 4WD4M OLED network lines (2026-10-09)
+
+Owner directive (2026-10-09): the 4WD4M OLED's last two lines are the NETWORK truth.
+Shipped in two parts, because the first rendering was corrected on the owner's bench in
+the same session:
+
+- **v1.2.3 work (`7731f2b`)** — Row 3 = the current method + network (`Wifi : <ssid>`
+  for the WiFi method, `Bluetooth : <transport status>` / `Off` for the Bluetooth method,
+  the hotspot's name while the own AP is up); Row 4 = the network's directed-broadcast
+  address. The 2.5 s turn-by-turn blink (F-53/F-33) is gone, the **"LAN ready" wording is
+  removed repo-wide** (`ModeManager::currentLink()` STA type → "WiFi" plus every stale
+  comment), and the link bars moved from the network rows up to the Speed row so rows 3/4
+  own the full body width. `/status` now also fills `broadcast_ip` + `subnet` on a joined
+  LAN — they were AP-only since U-95 Phase 3, so the page's Bcast row showed `--` on a
+  router.
+- **Corrected (`0285eee`)** — the owner reported the OLED's broadcast address wrong; the
+  app shows the car's OWN IP, so Row 4 is now `IP : <car's current IP>` (STA lease, else
+  the softAP IP), matching the app's `WiFi · <ip>`. The directed broadcast stays on
+  `/status broadcast_ip` + the page's `Bcast:` row; the `|BC=` carrier that fed the
+  OLED-only line was dropped from `extraInfo` (STA rows are back to `pct,rssi,ip,<ssid>`,
+  AP rows to `AP:<name>,<ip>|Nets:…`).
+
+Gates at 0285eee: firmware syntax 10/10, relay-contract, page-js, mutation harness 62/62
+(byte-exact restore). `backup` branch added on origin at 0285eee.
 
 ## v1.2.3 - U-95 Phase 3 (the car's own page)
 
