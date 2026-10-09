@@ -291,13 +291,12 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
 
   // T-36 (owner 2026-09-15): the transport line shows the NETWORK the car is
   // actually on — joined SSID, or the AP-fallback broadcast id — not a generic
-  // "Connected". extraInfo carries "pct,rssi,ip,<ssid>|BC=<bcast>" (STA) or
-  // "AP:<name>,<ip>|BC=<bcast>|Nets:…". |BC= is the directed-broadcast address
-  // of the CURRENT network so the Bcast line (owner directive 2026-10-09)
-  // renders from car truth, never a client guess.
+  // "Connected". extraInfo carries "pct,rssi,ip,<ssid>" (STA) or
+  // "AP:<name>,<ip>|Nets:…". v1.2.4 (owner 2026-10-09): row 4 renders the car's
+  // CURRENT IP from ipBuf so the OLED matches the app's "WiFi · <ip>" — the
+  // network's directed-broadcast stays on /status + the page's Bcast row.
   char netBuf[33] = "";
   char ipBuf[32] = "";
-  char bcastBuf[16] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
   // U-98: Parse router count from extraBuf: format "AP:name,ip|Nets:ssid1,ssid2,ssid3"
   int routerCount = 0;
@@ -350,19 +349,8 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     }
   }
 
-  // v1.2.3: lift the directed broadcast out of "…|<BC=…>" and drop any "|Nets:"
-  // suffix so netBuf (= joined SSID / AP id) and ipBuf (the interface IP) stay
-  // clean. |BC= always comes BEFORE the optional "|Nets:" list, so even a long
-  // saved-router tail that gets truncated can never cost us the broadcast.
-  const char* bcs = strstr(extraBuf, "|BC=");
-  if (bcs) {
-    bcs += 4;
-    const char* bEnd = strchr(bcs, '|');
-    size_t bLen = bEnd ? static_cast<size_t>(bEnd - bcs) : strlen(bcs);
-    if (bLen >= sizeof(bcastBuf)) bLen = sizeof(bcastBuf) - 1;
-    strncpy(bcastBuf, bcs, bLen);
-    bcastBuf[bLen] = '\0';
-  }
+  // Defensive: if a future format ever appends a "|key=value" tail, cut it so
+  // netBuf (= joined SSID / AP id) and ipBuf (the interface IP) stay clean.
   { char* nPipe = strchr(netBuf, '|'); if (nPipe) *nPipe = '\0'; }
   { char* iPipe = strchr(ipBuf, '|');  if (iPipe) *iPipe = '\0'; }
 
@@ -418,29 +406,30 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     return;
   }
 
-  // v1.2.3 (owner directive 2026-10-09): the last two lines are the NETWORK
-  // truth — Row 3 = the current method + network ("Wifi: <ssid>", or
-  // "Bluetooth: <transport status>" over SPP), Row 4 = the directed-broadcast
-  // IP of that network. The old 2.5s turn-by-turn blink is gone (it hid the
-  // info the owner wants on screen every second) and the rows own the full body
-  // width — the link bars moved up to the Speed row (above).
+  // v1.2.3/v1.2.4 (owner directives 2026-10-09): the last two lines are the
+  // NETWORK truth — Row 3 = the current method + network ("Wifi: <ssid>", or
+  // "Bluetooth: <transport status>" over SPP), Row 4 = the car's CURRENT IP,
+  // the same number the app shows (WiFi · <ip>) — not the network's directed
+  // broadcast. The old 2.5s turn-by-turn blink is gone (it hid the info the
+  // owner wants on screen every second) and the rows own the full body width —
+  // the link bars moved up to the Speed row (above).
   {
     const char* method = linkMethodBuf;
     const char* type = (linkTypeBuf[0] != '\0') ? linkTypeBuf : "--";
 
-    // Row 3 = the NETWORK of the current method; Row 4 = the broadcast address.
-    // netBuf/ipBuf/bcastBuf were parsed from extraInfo above, so everything here
-    // is the network the car is REALLY on -- never a placeholder.
+    // Row 3 = the NETWORK of the current method; Row 4 = the car's CURRENT IP.
+    // netBuf/ipBuf were parsed from extraInfo above, so everything here is the
+    // network the car is REALLY on -- never a placeholder.
     char line3[40] = "";
     char line4[40] = "";
     const char* netName = (netBuf[0] != '\0') ? netBuf : "--";
-    const char* bcText = (bcastBuf[0] != '\0') ? bcastBuf : "--";
+    const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "--";
 
     if (strcmp(method, "Bluetooth") == 0 || strcmp(method, "BT") == 0) {
       // Bluetooth method: the "status" is the transport itself (SPP when a
       // controller is linked). The controller's friendly name is shown by the
       // APP banner (owner ruling 2026-09-30, Q2=B) -- no peer-name channel here.
-      // The Bcast line below still shows the Wi-Fi network the car is on, so a
+      // The IP line below still shows the Wi-Fi network the car is on, so a
       // BT link never loses the "where is this thing on the LAN" answer.
       snprintf(line3, sizeof(line3), "Bluetooth : %s",
                (strcmp(type, "--") != 0) ? type : "Off");
@@ -455,14 +444,13 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
       snprintf(line3, sizeof(line3), "Link : %s",
                (strcmp(method, "None") != 0) ? method : "--");
     }
-    // LAST line (owner directive): the directed-broadcast IP of the current
-    // network — car-computed (STA ip|~mask, else the softAP broadcast), so the
-    // number matches /status broadcast_ip exactly.
-    snprintf(line4, sizeof(line4), "Bcast : %s", bcText);
+    // LAST line (owner 2026-10-09, revised): the car's CURRENT IP — what the
+    // app shows ("WiFi · <ip>") — via ipBuf (STA lease, else the softAP IP).
+    snprintf(line4, sizeof(line4), "IP : %s", ipText);
 
     u8g2->setFont(fontBody);
     // Full body width (the bars vacated row 4 for these two lines); only a
-    // genuinely over-long SSID tail gets trimmed, the broadcast row is short.
+    // genuinely over-long SSID tail gets trimmed, the IP row is short.
     const int linkTextWide = usableW;
     for (int i = 0; i < 2; ++i) {
       char* row = (i == 0) ? line3 : line4;

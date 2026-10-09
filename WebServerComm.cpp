@@ -2040,31 +2040,18 @@ void WebServerComm::stopMdns() {
 void WebServerComm::updateExtraInfo() {
   if (!modeManager) return;
   char extra[128];
-  // v1.2.3 (2026-10-09): the directed-broadcast address of the CURRENT network
-  // rides every extraInfo row so the OLED's Bcast line and the /status JSON
-  // agree on the same car-computed number (owner: "the last line shows the
-  // Broadcast IP of the current used network"). Car truth, never a client guess.
-  char bcastStr[16] = "";
   if (WiFi.status() == WL_CONNECTED) {
     int rssi = WiFi.RSSI();
     int pct = map(constrain(rssi, -100, -50), -100, -50, 0, 100);
     char ipStr[32];
     WiFi.localIP().toString().toCharArray(ipStr, sizeof(ipStr));
-    // Directed broadcast of the joined LAN (STA): ip | ~mask. WiFi has no
-    // broadcastIP() getter on ESP32, so it is computed — the same value the
-    // /status JSON reports as broadcast_ip, so the two always agree.
-    {
-      IPAddress ipA = WiFi.localIP(), maskA = WiFi.subnetMask();
-      IPAddress bcA(ipA[0] | (uint8_t)~maskA[0], ipA[1] | (uint8_t)~maskA[1],
-                    ipA[2] | (uint8_t)~maskA[2], ipA[3] | (uint8_t)~maskA[3]);
-      bcA.toString().toCharArray(bcastStr, sizeof(bcastStr));
-    }
     // T-36: append the JOINED network name so the OLED can show the real SSID
-    // instead of the generic "Connected" (owner report 2026-09-15). v1.2.3 adds
-    // |BC=<directed broadcast> for the OLED's Bcast line; EXTRA_INFO_LEN is 96
-    // so pct+dBm+ip+32-char SSID+|BC=+IP ≈ 78 bytes still fit.
-    snprintf(extra, sizeof(extra), "%d,%ddBm,%s,%s|BC=%s", pct, rssi, ipStr,
-             WiFi.SSID().c_str(), bcastStr);
+    // instead of the generic "Connected" (owner report 2026-09-15). The same
+    // ipStr becomes the OLED's "IP : <addr>" line (v1.2.4, owner directive
+    // 2026-10-09 — the OLED shows the car's CURRENT IP, like the app). The
+    // directed broadcast stays on /status broadcast_ip + the page's Bcast row.
+    snprintf(extra, sizeof(extra), "%d,%ddBm,%s,%s", pct, rssi, ipStr,
+             WiFi.SSID().c_str());
   } else if (apRunning_) {
     // Own-network session: show the broadcast ID + the softAP IP on the
     // OLED so the user knows which network to join (the IP contains a dot,
@@ -2072,9 +2059,6 @@ void WebServerComm::updateExtraInfo() {
     // Also list saved routers so the user sees available networks without connecting.
     char ipStr[32];
     WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
-    // v1.2.3: the own-hotspot broadcast rides every AP row too (|BC=), so the
-    // OLED's Bcast line shows 4WDCar_Wifi's directed broadcast (softAP /24).
-    WiFi.softAPBroadcastIP().toString().toCharArray(bcastStr, sizeof(bcastStr));
     char extraBuf[128];
     extraBuf[0] = '\0';
     if (savedRouterCount_ > 0) {
@@ -2084,11 +2068,9 @@ void WebServerComm::updateExtraInfo() {
       }
     }
     if (extraBuf[0] != '\0') {
-      // |BC= sits BEFORE |Nets= so a long saved-router tail can never truncate
-      // the broadcast address off the end of the 96-byte extraInfo row.
-      snprintf(extra, sizeof(extra), "AP:%s,%s|BC=%s|Nets:%s", apName_.c_str(), ipStr, bcastStr, extraBuf);
+      snprintf(extra, sizeof(extra), "AP:%s,%s|Nets:%s", apName_.c_str(), ipStr, extraBuf);
     } else {
-      snprintf(extra, sizeof(extra), "AP:%s,%s|BC=%s", apName_.c_str(), ipStr, bcastStr);
+      snprintf(extra, sizeof(extra), "AP:%s,%s", apName_.c_str(), ipStr);
     }
     // U-98: Enable network cycling on OLED display
     if (modeManager && modeManager->getOledDisplay()) {

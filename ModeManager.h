@@ -199,10 +199,12 @@ private:
   // v1.0.1: two-part link context for the OLED ("method|type").
   static constexpr size_t LINK_BUF_LEN = 40;
   char linkContext_[LINK_BUF_LEN];
-  // 96: STA rows carry ",<ssid>|BC=<directed broadcast>" on top of the legacy
-  // pct/rssi/ip trio (~78 bytes worst case) so the OLED's Bcast line renders
-  // from car truth. 64 was the pre-2026-10-09 size (arm + clock fit; bump is
-  // additive and the member lives in the heap-backed ModeManager, not a hot wire).
+  // 96: the STA row is "pct,rssi,ip,<ssid>" (~59 bytes) and the AP row
+  // "AP:<name>,<ip>|Nets:<list>" can pass 64 with three long saved-router names
+  // — v1.2.4 shows the car's CURRENT IP (not the broadcast), so no |BC= payload
+  // rides extraInfo anymore; the bump stays for the AP list headroom. 64 was the
+  // pre-2026-10-09 size (arm + clock fit; the bump is additive and the member
+  // lives in the heap-backed ModeManager, not a hot wire).
   static constexpr size_t EXTRA_INFO_LEN = 96;
   static constexpr size_t STATUS_TEXT_LEN = 64;
   char extraInfo_[EXTRA_INFO_LEN];

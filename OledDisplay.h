@@ -24,10 +24,10 @@ public:
   // v1.0.1 (owner OLED directive 2026-09-28): the dashboard shows WHICH link
   // method is connected (Bluetooth / WiFi / None) and the transport type under
   // it (SPP / WebServer / AP ready / WiFi / --), updated pronto from
-  // live transport truth. v1.2.3 (2026-10-09): rows 3/4 render the METHOD +
-  // network name and the network's directed-broadcast IP; the transport type is
-  // only surfaced as the Bluetooth status ("Bluetooth : SPP"). Default no-op
-  // keeps other displays source-compatible.
+  // live transport truth. v1.2.4 (2026-10-09): rows 3/4 render the METHOD +
+  // network name and the car's CURRENT IP (the number the app shows); the
+  // transport type is only surfaced as the Bluetooth status ("Bluetooth : SPP").
+  // Default no-op keeps other displays source-compatible.
   virtual void setLinkContext(const char* /*method*/, const char* /*type*/, bool /*connected*/) {}
   // U-98: Network cycling on OLED - enable/disable cycling through saved networks
   virtual void setNetworkCycling(bool /*active*/) {}
