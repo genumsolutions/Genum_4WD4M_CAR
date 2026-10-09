@@ -13,6 +13,16 @@
 #include <cstddef>
 #include <cstring>
 
+// ---- T-31 project identity (single source; boot splash + docs) ----
+#define FW_NAME    "4WD4M Car"
+// The version VALUE lives here; the per-release NOTES live in TRACKS/CHANGELOG.md.
+// They used to be one 3,247-character line on this define — 34% of the file —
+// which made Config.h unreadable and ungreppable. Nothing is lost: the history
+// was extracted verbatim, including two entries that were already truncated
+// mid-sentence in the original.
+#define FW_VERSION "1.2.3"  // see TRACKS/CHANGELOG.md
+#define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
+
 // U-79: Transport power arbitration mutex - declared extern so it can be
 // shared between .ino and transport classes (WebServerComm, BluetoothComm)
 // for atomic state transitions during stop/begin/restart operations.
