@@ -5,15 +5,9 @@
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
 
-// ---- T-31 project identity (single source; boot splash + docs) ----
-#define FW_NAME    "4WD4M Car"
-// The version VALUE lives here; the per-release NOTES live in TRACKS/CHANGELOG.md.
-// They used to be one 3,247-character line on this define — 34% of the file —
-// which made Config.h unreadable and ungreppable. Nothing is lost: the history
-// was extracted verbatim, including two entries that were already truncated
-// mid-sentence in the original.
-#define FW_VERSION "1.2.3"  // see TRACKS/CHANGELOG.md
-#define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
+// Include Arduino.h FIRST so portMUX_TYPE, portENTER_CRITICAL, etc. are available
+// for any file that includes Config.h. This is the central config header.
+#include <Arduino.h>
 
 #include <stdint.h>
 #include <cstddef>
@@ -22,16 +16,14 @@
 // U-79: Transport power arbitration mutex - declared extern so it can be
 // shared between .ino and transport classes (WebServerComm, BluetoothComm)
 // for atomic state transitions during stop/begin/restart operations.
-// Uses ESP32 Arduino's portMUX via opaque pointer to avoid include order issues.
-// The actual definition is in Genum_4WD4M_CAR.ino (portMUX_TYPE transportPowerMux).
-extern void* transportPowerMux;
+// Uses ESP32 Arduino's portMUX (via Arduino.h) for critical sections.
+// The actual definition is in Genum_4WD4M_CAR.ino to avoid multiple definitions.
+extern portMUX_TYPE transportPowerMux;
 
 // U-79: Critical section macros for transport power arbitration.
 // Uses ESP32 Arduino's portMUX via portENTER_CRITICAL/portEXIT_CRITICAL.
-// These are available when Arduino.h is included.
-// Cast void* to portMUX_TYPE* for the FreeRTOS API.
-#define TRANSPORT_POWER_ENTER_CRITICAL() portENTER_CRITICAL((portMUX_TYPE*)transportPowerMux)
-#define TRANSPORT_POWER_EXIT_CRITICAL() portEXIT_CRITICAL((portMUX_TYPE*)transportPowerMux)
+#define TRANSPORT_POWER_ENTER_CRITICAL() portENTER_CRITICAL(&transportPowerMux)
+#define TRANSPORT_POWER_EXIT_CRITICAL() portEXIT_CRITICAL(&transportPowerMux)
 
 // U-79: Safe string copy utility — guarantees null-termination and prevents
 // buffer overflows. Replaces unsafe strncpy/strcpy calls throughout the codebase.
