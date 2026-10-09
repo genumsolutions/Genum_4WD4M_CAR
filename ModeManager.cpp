@@ -710,9 +710,10 @@ void ModeManager::run() {
 
   if (comm_ != nullptr && comm_ != auxComm_ && comm_->available()) {
     size_t n = readLineFromComm(comm_, cmdBuf, sizeof(cmdBuf), 20);
-    // v2: comm_ is the always-on web transport — queued lines are WIRE-sourced
-    // (the WS/HTTP handlers dispatch live; this drain keeps the queue clean
-    // with consistent source truth instead of the donor's default-source echo).
+    // v2: comm_ is the always-on web transport - queued lines are WIRE-sourced.
+    // U-88: the WS and HTTP handlers queue ONLY (no live dispatch), so this
+    // drain is the single dispatch point for every web line; handleCommand()
+    // here is what makes it run, with consistent source truth.
     if (n > 0) handleCommand(cmdBuf, CmdSource::WIRE);
   }
 

@@ -221,15 +221,21 @@ void WebServerComm::loadSavedRouters() {
     p.toCharArray(savedRouterPass_[i], ROUTER_PASS_LEN);
     ++savedRouterCount_;
   }
+  // U-77: close the READ-ONLY handle BEFORE any write below. NVS shares one
+  // handle per namespace, and the first open's mode governs — writing through a
+  // namespace that was opened read-only is silently dropped. (The old purge and
+  // promotion blocks opened their own writable handle while this read-only one
+  // was still live, so their NVS rewrites could not persist.)
+  prefs.end();
   // U-92: a registry row named like the car's OWN hotspot is poison — it got
   // in through the unguarded WIFICFG/ADD paths (their Reserved checks compared
   // the whole unterminated field, so a password after the name bypassed them)
   // and the promotion below then copied the active pair in. The owner's
   // "double entry of esp's own hotspot". Purge at load and rewrite NVS so an
   // already-poisoned car heals itself without owner action.
+  bool purged = false;
   {
     int w = 0;
-    bool purged = false;
     for (int r = 0; r < savedRouterCount_; ++r) {
       if (strcasecmp(savedRouterSsid_[r], WIFI_AP_NAME) == 0) {
         purged = true;
@@ -247,28 +253,13 @@ void WebServerComm::loadSavedRouters() {
         savedRouterPass_[i][0] = '\0';
       }
       savedRouterCount_ = w;
-      Preferences wprefs;
-      wprefs.begin("botcfg", false);
-      for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
-        static const char* sKeys[] = { "rnet0s", "rnet1s", "rnet2s", "rnet3s", "rnet4s", "rnet5s" };
-        static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
-        if (i < savedRouterCount_) {
-          wprefs.putString(sKeys[i], savedRouterSsid_[i]);
-          wprefs.putString(pKeys[i], savedRouterPass_[i]);
-        } else {
-          wprefs.remove(sKeys[i]);
-          wprefs.remove(pKeys[i]);
-        }
-      }
-      wprefs.end();
-      Serial.println(
-          "[ROUTERS] removed the car's own hotspot from the saved list (U-92)");
     }
   }
   // Promote the stored active pair (wifi_ssid) up front so the connected
   // router always appears in the saved list even after a WIFICFG-only setup.
   // U-92: never promote the car's own hotspot — that is the other half of the
   // double-entry mechanism.
+  bool promoted = false;
   if (hasStoredWifi_ && storedSsid_[0] &&
       strcasecmp(storedSsid_, WIFI_AP_NAME) != 0) {
     bool found = false;
@@ -281,15 +272,33 @@ void WebServerComm::loadSavedRouters() {
       savedRouterSsid_[savedRouterCount_][ROUTER_SSID_LEN - 1] = '\0';
       savedRouterPass_[savedRouterCount_][ROUTER_PASS_LEN - 1] = '\0';
       ++savedRouterCount_;
-      // Persist the promoted entry so the promotion survives reboots.
-      static const char* sKeys[] = { "rnet0s", "rnet1s", "rnet2s", "rnet3s", "rnet4s", "rnet5s" };
-      static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
-      int i = savedRouterCount_ - 1;
-      prefs.putString(sKeys[i], savedRouterSsid_[i]);
-      prefs.putString(pKeys[i], savedRouterPass_[i]);
+      promoted = true;
     }
   }
-  prefs.end();
+  // ONE writable pass, and only when the RAM registry actually changed (a
+  // purge or a promotion). The read-only handle above is already closed, so
+  // this open is read-write from the start and the rewrite persists.
+  if (purged || promoted) {
+    Preferences wprefs;
+    if (wprefs.begin("botcfg", false)) {
+      static const char* sKeys[] = { "rnet0s", "rnet1s", "rnet2s", "rnet3s", "rnet4s", "rnet5s" };
+      static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
+      for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
+        if (i < savedRouterCount_) {
+          wprefs.putString(sKeys[i], savedRouterSsid_[i]);
+          wprefs.putString(pKeys[i], savedRouterPass_[i]);
+        } else {
+          wprefs.remove(sKeys[i]);
+          wprefs.remove(pKeys[i]);
+        }
+      }
+      wprefs.end();
+    }
+  }
+  if (purged) {
+    Serial.println(
+        "[ROUTERS] removed the car's own hotspot from the saved list (U-92)");
+  }
   FW_LOG_VERBOSE("[ROUTERS] %d saved router(s) loaded\n", savedRouterCount_);
 }
 
@@ -2351,10 +2360,13 @@ void WebServerComm::handleRoot() {
 
 void WebServerComm::handleMove(const char* cmd) {
   armHttpGuard();  // U-77: bounded writes on every HTTP response
+  // U-88 (extended to HTTP): there is ONE command path. This handler used to
+  // call modeManager->handleCommand() immediately AND queuePush(), so every
+  // HTTP move ran TWICE (and the `S` branch then queueClear()'d the just-queued
+  // stop along with every pending line). Queue only; ModeManager::run() drains
+  // and dispatches it on the next loop pass, exactly like the WS path.
   if (modeManager) {
-    modeManager->handleCommand(cmd, ModeManager::CmdSource::WIRE);
     queuePush(cmd);
-    if (strcmp(cmd, "S") == 0) queueClear();
   }
   // F-68: same redaction as the WS ack — this one is also broadcast to every
   // WS client, so an unredacted password would reach all of them.
@@ -2375,7 +2387,9 @@ void WebServerComm::handleSpeed() {
   }
   int requested = sval.toInt();
   int speed = constrain(requested, static_cast<int>(MIN_SPEED), static_cast<int>(MAX_SPEED));
-  if (modeManager) modeManager->setSpeed(speed);
+  // U-88 (extended to HTTP): queue the `#<n>` line only. The direct setSpeed()
+  // here applied the clamped speed a SECOND time when ModeManager::run()
+  // drained the queue.
   char buf[32];
   snprintf(buf, sizeof(buf), "#%d", speed);
   queuePush(buf);
