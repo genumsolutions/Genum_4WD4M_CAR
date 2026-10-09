@@ -79,6 +79,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     .nettable .net-empty{color:#889;text-align:center;white-space:normal;height:auto;padding:10px 6px}
     .controls{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0;padding:4px 0}
     .row{display:flex;justify-content:center;align-items:center;margin:4px 0}
+    .speed-row{margin:6px 0 2px}
     .btn{width:clamp(80px,26vmin,132px);height:clamp(72px,24vmin,124px);margin:4px;padding:0;color:#fff;border:2px solid #666;border-radius:18px;font-size:20px;font-weight:bold;display:flex;align-items:center;justify-content:center;user-select:none;touch-action:none;background:linear-gradient(180deg,#2e2e2e,#1a1a1a);box-shadow:0 3px 0 #000,0 5px 12px rgba(0,0,0,.5);text-shadow:0 1px 2px rgba(0,0,0,.6)}
     .btn.pressed{background:linear-gradient(180deg,#0a0,#060);border-color:#0f0;transform:translateY(2px);box-shadow:0 1px 0 #000}
     .btn.stop{background:linear-gradient(180deg,#8a1a1a,#5a0d0d);border-color:#ff5a5a}
@@ -107,8 +108,9 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         .side b{color:#fff;font-weight:600}
         .controls{justify-content:center;align-items:center;padding:2px 0}
         .row{flex:1;width:100%;margin:2px 0;align-items:stretch}
+        .speed-row{flex:0 0 auto;margin:4px 0 2px}
         .btn{flex:1;max-width:150px;height:100%;margin:2px;border-radius:14px;font-size:14px;font-weight:700}
-        .range-wrap{margin:2px 0}
+        .range-wrap{margin:0}
         .range-wrap .val{min-width:38px;font-size:13px;font-weight:700}
         .range-wrap .lim{font-size:10px;color:#888}
         .small{font-size:9px;color:#888;margin-top:1px}
@@ -672,6 +674,14 @@ renderScan(j);
           <div id='btn-right' class='btn'>RGT</div>
         </div>
         <div class='row'><div id='btn-back' class='btn'>BWD</div></div>
+        <div class='row speed-row'>
+          <div class='range-wrap'>
+            <label class='lim'>100</label>
+            <input id='s' type='range' min='100' max='255' step='5' value='170' aria-label='Speed'>
+            <span id='speed' class='val'></span>
+            <label class='lim'>255</label>
+          </div>
+        </div>
       </div>
       <aside class='side side-r'>
         <span>IP: <b id='ip'>--</b></span>
@@ -700,16 +710,10 @@ renderScan(j);
             <tbody id='netlist'><tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr></tbody>
           </table>
         </div>
-      </section>
+</section>
     </div>
 
-    <div class='range-wrap'>
-      <label class='lim'>100</label>
-      <input id='s' type='range' min='100' max='255' step='5' value='170' aria-label='Speed'>
-      <span id='speed' class='val'></span>
-      <label class='lim'>255</label>
-    </div>
-    <p class='small'>Speed 100–255 (car floor). Hold a button to move; release to stop.</p>
+    <p class='small'>Speed 100&#8211;255 (car floor). Hold a button to move; release to stop.</p>
   </div>
 </body>
 </html>
