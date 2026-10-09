@@ -22,9 +22,19 @@
 // U-79: Transport power arbitration mutex - declared extern so it can be
 // shared between .ino and transport classes (WebServerComm, BluetoothComm)
 // for atomic state transitions during stop/begin/restart operations.
-// Uses FreeRTOS portMUX for ESP32.
-#include <freertos/portmacro.h>
-extern portMUX_TYPE transportPowerMux;
+// Uses ESP32 Arduino's portMUX (via Arduino.h) for critical sections.
+// The actual definition is in Genum_4WD4M_CAR.ino to avoid multiple definitions.
+#ifndef TRANSPORT_POWER_MUX_DEFINED
+#define TRANSPORT_POWER_MUX_DEFINED
+typedef struct { uint32_t dummy; } transport_power_mux_t;
+extern transport_power_mux_t transportPowerMux;
+#endif
+
+// U-79: Critical section macros for transport power arbitration.
+// Uses ESP32 Arduino's portMUX via portENTER_CRITICAL/portEXIT_CRITICAL.
+// These are available when Arduino.h is included (which includes FreeRTOS portmacro).
+#define TRANSPORT_POWER_ENTER_CRITICAL() portENTER_CRITICAL(&transportPowerMux)
+#define TRANSPORT_POWER_EXIT_CRITICAL() portEXIT_CRITICAL(&transportPowerMux)
 
 // U-79: Safe string copy utility — guarantees null-termination and prevents
 // buffer overflows. Replaces unsafe strncpy/strcpy calls throughout the codebase.

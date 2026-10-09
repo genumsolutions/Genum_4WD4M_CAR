@@ -20,7 +20,7 @@
 #include <Preferences.h>  // U-79: last-used transport persistence
 
 // U-79: Transport power arbitration mutex definition (matches extern in Config.h)
-portMUX_TYPE transportPowerMux = portMUX_INITIALIZER_UNLOCKED;
+transport_power_mux_t transportPowerMux = {0};
 
 L298NControl motor;
 BluetoothComm btComm;
@@ -384,69 +384,108 @@ void loop() {
   // connected for longer than the grace period, both broadcast again. The
   // transport WITH a client is never touched, so a live control path can
   // never be yanked out from under the user.
-  // CRITICAL: Use portMUX to ensure atomic state transitions and prevent
-  // races between loop() arbitration and transport stop/begin calls from
-  // other code paths (e.g., mode changes, WiFi reconnection).
+  // CRITICAL: Use portMUX ONLY for atomic state reads/writes, NOT for
+  // transport operations which can block for hundreds of milliseconds.
+  bool btClient, webClient, relayClient, wiredClient;
   {
     portENTER_CRITICAL(&transportPowerMux);
-    const bool btClient = btComm.connected();
-    const bool webClient = webServerComm.hasWsClients();
-    // U-94 Phase 2: the relay is a WIRED client for power purposes, because it
-    // physically cannot work without Wi-Fi. Without this line the policy would
-    // switch the radio off the moment a Bluetooth phone paired - taking down the
-    // one link the Internet method depends on, while reporting "Wi-Fi off" as if
-    // that were tidy housekeeping. This is the same rule as hasWsClients(),
-    // applied to a client that lives somewhere else.
-    const bool relayClient = relayComm.connected();
-    const bool wiredClient = webClient || relayClient;
+    btClient = btComm.connected();
+    webClient = webServerComm.hasWsClients();
+    relayClient = relayComm.connected();
+    wiredClient = webClient || relayClient;
     portEXIT_CRITICAL(&transportPowerMux);
+  }
 
-    if (btClient && !wiredClient) {
-      if (webUp) {
-        portENTER_CRITICAL(&transportPowerMux);
-        webServerComm.stop();
+  if (btClient && !wiredClient) {
+    bool shouldStopWeb = false;
+    {
+      portENTER_CRITICAL(&transportPowerMux);
+      shouldStopWeb = webUp;
+      if (shouldStopWeb) {
         webUp = false;
         saveLastTransport(LastTransport::BT);
-        portEXIT_CRITICAL(&transportPowerMux);
-        Serial.println("[POWER] Wi-Fi off - Bluetooth client active");
       }
+      portEXIT_CRITICAL(&transportPowerMux);
+    }
+    if (shouldStopWeb) {
+      webServerComm.stop();
+      Serial.println("[POWER] Wi-Fi off - Bluetooth client active");
+    }
+    {
+      portENTER_CRITICAL(&transportPowerMux);
       transportsIdle = false;
-    } else if (wiredClient && !btClient) {
-      if (btUp) {
-        portENTER_CRITICAL(&transportPowerMux);
-        btComm.stop();
+      portEXIT_CRITICAL(&transportPowerMux);
+    }
+  } else if (wiredClient && !btClient) {
+    bool shouldStopBt = false;
+    {
+      portENTER_CRITICAL(&transportPowerMux);
+      shouldStopBt = btUp;
+      if (shouldStopBt) {
         btUp = false;
         saveLastTransport(LastTransport::WIFI);
-        portEXIT_CRITICAL(&transportPowerMux);
-        Serial.println("[POWER] Bluetooth off - wired client active");
       }
+      portEXIT_CRITICAL(&transportPowerMux);
+    }
+    if (shouldStopBt) {
+      btComm.stop();
+      Serial.println("[POWER] Bluetooth off - wired client active");
+    }
+    {
+      portENTER_CRITICAL(&transportPowerMux);
       transportsIdle = false;
-    } else if (!btClient && !wiredClient) {
+      portEXIT_CRITICAL(&transportPowerMux);
+    }
+  } else if (!btClient && !wiredClient) {
+    bool wasIdle;
+    {
+      portENTER_CRITICAL(&transportPowerMux);
+      wasIdle = transportsIdle;
       if (!transportsIdle) {
         transportsIdle = true;
         transportsIdleSinceMs = millis();
-      } else if (millis() - transportsIdleSinceMs >= TRANSPORT_GRACE_MS) {
-        if (!btUp) {
-          portENTER_CRITICAL(&transportPowerMux);
-          btUp = btComm.begin();  // idempotent; true = advertising again
-          portEXIT_CRITICAL(&transportPowerMux);
-          if (btUp) Serial.println("[POWER] Bluetooth advertising (no client)");
-        }
-        if (!webUp) {
-          portENTER_CRITICAL(&transportPowerMux);
-          webServerComm.beginAlwaysOn();
-          webUp = true;
-          if (lastTransport == LastTransport::WIFI) {
-            webServerComm.armBootAutoJoin();  // short budget; hotspot fallback
-          }
-          portEXIT_CRITICAL(&transportPowerMux);
-          Serial.println("[POWER] Wi-Fi up (no client)");
-        }
-        transportsIdle = false;
       }
-    } else {
-      transportsIdle = false;  // both connected: leave both alone
+      portEXIT_CRITICAL(&transportPowerMux);
     }
+
+    if (!wasIdle) {
+      // Just became idle, wait for grace period
+    } else if (millis() - transportsIdleSinceMs >= TRANSPORT_GRACE_MS) {
+      bool shouldStartBt = false, shouldStartWeb = false, shouldArmAutoJoin = false;
+      LastTransport lt;
+      {
+        portENTER_CRITICAL(&transportPowerMux);
+        shouldStartBt = !btUp;
+        shouldStartWeb = !webUp;
+        lt = lastTransport;
+        if (shouldStartBt) btUp = true;
+        if (shouldStartWeb) webUp = true;
+        portEXIT_CRITICAL(&transportPowerMux);
+      }
+
+      if (shouldStartBt) {
+        btComm.begin();  // idempotent; true = advertising again
+        Serial.println("[POWER] Bluetooth advertising (no client)");
+      }
+      if (shouldStartWeb) {
+        webServerComm.beginAlwaysOn();
+        shouldArmAutoJoin = (lt == LastTransport::WIFI);
+        Serial.println("[POWER] Wi-Fi up (no client)");
+      }
+      if (shouldArmAutoJoin) {
+        webServerComm.armBootAutoJoin();  // short budget; hotspot fallback
+      }
+      {
+        portENTER_CRITICAL(&transportPowerMux);
+        transportsIdle = false;
+        portEXIT_CRITICAL(&transportPowerMux);
+      }
+    }
+  } else {
+    // both connected: leave both alone
+    portENTER_CRITICAL(&transportPowerMux);
+    transportsIdle = false;
+    portEXIT_CRITICAL(&transportPowerMux);
   }
 
   // U-95/F-79: back to idle. The phase markers set above (http-root,

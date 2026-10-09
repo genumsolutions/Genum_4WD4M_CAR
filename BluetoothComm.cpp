@@ -6,20 +6,25 @@
 // =====================================================================
 #include "BluetoothComm.h"
 #include "Config.h"
-#include "Config.h"  // U-79: transportPowerMux for atomic state transitions
 
 bool BluetoothComm::begin() {
   // Advertised name matches the fleet docs/app test notes ("BT connect as
   // 4WD CAR" — guide RESUME HERE). Keep in sync with CATALOG.md.
   // U-79: idempotent — the transport power policy stops/starts this at will.
-  portENTER_CRITICAL(&transportPowerMux);
-  if (started_) {
-    portEXIT_CRITICAL(&transportPowerMux);
-    return true;
-  }
-  started_ = SerialBT.begin("4WD CAR");
+  TRANSPORT_POWER_ENTER_CRITICAL();
+  bool alreadyStarted = started_;
+  TRANSPORT_POWER_EXIT_CRITICAL();
+  
+  if (alreadyStarted) return true;
+  
+  // SerialBT.begin() can take time - do it outside critical section
+  bool success = SerialBT.begin("4WD CAR");
+  
+  TRANSPORT_POWER_ENTER_CRITICAL();
+  started_ = success;
   if (started_) lastActivityMs = millis();
-  portEXIT_CRITICAL(&transportPowerMux);
+  TRANSPORT_POWER_EXIT_CRITICAL();
+  
   return started_;
 }
 
@@ -28,14 +33,17 @@ bool BluetoothComm::begin() {
 // power. begin() brings it back; connected() reports false while stopped so
 // the rest of the system sees an honest "no BT client".
 void BluetoothComm::stop() {
-  portENTER_CRITICAL(&transportPowerMux);
+  TRANSPORT_POWER_ENTER_CRITICAL();
   if (!started_) {
-    portEXIT_CRITICAL(&transportPowerMux);
+    TRANSPORT_POWER_EXIT_CRITICAL();
     return;
   }
-  SerialBT.end();
   started_ = false;
-  portEXIT_CRITICAL(&transportPowerMux);
+  TRANSPORT_POWER_EXIT_CRITICAL();
+  
+  // SerialBT.end() can take time - do it outside critical section
+  SerialBT.end();
+  
   Serial.println("[BT] stopped (power save - a web client is active)");
 }
 
@@ -69,9 +77,15 @@ bool BluetoothComm::restart() {
   lastRestartMs = now;
   FW_LOG_VERBOSE("[BT] restart requested\n");
   
-  portENTER_CRITICAL(&transportPowerMux);
-  SerialBT.end();
-  portEXIT_CRITICAL(&transportPowerMux);
+  // SerialBT.end() can take time - do it outside critical section
+  TRANSPORT_POWER_ENTER_CRITICAL();
+  bool wasStarted = started_;
+  started_ = false;
+  TRANSPORT_POWER_EXIT_CRITICAL();
+  
+  if (wasStarted) {
+    SerialBT.end();
+  }
   
   delay(80);
   

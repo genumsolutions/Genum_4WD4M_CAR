@@ -1001,11 +1001,16 @@ void WebServerComm::beginAlwaysOn() {
   // Gate rule: `wifi-persistent`.
   WiFi.persistent(false);
   
-  portENTER_CRITICAL(&transportPowerMux);
+  // Initialize WiFi stack (non-blocking, runs in handle())
   beginStation();  // WIFI_AP + startOwnAP() + server.begin() + ws.begin()
   WiFi.mode(WIFI_AP_STA);  // ready for explicit router joins without a mode dance
   updateExtraInfo();
-  portEXIT_CRITICAL(&transportPowerMux);
+  
+  // Protect state variables with critical section
+  TRANSPORT_POWER_ENTER_CRITICAL();
+  apRunning_ = true;
+  startedAsAP = true;
+  TRANSPORT_POWER_EXIT_CRITICAL();
   
   // U-79: the boot auto-join (armBootAutoJoin) is NO LONGER fired from here.
   // This function now also runs on the U-79 power-policy RESUME path (idle ->
@@ -1511,8 +1516,6 @@ void WebServerComm::armBootAutoJoin() {
 void WebServerComm::stop() {
   FW_LOG_VERBOSE("DBG: stop() called, serverRunning=%d\n", serverRunning ? 1 : 0);
 
-  portENTER_CRITICAL(&transportPowerMux);
-  connectingPending_ = false;
   // U-95 Phase 2: shutdown must not leave a deferred begin armed for a
   // later start() to fire.
   retryBeginPending_ = false;
@@ -1532,16 +1535,17 @@ void WebServerComm::stop() {
   stopMdns();
   WiFi.disconnect();
   if (apRunning_) WiFi.softAPdisconnect(true);
+
+  // Protect state variables with critical section
+  TRANSPORT_POWER_ENTER_CRITICAL();
+  connectingPending_ = false;
   apRunning_ = false;
-  // U-86: everything is down, so nothing is "parked" — it was stopped. Otherwise
-  // a later begin() would start with apParked_ true and the power policy would
-  // refuse to bring the beacon back up.
   apParked_ = false;
   staConnectedAtMs_ = 0;
-
   startedAsAP = false;
   queueClear();
-  portEXIT_CRITICAL(&transportPowerMux);
+  TRANSPORT_POWER_EXIT_CRITICAL();
+
   FW_LOG_VERBOSE("Free heap after stop: %d\n", static_cast<int>(ESP.getFreeHeap()));
 }
 
