@@ -370,12 +370,6 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
                 }
               }
             }
-// U-95 Phase 3: the network table repaints from j.scan (+ j.ap for
-// the own row). renderScan() is diff-gated, so the 1 Hz frame only
-// touches the DOM when the rows actually changed.
-renderScan(j);
-// Scan feature removed - using router dropdown for network management
-// Scan complete - hide cancel button, show scan button
            }
          } catch(e){ /* ignore non-JSON frames */ }
        };
@@ -470,57 +464,8 @@ renderScan(j);
     // hops networks (the hotspot link drops by design; the page reconnects
     // automatically once the phone follows the car onto the router).
     var switchNote = '';
-    // U-95 Phase 3: THE NETWORK TABLE. j.scan carries per-row car truth
-    // (ssid/rssi/open/channel/own/saved/current — computed ONCE, in
-    // buildScanJson, because three app modules already disagree about the
-    // own-network rule) and the page never read any of it. Headings come from
-    // the markup; rows are diff-gated like the mode/router lists (the 1 Hz
-    // frame must not rewrite the table under a scrolling finger).
     function escHtml(s){
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-    }
-    function renderScan(j){
-      var tb = document.getElementById('netlist');
-      if(!tb) return;
-      var rows = (j && Array.isArray(j.scan)) ? j.scan.filter(function(r){ return r && r.ssid; }) : [];
-      var show = rows;
-      var own = (j && j.ap) ? String(j.ap) : '';
-      // The own network is a FIRST-CLASS, labelled row (owner ruling). When the
-      // scan did not list it (parked beacon, hidden SSID), synthesise it from
-      // j.ap so the "back to the car" path always exists. An empty scan stays
-      // the honest "not scanned yet" hint — no row is invented from nothing.
-      if (own && rows.length > 0 &&
-          !rows.some(function(r){ return String(r.ssid).toLowerCase() === own.toLowerCase(); })) {
-        show = [{ ssid: own, rssi: null, channel: 0, open: false, own: true, saved: true,
-                  current: !!(j.connected === true && String(j.ssid) === own) }].concat(rows);
-      }
-      var sig = JSON.stringify(show);
-      if (sig === lastScanSig) return;
-      lastScanSig = sig;
-      if (show.length === 0) {
-        tb.innerHTML = "<tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr>";
-        return;
-      }
-      var html = '';
-      for (var i = 0; i < show.length; i++) {
-        var r = show[i], fl = [];
-        if (r.own === true) fl.push('OWN');
-        if (r.current === true) fl.push('CONNECTED');
-        if (r.saved === true) fl.push('saved');
-        if (r.open === true) fl.push('open');
-        // Only rows the car would ACCEPT a USE for are tappable; anything else
-        // says so instead of promising a switch the car will refuse with
-        // "ERROR;Not saved".
-        var usable = (r.own === true || r.saved === true);
-        html += '<tr class="' + (usable ? 'hit' : 'dim') + '"' +
-                (usable ? ' data-usable="1"' : '') +
-                ' data-ssid="' + escHtml(r.ssid) + '">' +
-                '<td>' + escHtml(r.ssid) + '</td>' +
-                '<td>' + (r.rssi == null ? '--' : r.rssi + ' dBm') + '</td>' +
-                '<td>' + (r.channel ? 'ch ' + r.channel : '--') + '</td>' +
-                '<td>' + (fl.length ? fl.join(' ') : '-') + '</td></tr>';
-      }
-      tb.innerHTML = html;
     }
     function useNetwork(name){
       sendCmd('ROUTERS;USE;' + name);
@@ -528,19 +473,6 @@ renderScan(j);
       var c = document.getElementById('conn');
       if (c) c.innerText = 'Switching…';
     }
-    var netlistClick = function(e){
-      var t = (e && e.target) ? e.target : null;
-      if (!t || !t.getAttribute) return;
-      var row = t.closest ? t.closest('tr') : t;
-      if (!row || !row.getAttribute) return;
-      var ssid = row.getAttribute('data-ssid');
-      if (!ssid) return;
-      if (row.getAttribute('data-usable') !== '1') {
-        note('The car has not saved ' + ssid + ' yet - tap "Add router…" to save it first.', false);
-        return;
-      }
-      useNetwork(ssid);
-    };
     function setRouter(){
       let sel = document.getElementById('r');
       if(!sel || !sel.value) return;
@@ -567,9 +499,6 @@ renderScan(j);
       attachHold('btn-stop','stop');
       attachHold('btn-right','right');
       attachHold('btn-back','backward');
-      // U-95 Phase 3: the scan feature removed - using router dropdown for network management
-      var nl=document.getElementById('netlist');
-      if(nl) nl.onclick=netlistClick;
       // U-95 Phase 3 (power): a tab that was hidden schedules no reconnect
       // (onclose above); coming back reconnects IMMEDIATELY, no penalty delay —
       // the old page sat "Disconnected" for up to 3 s after every app switch.
