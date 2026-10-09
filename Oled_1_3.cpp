@@ -282,23 +282,23 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   char netBuf[33] = "";
   char ipBuf[32] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
+  // U-98: Parse router count from extraBuf: format "AP:name,ip|Nets:ssid1,ssid2,ssid3"
+  int routerCount = 0;
+  const char* netsPtr = strstr(extraBuf, "|Nets:");
+  if (netsPtr) {
+    const char* nets = netsPtr + 6; // Skip "|Nets:"
+    const char* p = nets;
+    while (*p) {
+      if (*p == ',') routerCount++;
+      p++;
+    }
+    routerCount++; // Last one doesn't have trailing comma
+  }
   // U-98: Cycle through saved networks in AP mode every 3 seconds
   if (isApFallback && networkCyclingActive) {
     uint32_t now = millis();
     if (now - lastNetworkCycleMs >= 3000) {
       lastNetworkCycleMs = millis();
-      // Parse router count from extraBuf: format "AP:name,ip|Nets:ssid1,ssid2,ssid3"
-      int routerCount = 0;
-      const char* netsPtr = strstr(extraBuf, "|Nets:");
-      if (netsPtr) {
-        const char* nets = netsPtr + 6; // Skip "|Nets:"
-        const char* p = nets;
-        while (*p) {
-          if (*p == ',') routerCount++;
-          p++;
-        }
-        routerCount++; // Last one doesn't have trailing comma
-      }
       if (routerCount > 1) {
         currentNetworkIndex = (currentNetworkIndex + 1) % routerCount;
       }
