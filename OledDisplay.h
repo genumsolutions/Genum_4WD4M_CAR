@@ -26,6 +26,10 @@ public:
   // it (SPP / WebServer / AP ready / LAN ready / RF / --), updated pronto from
   // live transport truth. Default no-op keeps other displays source-compatible.
   virtual void setLinkContext(const char* /*method*/, const char* /*type*/, bool /*connected*/) {}
+  // U-98: Network cycling on OLED - enable/disable cycling through saved networks
+  virtual void setNetworkCycling(bool /*active*/) {}
+  // U-98: Network cycling on OLED - update saved router count for cycling
+  virtual void setSavedRouterCount(int /*count*/) {}
   virtual void sleep() = 0;
   virtual void wake() = 0;
   virtual ~OledDisplay() = default;
