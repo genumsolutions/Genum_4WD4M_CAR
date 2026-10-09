@@ -93,7 +93,7 @@ public:
   // STA) > none. Pushed to the OLED as a two-part context string.
   struct LinkInfo {
     const char* method;  // "Bluetooth" / "WiFi" / "None"
-    const char* type;    // "SPP" / "WebServer" / "AP ready" / "LAN ready" / "--"
+    const char* type;    // "SPP" / "WebServer" / "AP ready" / "WiFi" / "--"
     bool connected;
   };
   LinkInfo currentLink() const;
@@ -199,7 +199,11 @@ private:
   // v1.0.1: two-part link context for the OLED ("method|type").
   static constexpr size_t LINK_BUF_LEN = 40;
   char linkContext_[LINK_BUF_LEN];
-  static constexpr size_t EXTRA_INFO_LEN = 64;
+  // 96: STA rows carry ",<ssid>|BC=<directed broadcast>" on top of the legacy
+  // pct/rssi/ip trio (~78 bytes worst case) so the OLED's Bcast line renders
+  // from car truth. 64 was the pre-2026-10-09 size (arm + clock fit; bump is
+  // additive and the member lives in the heap-backed ModeManager, not a hot wire).
+  static constexpr size_t EXTRA_INFO_LEN = 96;
   static constexpr size_t STATUS_TEXT_LEN = 64;
   char extraInfo_[EXTRA_INFO_LEN];
   mutable char statusText_[STATUS_TEXT_LEN];

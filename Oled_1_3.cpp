@@ -87,8 +87,9 @@ void Oled_1_3::setModeContext(const char* modeToken, bool isStub, bool isWip, bo
 
 // v1.0.1 (owner OLED directive): live link truth — WHICH method is connected
 // (Bluetooth / WiFi / None) and the transport type under it (SPP / WebServer /
-// AP ready / LAN ready). ModeManager computes it from transport state every
-// loop and pushes it on CHANGE; the next draw() renders it pronto.
+// AP ready / WiFi). ModeManager computes it from transport state every loop and
+// pushes it on CHANGE; the next draw() renders it pronto. v1.2.3 renders the
+// type only as the Bluetooth status line; the "LAN ready" wording is gone.
 void Oled_1_3::setLinkContext(const char* method, const char* type, bool connected) {
   safeCopy(linkMethodBuf, LINK_METHOD_LEN, method ? method : "None");
   safeCopy(linkTypeBuf, LINK_TYPE_LEN, type ? type : "--");
@@ -271,13 +272,32 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
 
     snprintf(line, sizeof(line), "Speed : %d", speed);
     u8g2->drawStr(leftX, lineBaseline[1], line);
+    // v1.2.3: the link bars moved HERE from the network rows (they used to
+    // steal the right end of row 4, forcing the Bcast line to shave 26 px).
+    // Filled whenever a controller is actually linked (SPP or WS); the Speed
+    // text (≤ 50 px at 5x8) never reaches the bar zone (x ≥ 102).
+    if (linkConnected) {
+      const int maxBars = 4, barW = 4, spacing = 2;
+      const int rightMargin = SCREEN_W - RIGHT_MARGIN;
+      for (int i = 0; i < maxBars; ++i) {
+        int barH = (i + 1) * 3;
+        int x = rightMargin - (maxBars - i) * (barW + spacing);
+        int y = lineBaseline[1] - barH;
+        u8g2->drawFrame(x, y, barW, barH);
+        u8g2->drawBox(x, y, barW, barH);
+      }
+    }
   }
 
   // T-36 (owner 2026-09-15): the transport line shows the NETWORK the car is
   // actually on — joined SSID, or the AP-fallback broadcast id — not a generic
-  // "Connected". extraInfo carries "pct,rssi,ip,<ssid>" (STA) or "AP:<name>,<ip>".
+  // "Connected". extraInfo carries "pct,rssi,ip,<ssid>|BC=<bcast>" (STA) or
+  // "AP:<name>,<ip>|BC=<bcast>|Nets:…". |BC= is the directed-broadcast address
+  // of the CURRENT network so the Bcast line (owner directive 2026-10-09)
+  // renders from car truth, never a client guess.
   char netBuf[33] = "";
   char ipBuf[32] = "";
+  char bcastBuf[16] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
   // U-98: Parse router count from extraBuf: format "AP:name,ip|Nets:ssid1,ssid2,ssid3"
   int routerCount = 0;
@@ -329,6 +349,22 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
       safeCopy(netBuf, sizeof(netBuf), f4 + 1);
     }
   }
+
+  // v1.2.3: lift the directed broadcast out of "…|<BC=…>" and drop any "|Nets:"
+  // suffix so netBuf (= joined SSID / AP id) and ipBuf (the interface IP) stay
+  // clean. |BC= always comes BEFORE the optional "|Nets:" list, so even a long
+  // saved-router tail that gets truncated can never cost us the broadcast.
+  const char* bcs = strstr(extraBuf, "|BC=");
+  if (bcs) {
+    bcs += 4;
+    const char* bEnd = strchr(bcs, '|');
+    size_t bLen = bEnd ? static_cast<size_t>(bEnd - bcs) : strlen(bcs);
+    if (bLen >= sizeof(bcastBuf)) bLen = sizeof(bcastBuf) - 1;
+    strncpy(bcastBuf, bcs, bLen);
+    bcastBuf[bLen] = '\0';
+  }
+  { char* nPipe = strchr(netBuf, '|'); if (nPipe) *nPipe = '\0'; }
+  { char* iPipe = strchr(ipBuf, '|');  if (iPipe) *iPipe = '\0'; }
 
   // T-39 (round-3): webserver mode gets its own 3-row body — WiFi, Speed, IP —
   // so nothing touches the border or the right-edge zone. T-50 (round-5): the
@@ -382,81 +418,60 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     return;
   }
 
-  // v1.0.1 (owner OLED directive 2026-09-30): display the live link's network
-  // name + transport type. Row 3 = joined SSID (or the AP broadcast id), row 4
-  // = type + live IP, blinking turn-by-turn every 2.5s (F-53/F-33). Bluetooth
-  // has no network name, so it shows the plain label + SPP transport.
+  // v1.2.3 (owner directive 2026-10-09): the last two lines are the NETWORK
+  // truth — Row 3 = the current method + network ("Wifi: <ssid>", or
+  // "Bluetooth: <transport status>" over SPP), Row 4 = the directed-broadcast
+  // IP of that network. The old 2.5s turn-by-turn blink is gone (it hid the
+  // info the owner wants on screen every second) and the rows own the full body
+  // width — the link bars moved up to the Speed row (above).
   {
     const char* method = linkMethodBuf;
     const char* type = (linkTypeBuf[0] != '\0') ? linkTypeBuf : "--";
 
-    // Row 3 = the NETWORK name (joined SSID, else the AP broadcast id).
-    // Row 4 = the transport type + the live IP. netBuf/ipBuf were parsed from
-    // extraInfo above, so the names shown here are the ones the car is really
-    // on -- never a placeholder.
+    // Row 3 = the NETWORK of the current method; Row 4 = the broadcast address.
+    // netBuf/ipBuf/bcastBuf were parsed from extraInfo above, so everything here
+    // is the network the car is REALLY on -- never a placeholder.
     char line3[40] = "";
     char line4[40] = "";
     const char* netName = (netBuf[0] != '\0') ? netBuf : "--";
-    const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "--";
+    const char* bcText = (bcastBuf[0] != '\0') ? bcastBuf : "--";
 
     if (strcmp(method, "Bluetooth") == 0 || strcmp(method, "BT") == 0) {
-      // Bluetooth: firmware keeps the plain Bluetooth label + SPP transport.
-      // The controller's friendly name is shown by the APP banner (owner
-      // ruling 2026-09-30, Q2=B) -- there is no peer-name channel here.
-      snprintf(line3, sizeof(line3), "BT");
-      snprintf(line4, sizeof(line4), "SPP   IP: %s", ipText);
+      // Bluetooth method: the "status" is the transport itself (SPP when a
+      // controller is linked). The controller's friendly name is shown by the
+      // APP banner (owner ruling 2026-09-30, Q2=B) -- no peer-name channel here.
+      // The Bcast line below still shows the Wi-Fi network the car is on, so a
+      // BT link never loses the "where is this thing on the LAN" answer.
+      snprintf(line3, sizeof(line3), "Bluetooth : %s",
+               (strcmp(type, "--") != 0) ? type : "Off");
     } else if (strcmp(method, "WiFi") == 0 || strcmp(method, "Wi-Fi") == 0) {
-      // WiFi: row 3 shows the SSID / AP name, row 4 the transport type + IP.
-      // 2.5s turn-by-turn blink between the two rows (F-53/F-33).
-      static uint32_t lastBlinkMs = 0;
-      static int blinkState = 0;
-      uint32_t now = millis();
-      if (now - lastBlinkMs >= 2500) {
-        lastBlinkMs = now;
-        blinkState ^= 1;  // toggle every 2.5s
-      }
-      if (blinkState == 0) {
-        snprintf(line3, sizeof(line3), "WiFi: %s", netName);
-        snprintf(line4, sizeof(line4), "IP: %s", ipText);
-      } else {
-        snprintf(line3, sizeof(line3), "WiFi: %s", netName);
-        snprintf(line4, sizeof(line4), "%s  IP: %s", type, ipText);
-      }
+      // WiFi method: joined SSID, else the own-hotspot broadcast id in AP mode.
+      snprintf(line3, sizeof(line3), "Wifi : %s", netName);
+    } else if (isApFallback) {
+      // Own hotspot broadcasting, no controller linked yet (AP ready) — the
+      // Wi-Fi network of the moment IS the car's own hotspot.
+      snprintf(line3, sizeof(line3), "Wifi : %s", netName);
     } else {
-      // None or unknown
-      snprintf(line3, sizeof(line3), "Link: %s", method);
-      snprintf(line4, sizeof(line4), "%s  IP: %s", type, ipText);
+      snprintf(line3, sizeof(line3), "Link : %s",
+               (strcmp(method, "None") != 0) ? method : "--");
     }
+    // LAST line (owner directive): the directed-broadcast IP of the current
+    // network — car-computed (STA ip|~mask, else the softAP broadcast), so the
+    // number matches /status broadcast_ip exactly.
+    snprintf(line4, sizeof(line4), "Bcast : %s", bcText);
 
     u8g2->setFont(fontBody);
-    // Width-trim instead of letting a long SSID run into the right-edge bar
-    // zone (same guard as the webserver rows above).
-    const int linkTextWide = usableW - 26;
+    // Full body width (the bars vacated row 4 for these two lines); only a
+    // genuinely over-long SSID tail gets trimmed, the broadcast row is short.
+    const int linkTextWide = usableW;
     for (int i = 0; i < 2; ++i) {
       char* row = (i == 0) ? line3 : line4;
-      // Trim from end but preserve words where possible
       while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
         row[strlen(row) - 1] = '\0';
       }
     }
     u8g2->drawStr(leftX, lineBaseline[2], line3);
     u8g2->drawStr(leftX, lineBaseline[3], line4);
-  }
-
-  // R-20 (fleet rule: link bars live ONLY in the drive dashboards) + v1.0.1:
-  // the bar stack keys off the LIVE LINK (any method), not the mode — bars
-  // show whenever a controller is actually linked (SPP or WS).
-  if (linkConnected) {
-    const int maxBars = 4, barW = 4, spacing = 2;
-    int rightBaseX = SCREEN_W - RIGHT_MARGIN - (maxBars * (barW + spacing));
-    int baseY = bodyBottom - 2;
-    for (int i = 0; i < maxBars; ++i) {
-      int x = rightBaseX + i * (barW + spacing);
-      int barH = (i + 1) * 3;
-      int y = baseY - barH;
-      u8g2->drawFrame(x, y, barW, barH);
-      u8g2->drawBox(x, y, barW, barH);
-    }
   }
 
   u8g2->sendBuffer();

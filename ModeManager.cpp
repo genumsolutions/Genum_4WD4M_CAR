@@ -145,7 +145,7 @@ ModeManager::LinkInfo ModeManager::currentLink() const {
   if (wsClients) return {"WiFi", "WebServer", true};
   if (relayUp) return {"Internet", "WSS", true};
   if (btUp) return {"Bluetooth", "SPP", true};
-  if (staJoined) return {"WiFi", "LAN ready", true};
+  if (staJoined) return {"WiFi", "WiFi", true};
   if (ws && (ws->apBroadcastId()[0] != '\0')) return {"None", "AP ready", false};
   return {"None", "--", false};
 }

@@ -2040,16 +2040,31 @@ void WebServerComm::stopMdns() {
 void WebServerComm::updateExtraInfo() {
   if (!modeManager) return;
   char extra[128];
+  // v1.2.3 (2026-10-09): the directed-broadcast address of the CURRENT network
+  // rides every extraInfo row so the OLED's Bcast line and the /status JSON
+  // agree on the same car-computed number (owner: "the last line shows the
+  // Broadcast IP of the current used network"). Car truth, never a client guess.
+  char bcastStr[16] = "";
   if (WiFi.status() == WL_CONNECTED) {
     int rssi = WiFi.RSSI();
     int pct = map(constrain(rssi, -100, -50), -100, -50, 0, 100);
     char ipStr[32];
     WiFi.localIP().toString().toCharArray(ipStr, sizeof(ipStr));
+    // Directed broadcast of the joined LAN (STA): ip | ~mask. WiFi has no
+    // broadcastIP() getter on ESP32, so it is computed — the same value the
+    // /status JSON reports as broadcast_ip, so the two always agree.
+    {
+      IPAddress ipA = WiFi.localIP(), maskA = WiFi.subnetMask();
+      IPAddress bcA(ipA[0] | (uint8_t)~maskA[0], ipA[1] | (uint8_t)~maskA[1],
+                    ipA[2] | (uint8_t)~maskA[2], ipA[3] | (uint8_t)~maskA[3]);
+      bcA.toString().toCharArray(bcastStr, sizeof(bcastStr));
+    }
     // T-36: append the JOINED network name so the OLED can show the real SSID
-    // instead of the generic "Connected" (owner report 2026-09-15). extraInfo_
-    // (64) fits: pct+dBm+ip+32-char SSID ≈ 59 bytes max.
-    snprintf(extra, sizeof(extra), "%d,%ddBm,%s,%s", pct, rssi, ipStr,
-             WiFi.SSID().c_str());
+    // instead of the generic "Connected" (owner report 2026-09-15). v1.2.3 adds
+    // |BC=<directed broadcast> for the OLED's Bcast line; EXTRA_INFO_LEN is 96
+    // so pct+dBm+ip+32-char SSID+|BC=+IP ≈ 78 bytes still fit.
+    snprintf(extra, sizeof(extra), "%d,%ddBm,%s,%s|BC=%s", pct, rssi, ipStr,
+             WiFi.SSID().c_str(), bcastStr);
   } else if (apRunning_) {
     // Own-network session: show the broadcast ID + the softAP IP on the
     // OLED so the user knows which network to join (the IP contains a dot,
@@ -2057,6 +2072,9 @@ void WebServerComm::updateExtraInfo() {
     // Also list saved routers so the user sees available networks without connecting.
     char ipStr[32];
     WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
+    // v1.2.3: the own-hotspot broadcast rides every AP row too (|BC=), so the
+    // OLED's Bcast line shows 4WDCar_Wifi's directed broadcast (softAP /24).
+    WiFi.softAPBroadcastIP().toString().toCharArray(bcastStr, sizeof(bcastStr));
     char extraBuf[128];
     extraBuf[0] = '\0';
     if (savedRouterCount_ > 0) {
@@ -2066,9 +2084,11 @@ void WebServerComm::updateExtraInfo() {
       }
     }
     if (extraBuf[0] != '\0') {
-      snprintf(extra, sizeof(extra), "AP:%s,%s|Nets:%s", apName_.c_str(), ipStr, extraBuf);
+      // |BC= sits BEFORE |Nets= so a long saved-router tail can never truncate
+      // the broadcast address off the end of the 96-byte extraInfo row.
+      snprintf(extra, sizeof(extra), "AP:%s,%s|BC=%s|Nets:%s", apName_.c_str(), ipStr, bcastStr, extraBuf);
     } else {
-      snprintf(extra, sizeof(extra), "AP:%s,%s", apName_.c_str(), ipStr);
+      snprintf(extra, sizeof(extra), "AP:%s,%s|BC=%s", apName_.c_str(), ipStr, bcastStr);
     }
     // U-98: Enable network cycling on OLED display
     if (modeManager && modeManager->getOledDisplay()) {
@@ -2474,6 +2494,18 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   char subnetMask[16] = "";
   if (WiFi.status() == WL_CONNECTED) {
     WiFi.localIP().toString().toCharArray(stationIp, sizeof(stationIp));
+    // v1.2.3 (owner: "the last line shows the Broadcast IP of the current used
+    // network"): broadcast_ip/subnet were AP-only since U-95 Phase 3 — on a
+    // joined LAN they came back empty and the page/app Bcast field showed '--'.
+    // Compute the STA directed broadcast (ip | ~mask) so the JSON matches the
+    // OLED's Bcast line for both interfaces.
+    {
+      IPAddress ipA = WiFi.localIP(), maskA = WiFi.subnetMask();
+      IPAddress bcA(ipA[0] | (uint8_t)~maskA[0], ipA[1] | (uint8_t)~maskA[1],
+                    ipA[2] | (uint8_t)~maskA[2], ipA[3] | (uint8_t)~maskA[3]);
+      bcA.toString().toCharArray(bcastIp, sizeof(bcastIp));
+      maskA.toString().toCharArray(subnetMask, sizeof(subnetMask));
+    }
   }
   if (apRunning_) {
     WiFi.softAPIP().toString().toCharArray(apIp, sizeof(apIp));
