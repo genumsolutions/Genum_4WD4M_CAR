@@ -24,7 +24,9 @@
 // for atomic state transitions during stop/begin/restart operations.
 // Uses ESP32 Arduino's portMUX (via Arduino.h) for critical sections.
 // The actual definition is in Genum_4WD4M_CAR.ino to avoid multiple definitions.
-extern portMUX_TYPE transportPowerMux;
+// Forward declare as opaque struct - actual type is portMUX_TYPE from FreeRTOS.
+struct transport_power_mux;
+extern struct transport_power_mux transportPowerMux;
 
 // U-79: Critical section macros for transport power arbitration.
 // Uses ESP32 Arduino's portMUX via portENTER_CRITICAL/portEXIT_CRITICAL.

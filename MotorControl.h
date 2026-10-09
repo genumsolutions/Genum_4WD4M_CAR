@@ -5,8 +5,8 @@
 // File: MotorControl.h — abstract motor driver + L298NControl (Action enum)
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
-#include "Config.h"
 #include <Arduino.h>
+#include "Config.h"
 #include <stdint.h>
 
 enum class Action : uint8_t { STOP = 0, FORWARD, BACKWARD, LEFT, RIGHT };

@@ -3,8 +3,9 @@
 // File: Genum_4WD4M_CAR.ino — entry point: boot, boot splash, watchdog,
 //       mode-switch wiring (BT ↔ SERVER)
 // Property of GENUM SOLUTIONS PVT. LTD.
-
+//
 // =====================================================================
+#include <Arduino.h>
 #include "Config.h"
 #include "CrashLog.h"      // U-95/F-79: persisted "why did the car restart"
 #include "MotorControl.h"
@@ -14,7 +15,6 @@
 #include "ModeManager.h"
 #include "RelayComm.h"       // U-94 Phase 2: Internet transport
 #include "WebServerComm.h"
-#include <Arduino.h>
 #include "esp_task_wdt.h"
 #include <esp_system.h>  // U-70: esp_reset_reason(). U-96's brownout register write was removed — the threshold is Kconfig-baked and not settable from a sketch (see setup()).
 #include <Preferences.h>  // U-79: last-used transport persistence

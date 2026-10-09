@@ -5,8 +5,8 @@
 // File: OledDisplay.h — SH1106 1.3" status screen driver (Oled_1_3)
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
-#include "Config.h"
 #include <Arduino.h>
+#include "Config.h"
 #include <U8g2lib.h>
 #include <cstdint>
 #include <stddef.h>

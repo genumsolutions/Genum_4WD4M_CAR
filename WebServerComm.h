@@ -6,10 +6,10 @@
 //       queue bridge, JSON status broadcast, WIFICFG provisioning
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
+#include <Arduino.h>
 #include "CommInterface.h"
 #include "ModeManager.h"
 #include "Config.h"
-#include <Arduino.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <Preferences.h>

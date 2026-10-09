@@ -7,6 +7,7 @@
 //       availability (LIVE/WIP/CS) + transport-aware drive gate
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
+#include <Arduino.h>
 #include "Config.h"
 #include "MotorControl.h"
 #include "CommInterface.h"
