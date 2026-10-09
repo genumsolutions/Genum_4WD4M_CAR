@@ -388,64 +388,64 @@ void loop() {
   // transport operations which can block for hundreds of milliseconds.
   bool btClient, webClient, relayClient, wiredClient;
   {
-    portENTER_CRITICAL(&transportPowerMux);
+    TRANSPORT_POWER_ENTER_CRITICAL();
     btClient = btComm.connected();
     webClient = webServerComm.hasWsClients();
     relayClient = relayComm.connected();
     wiredClient = webClient || relayClient;
-    portEXIT_CRITICAL(&transportPowerMux);
+    TRANSPORT_POWER_EXIT_CRITICAL();
   }
 
   if (btClient && !wiredClient) {
     bool shouldStopWeb = false;
     {
-      portENTER_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_ENTER_CRITICAL();
       shouldStopWeb = webUp;
       if (shouldStopWeb) {
         webUp = false;
         saveLastTransport(LastTransport::BT);
       }
-      portEXIT_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_EXIT_CRITICAL();
     }
     if (shouldStopWeb) {
       webServerComm.stop();
       Serial.println("[POWER] Wi-Fi off - Bluetooth client active");
     }
     {
-      portENTER_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_ENTER_CRITICAL();
       transportsIdle = false;
-      portEXIT_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_EXIT_CRITICAL();
     }
   } else if (wiredClient && !btClient) {
     bool shouldStopBt = false;
     {
-      portENTER_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_ENTER_CRITICAL();
       shouldStopBt = btUp;
       if (shouldStopBt) {
         btUp = false;
         saveLastTransport(LastTransport::WIFI);
       }
-      portEXIT_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_EXIT_CRITICAL();
     }
     if (shouldStopBt) {
       btComm.stop();
       Serial.println("[POWER] Bluetooth off - wired client active");
     }
     {
-      portENTER_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_ENTER_CRITICAL();
       transportsIdle = false;
-      portEXIT_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_EXIT_CRITICAL();
     }
   } else if (!btClient && !wiredClient) {
     bool wasIdle;
     {
-      portENTER_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_ENTER_CRITICAL();
       wasIdle = transportsIdle;
       if (!transportsIdle) {
         transportsIdle = true;
         transportsIdleSinceMs = millis();
       }
-      portEXIT_CRITICAL(&transportPowerMux);
+      TRANSPORT_POWER_EXIT_CRITICAL();
     }
 
     if (!wasIdle) {
@@ -454,13 +454,13 @@ void loop() {
       bool shouldStartBt = false, shouldStartWeb = false, shouldArmAutoJoin = false;
       LastTransport lt;
       {
-        portENTER_CRITICAL(&transportPowerMux);
+        TRANSPORT_POWER_ENTER_CRITICAL();
         shouldStartBt = !btUp;
         shouldStartWeb = !webUp;
         lt = lastTransport;
         if (shouldStartBt) btUp = true;
         if (shouldStartWeb) webUp = true;
-        portEXIT_CRITICAL(&transportPowerMux);
+        TRANSPORT_POWER_EXIT_CRITICAL();
       }
 
       if (shouldStartBt) {
@@ -476,16 +476,16 @@ void loop() {
         webServerComm.armBootAutoJoin();  // short budget; hotspot fallback
       }
       {
-        portENTER_CRITICAL(&transportPowerMux);
+        TRANSPORT_POWER_ENTER_CRITICAL();
         transportsIdle = false;
-        portEXIT_CRITICAL(&transportPowerMux);
+        TRANSPORT_POWER_EXIT_CRITICAL();
       }
     }
   } else {
     // both connected: leave both alone
-    portENTER_CRITICAL(&transportPowerMux);
+    TRANSPORT_POWER_ENTER_CRITICAL();
     transportsIdle = false;
-    portEXIT_CRITICAL(&transportPowerMux);
+    TRANSPORT_POWER_EXIT_CRITICAL();
   }
 
   // U-95/F-79: back to idle. The phase markers set above (http-root,
