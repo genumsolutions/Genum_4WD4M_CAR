@@ -29,8 +29,9 @@ extern void* transportPowerMux;
 // U-79: Critical section macros for transport power arbitration.
 // Uses ESP32 Arduino's portMUX via portENTER_CRITICAL/portEXIT_CRITICAL.
 // These are available when Arduino.h is included.
-#define TRANSPORT_POWER_ENTER_CRITICAL() portENTER_CRITICAL(transportPowerMux)
-#define TRANSPORT_POWER_EXIT_CRITICAL() portEXIT_CRITICAL(transportPowerMux)
+// Cast void* to portMUX_TYPE* for the FreeRTOS API.
+#define TRANSPORT_POWER_ENTER_CRITICAL() portENTER_CRITICAL((portMUX_TYPE*)transportPowerMux)
+#define TRANSPORT_POWER_EXIT_CRITICAL() portEXIT_CRITICAL((portMUX_TYPE*)transportPowerMux)
 
 // U-79: Safe string copy utility — guarantees null-termination and prevents
 // buffer overflows. Replaces unsafe strncpy/strcpy calls throughout the codebase.
