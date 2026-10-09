@@ -19,9 +19,8 @@
 #include <esp_system.h>  // U-70: esp_reset_reason(). U-96's brownout register write was removed — the threshold is Kconfig-baked and not settable from a sketch (see setup()).
 #include <Preferences.h>  // U-79: last-used transport persistence
 
-// U-79: Transport power arbitration uses a portMUX to ensure atomic state transitions
-// and prevent race conditions between loop() arbitration and transport stop/begin calls.
-static portMUX_TYPE transportPowerMux = portMUX_INITIALIZER_UNLOCKED;
+// U-79: Transport power arbitration mutex definition (matches extern in Config.h)
+portMUX_TYPE transportPowerMux = portMUX_INITIALIZER_UNLOCKED;
 
 L298NControl motor;
 BluetoothComm btComm;
