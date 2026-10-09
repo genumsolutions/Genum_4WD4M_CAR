@@ -20,7 +20,7 @@
 #include <Preferences.h>  // U-79: last-used transport persistence
 
 // U-79: Transport power arbitration mutex definition (matches extern in Config.h)
-transport_power_mux_t transportPowerMux = {0};
+portMUX_TYPE transportPowerMux = portMUX_INITIALIZER_UNLOCKED;
 
 L298NControl motor;
 BluetoothComm btComm;
