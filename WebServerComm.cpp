@@ -7,6 +7,7 @@
 #include "WebServerComm.h"
 #include "WebPage.h"
 #include "CrashLog.h"     // U-95/F-79: the restart record, surfaced in /status
+#include "Config.h"       // U-79: transportPowerMux for atomic state transitions
 #include <WiFi.h>
 #include <esp_task_wdt.h> // U-95/F-77: the send loop must feed the watchdog
 
@@ -999,9 +1000,13 @@ void WebServerComm::beginAlwaysOn() {
   // is the bring-up), and flash stops being written on every WiFi decision.
   // Gate rule: `wifi-persistent`.
   WiFi.persistent(false);
+  
+  portENTER_CRITICAL(&transportPowerMux);
   beginStation();  // WIFI_AP + startOwnAP() + server.begin() + ws.begin()
   WiFi.mode(WIFI_AP_STA);  // ready for explicit router joins without a mode dance
   updateExtraInfo();
+  portEXIT_CRITICAL(&transportPowerMux);
+  
   // U-79: the boot auto-join (armBootAutoJoin) is NO LONGER fired from here.
   // This function now also runs on the U-79 power-policy RESUME path (idle ->
   // Wi-Fi back up), and whether the router join runs is the .ino's decision
@@ -1506,6 +1511,7 @@ void WebServerComm::armBootAutoJoin() {
 void WebServerComm::stop() {
   FW_LOG_VERBOSE("DBG: stop() called, serverRunning=%d\n", serverRunning ? 1 : 0);
 
+  portENTER_CRITICAL(&transportPowerMux);
   connectingPending_ = false;
   // U-95 Phase 2: shutdown must not leave a deferred begin armed for a
   // later start() to fire.
@@ -1535,6 +1541,7 @@ void WebServerComm::stop() {
 
   startedAsAP = false;
   queueClear();
+  portEXIT_CRITICAL(&transportPowerMux);
   FW_LOG_VERBOSE("Free heap after stop: %d\n", static_cast<int>(ESP.getFreeHeap()));
 }
 

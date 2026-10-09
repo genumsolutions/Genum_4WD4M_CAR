@@ -6,14 +6,20 @@
 // =====================================================================
 #include "BluetoothComm.h"
 #include "Config.h"
+#include "Config.h"  // U-79: transportPowerMux for atomic state transitions
 
 bool BluetoothComm::begin() {
   // Advertised name matches the fleet docs/app test notes ("BT connect as
   // 4WD CAR" — guide RESUME HERE). Keep in sync with CATALOG.md.
   // U-79: idempotent — the transport power policy stops/starts this at will.
-  if (started_) return true;
+  portENTER_CRITICAL(&transportPowerMux);
+  if (started_) {
+    portEXIT_CRITICAL(&transportPowerMux);
+    return true;
+  }
   started_ = SerialBT.begin("4WD CAR");
   if (started_) lastActivityMs = millis();
+  portEXIT_CRITICAL(&transportPowerMux);
   return started_;
 }
 
@@ -22,9 +28,14 @@ bool BluetoothComm::begin() {
 // power. begin() brings it back; connected() reports false while stopped so
 // the rest of the system sees an honest "no BT client".
 void BluetoothComm::stop() {
-  if (!started_) return;
+  portENTER_CRITICAL(&transportPowerMux);
+  if (!started_) {
+    portEXIT_CRITICAL(&transportPowerMux);
+    return;
+  }
   SerialBT.end();
   started_ = false;
+  portEXIT_CRITICAL(&transportPowerMux);
   Serial.println("[BT] stopped (power save - a web client is active)");
 }
 
@@ -57,8 +68,13 @@ bool BluetoothComm::restart() {
   }
   lastRestartMs = now;
   FW_LOG_VERBOSE("[BT] restart requested\n");
+  
+  portENTER_CRITICAL(&transportPowerMux);
   SerialBT.end();
+  portEXIT_CRITICAL(&transportPowerMux);
+  
   delay(80);
+  
   if (!begin()) {
     // F-60: report, do NOT reset. The car stays on its AP / router and stays
     // controllable; the watchdog re-arms and we try again later.

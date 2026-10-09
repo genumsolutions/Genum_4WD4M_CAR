@@ -100,6 +100,11 @@ constexpr uint16_t RELAY_MAX_OUT_BYTES = 448;
 constexpr int SWITCH_PIN = 33;
 constexpr unsigned long SWITCH_DEBOUNCE_MS = 50u;
 
+// U-79: Transport power arbitration mutex - declared extern so it can be
+// shared between .ino and transport classes (WebServerComm, BluetoothComm)
+// for atomic state transitions during stop/begin/restart operations.
+extern portMUX_TYPE transportPowerMux;
+
 // ===== WiFi credentials =====
 // T-64 (round-9): compile-time creds are NO LONGER joined as a fallback. The
 // RUNTIME source of truth is Preferences (namespace "botcfg", keys
@@ -127,3 +132,15 @@ constexpr char WIFI_AP_NAME[] = "4WDCar_Wifi";
 // How long beginStation() waits for a STORED router before the own AP is
 // declared the network (the hotspot itself is up the whole time — T-65).
 constexpr uint32_t WIFI_STA_TIMEOUT_MS = 8000u;
+
+// U-79: Safe string copy utility — guarantees null-termination and prevents
+// buffer overflows. Replaces unsafe strncpy/strcpy calls throughout the codebase.
+// Usage: safe_strcpy(dst, src, sizeof(dst));
+inline void safe_strcpy(char* dst, const char* src, size_t dstSize) {
+  if (!dst || dstSize == 0) return;
+  if (!src) { dst[0] = '\0'; return; }
+  size_t srcLen = strlen(src);
+  size_t copyLen = (srcLen < dstSize - 1) ? srcLen : dstSize - 1;
+  memcpy(dst, src, copyLen);
+  dst[copyLen] = '\0';
+}

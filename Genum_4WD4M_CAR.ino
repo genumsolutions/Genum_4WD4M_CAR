@@ -19,6 +19,10 @@
 #include <esp_system.h>  // U-70: esp_reset_reason(). U-96's brownout register write was removed — the threshold is Kconfig-baked and not settable from a sketch (see setup()).
 #include <Preferences.h>  // U-79: last-used transport persistence
 
+// U-79: Transport power arbitration uses a portMUX to ensure atomic state transitions
+// and prevent race conditions between loop() arbitration and transport stop/begin calls.
+static portMUX_TYPE transportPowerMux = portMUX_INITIALIZER_UNLOCKED;
+
 L298NControl motor;
 BluetoothComm btComm;
 Oled_1_3 oled;
@@ -381,7 +385,11 @@ void loop() {
   // connected for longer than the grace period, both broadcast again. The
   // transport WITH a client is never touched, so a live control path can
   // never be yanked out from under the user.
+  // CRITICAL: Use portMUX to ensure atomic state transitions and prevent
+  // races between loop() arbitration and transport stop/begin calls from
+  // other code paths (e.g., mode changes, WiFi reconnection).
   {
+    portENTER_CRITICAL(&transportPowerMux);
     const bool btClient = btComm.connected();
     const bool webClient = webServerComm.hasWsClients();
     // U-94 Phase 2: the relay is a WIRED client for power purposes, because it
@@ -392,19 +400,25 @@ void loop() {
     // applied to a client that lives somewhere else.
     const bool relayClient = relayComm.connected();
     const bool wiredClient = webClient || relayClient;
+    portEXIT_CRITICAL(&transportPowerMux);
+
     if (btClient && !wiredClient) {
       if (webUp) {
+        portENTER_CRITICAL(&transportPowerMux);
         webServerComm.stop();
         webUp = false;
         saveLastTransport(LastTransport::BT);
+        portEXIT_CRITICAL(&transportPowerMux);
         Serial.println("[POWER] Wi-Fi off - Bluetooth client active");
       }
       transportsIdle = false;
     } else if (wiredClient && !btClient) {
       if (btUp) {
+        portENTER_CRITICAL(&transportPowerMux);
         btComm.stop();
         btUp = false;
         saveLastTransport(LastTransport::WIFI);
+        portEXIT_CRITICAL(&transportPowerMux);
         Serial.println("[POWER] Bluetooth off - wired client active");
       }
       transportsIdle = false;
@@ -414,15 +428,19 @@ void loop() {
         transportsIdleSinceMs = millis();
       } else if (millis() - transportsIdleSinceMs >= TRANSPORT_GRACE_MS) {
         if (!btUp) {
+          portENTER_CRITICAL(&transportPowerMux);
           btUp = btComm.begin();  // idempotent; true = advertising again
+          portEXIT_CRITICAL(&transportPowerMux);
           if (btUp) Serial.println("[POWER] Bluetooth advertising (no client)");
         }
         if (!webUp) {
+          portENTER_CRITICAL(&transportPowerMux);
           webServerComm.beginAlwaysOn();
           webUp = true;
           if (lastTransport == LastTransport::WIFI) {
             webServerComm.armBootAutoJoin();  // short budget; hotspot fallback
           }
+          portEXIT_CRITICAL(&transportPowerMux);
           Serial.println("[POWER] Wi-Fi up (no client)");
         }
         transportsIdle = false;
