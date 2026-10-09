@@ -704,12 +704,11 @@ renderScan(j);
            region (the stage band is the seam), >=44px rows, and the Scan
            trigger the STARTED/BUSY notes always answered but nothing sent. -->
 <section class='nets' aria-label='Nearby networks'>
-         <div class='nets-head'><span>Nearby networks</span><button id='scan-btn' class='scanbtn' type='button'>Scan</button><button id='scan-cancel' class='scanbtn' type='button' style='display:none'>Cancel</button></div>
-          <table class='nettable'>
-            <thead><tr><th>Network</th><th>Signal</th><th>Ch</th><th>Flags</th></tr></thead>
-            <tbody id='netlist'><tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr></tbody>
-          </table>
-        </div>
+<div class='nets-head'><span>Nearby networks</span><button id='scan-btn' class='scanbtn' type='button'>Scan</button><button id='scan-cancel' class='scanbtn' type='button' style='display:none'>Cancel</button></div>
+           <table class='nettable'>
+             <thead><tr><th>Network</th><th>Signal</th><th>Ch</th><th>Flags</th></tr></thead>
+             <tbody id='netlist'><tr><td colspan='4' class='net-empty'>Not scanned yet - tap Scan.</td></tr></tbody>
+           </table>
 </section>
     </div>
 
