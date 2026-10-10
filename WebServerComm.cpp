@@ -1193,7 +1193,7 @@ void WebServerComm::updateApPowerPolicy() {
   // might be. The idle case is the common one, so this saves less power than
   // first claimed - and that is the honest trade, because the alternative is a
   // car that cannot be set up.
-  const bool inUse = ws.connectedClients() > 0;
+  const bool inUse = ws.connectedClients() > 0 || server.hasClient();
 
   if (!staUp) {
     // Router gone or never joined: the beacon is the fallback, so make sure it

@@ -332,11 +332,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     } else {
       safeCopy(netBuf, sizeof(netBuf), extraBuf + 3);
     }
-    // U-98: Show cycling network indicator
-    if (networkCyclingActive && routerCount > 1) {
-      snprintf(netBuf, sizeof(netBuf), "%s [%d/%d]", netBuf, currentNetworkIndex + 1, routerCount);
-    }
-  } else if (extraBuf[0] != '\0') {
+    } else if (extraBuf[0] != '\0') {
     const char* f2 = strchr(extraBuf, ',');
     const char* f3 = f2 ? strchr(f2 + 1, ',') : nullptr;
     const char* f4 = f3 ? strchr(f3 + 1, ',') : nullptr;
