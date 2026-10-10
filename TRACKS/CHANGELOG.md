@@ -15,6 +15,10 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 `c0e4ce6` (2026-10-10) did not compile and left half of U-98 behind. Both fixed; `FW_VERSION`
 stays `1.2.4` because nothing has been flashed.
 
+`main` was fast-forwarded to this tip (`c5b8b9d`, 2026-10-10) so the owner flashes from `main`;
+CI run `38070703254` is green (relay-contract + page-js + compile). "Unflashed" still means the
+bench car — CI compiling it is not a device having it.
+
 **BUILD.** `server.hasClient()` does not exist. `hasClient()` belongs to `NetworkServer`, which
 `WebServer` **contains** rather than inherits (`WebServer.h:342`, and `_server` is in the
 protected section). The branch was red at CI run `38041257338`.

@@ -1,4 +1,21 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-10, late: branch `feat/relay-phase2-own-task` COMPILES again; AP power policy fixed; `[1/2]` fully removed — still NOT flashed; main unchanged)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-10, late: branch COMPILES again; AP power policy fixed; `[1/2]` fully removed; `main` fast-forwarded to `c5b8b9d` with CI green so the owner can flash from `main` — still NOT flashed on the bench)
+
+## READ THIS FIRST — WHICH REPO IS THE CAR
+
+There are TWO car repositories and they are easy to confuse:
+
+- **`Genum_4WD4M_CAR` (THIS repo) — the LIVE one.** Every car fix since 2026-09-28 lands here.
+  `main` carries the branch tip `c5b8b9d` (2026-10-10); CI run `38070703254` green
+  (relay-contract + page-js + compile).
+- **`Genum_WIRELESS_CAR` — the OLD one, frozen.** `main` = `d0bf8c0` (1.8.4, 2026-09-26).
+  It has no recent commits because nothing is developed there any more; 4WD4M was bootstrapped
+  from it as a "fresh baseline" (see the repo description). If a repo page shows
+  "no recent commits", you are almost certainly looking at THIS old one.
+
+Owner report (2026-10-10): *"the car repo says no recent commits but which is not true."* Verified
+via the GitHub API: `Genum_4WD4M_CAR` HEAD on `main` == local HEAD == `c5b8b9d`, all eight
+repos under `genumsolutions` are in sync with their remotes, and no clone in the workspace has
+unpushed commits. The report was the stale old repo, not lost work.
 
 ## This session (2026-10-10, second round) — the branch compiles again, and the hotspot stops dropping itself
 
