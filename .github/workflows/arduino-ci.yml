@@ -59,6 +59,14 @@ jobs:
 
   compile:
     runs-on: ubuntu-latest
+    # The deltas report reads the base branch's sketches-report artifact over the
+    # GitHub API, which needs a token and `actions: read`. On a `push` to main the
+    # action reads the previous report from the same ref and got away without one;
+    # on a `pull_request` it does not, which broke every PR build with
+    # "Unable to access repository data. Please specify the github-token input".
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
@@ -75,3 +83,4 @@ jobs:
             - name: WebSockets
             - name: U8g2
           enable-deltas-report: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
