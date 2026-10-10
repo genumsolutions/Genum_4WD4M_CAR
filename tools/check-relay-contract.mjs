@@ -555,9 +555,16 @@ const wdt = Number(wsh.match(/#define\s+LOOP_TASK_WDT_TIMEOUT_MS\s+(\d+)ul/)?.[1
 // car inert; a build that sets it must also carry the task, and this is the
 // interlock that says so.
 const hostIsSet = !/#define\s+RELAY_HOST\s+""/.test(cfg);
+// The evidence that the dial is on its OWN task is the task creation call, and
+// it must be anchored on that CALL - not on a loose `RelayTask`/`relayTask`
+// token. RelayComm.cpp also defines `kRelayTaskStack` and `kRelayTaskStallMs`,
+// and both contain the substring `RelayTask`, so the loose form matched on
+// every build and this interlock could never fire (found by the mutation suite:
+// M18 armed the host and removed the task, and the rule still passed). Match
+// `xTaskCreate(taskTrampoline` - the one call the trampoline is launched from.
 const handshakeBounded =
   /RELAY_HANDSHAKE_BOUNDED/.test(cfg) ||
-  /xTaskCreate|RelayTask|relayTask/.test(relayCode);
+  /xTaskCreate\s*\(\s*taskTrampoline/.test(relayCode);
 if (hostIsSet && !handshakeBounded) {
   fail("armed-handshake",
       "RELAY_HOST is set, but the relay TLS handshake still runs on the loop task with a 120000 ms handshake_timeout against a " + wdt + " ms watchdog. " +

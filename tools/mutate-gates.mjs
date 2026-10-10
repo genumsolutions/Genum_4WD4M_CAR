@@ -263,7 +263,7 @@ const mutants = [
     why: "the guard exists but can never fire: the empty-host case is not actually tested" },
 
   { id: "M18", rule: "armed-handshake", file: RELAY,
-    find: "xTaskCreate(taskTrampoline", repl: "createRelayTask(taskTrampoline",
+    find: "xTaskCreate(taskTrampoline", repl: "spawnWorker(taskTrampoline",
     also: [{ file: "Config.h", find: '#define RELAY_HOST ""', repl: '#define RELAY_HOST "xyzcompany.supabase.co"' }],
     why: "the relay is armed with the dial back on the loop task (the task is gone) — the 120 s handshake is unbounded again; the interlock must refuse this" },
 
@@ -556,7 +556,13 @@ if (dirty) {
   process.exit(2);
 }
 
-const files = [...new Set(mutants.map((m) => m.file))];
+// Snapshot EVERY file a mutant can touch, including the `also` edits - which may
+// target a DIFFERENT file than the mutant's primary `file` (M18 arms `Config.h`,
+// not RelayComm.cpp). Snapshotting only `m.file` left Config.h mutated after the
+// run: the byte-exact check below only walked the snapshot, so it reported
+// success while an armed RELAY_HOST sat in the working tree - a donor car that
+// now dials. The harness must restore exactly what it can dirty.
+const files = [...new Set(mutants.flatMap((m) => [m.file, ...(m.also ?? []).map((e) => e.file ?? m.file)]))];
 takeSnapshot(files);
 
 const runGate = (m) => {
