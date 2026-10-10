@@ -80,7 +80,13 @@ public:
   /** The relay's control plane: NUL + "relay". A NUL byte cannot start a car
    *  line (handleCommand reads a C string), so a control frame and a car line
    *  can never be confused — the same property the relay relies on, and the
-   *  grammar lock is structural rather than a matter of looking carefully. */
+   *  grammar lock is structural rather than a matter of looking carefully.
+   *
+   *  EVERY READER MUST OFFSET BY kControlPrefixLen FIRST. The frame BEGINS with
+   *  this NUL, so any str* search over the whole frame is a search over an empty
+   *  string and matches nothing. isControlFrame() is the only thing that looks at
+   *  the prefix itself (with memcmp); everything that reads the body must start at
+   *  frame + kControlPrefixLen. */
   static constexpr char kControlPrefix[] = "\x00" "relay";
   static constexpr size_t kControlPrefixLen = 6;
 

@@ -248,6 +248,7 @@ bool RelayComm::begin() {
   if (started_) {
     enabled_ = true;
     wantsLink_ = true;
+    sInstance = this;  // the task keeps running; make sure its callback still points here
     return true;
   }
 
@@ -371,7 +372,10 @@ void RelayComm::stop() {
   socketUp_ = false;
   queueClear();
   outClear();
-  sInstance = nullptr;
+  // Deliberately NOT clearing sInstance: exactly one RelayComm lives for the
+  // process and its task is never deleted (stop() only idles it), so the event
+  // callback must stay wired. Nulling it here left a later restart()/begin()
+  // reconnecting with a dead callback - a RESET-then-reprovision never re-paired.
 }
 
 void RelayComm::noteDisconnect() {
@@ -489,10 +493,18 @@ void RelayComm::answerPing(const char* frame) {
   // what made the latency number meaningless. So the echo carries the
   // timestamp the phone chose, untouched.
   unsigned long t = controlNumber(frame, "\"t\"");
-  char echo[128];
-  int n = snprintf(echo, sizeof(echo), "%s{\"ev\":\"ping-echo\",\"boardIdHex\":\"%s\",\"t\":%lu}",
-                   kControlPrefix, boardId_, t);
-  if (n > 0 && n < static_cast<int>(sizeof(echo))) client_.sendTXT(echo);
+  // The echo is a CONTROL frame, so it must begin with the NUL+relay prefix -
+  // that is the only thing that makes the relay treat it as the latency echo
+  // (relay-core.ts: isControl() + parsePingEcho()) rather than a car line it
+  // forwards to the phone as raw JSON. The prefix contains a NUL, so it CANNOT
+  // be built with a %s format or sent with a strlen-based overload: copy it as
+  // bytes, format the JSON after it, and send the exact length.
+  char echo[192];
+  memcpy(echo, kControlPrefix, kControlPrefixLen);
+  int n = snprintf(echo + kControlPrefixLen, sizeof(echo) - kControlPrefixLen,
+                   "{\"ev\":\"ping-echo\",\"boardIdHex\":\"%s\",\"t\":%lu}", boardId_, t);
+  if (n <= 0 || n >= static_cast<int>(sizeof(echo) - kControlPrefixLen)) return;
+  client_.sendTXT(echo, kControlPrefixLen + static_cast<size_t>(n));
 }
 
 // ---- outbound ---------------------------------------------------------
@@ -695,11 +707,18 @@ bool RelayComm::controlEventIs(const char* frame, const char* ev) {
   char needle[24];
   int n = snprintf(needle, sizeof(needle), "\"ev\":\"%s\"", ev);
   if (n <= 0 || n >= static_cast<int>(sizeof(needle))) return false;
-  return strstr(frame, needle) != nullptr;
+  // SEARCH AFTER THE PREFIX. `frame` is a control frame, so its FIRST byte is
+  // the prefix's NUL - strstr on `frame` itself is strstr on an empty string
+  // and matches NOTHING, silently. That is not hypothetical: it is the bug this
+  // line fixed. It made `paired` (and every other control event) invisible, so
+  // the car connected, said hello, and never enrolled.
+  return strstr(frame + kControlPrefixLen, needle) != nullptr;
 }
 
 unsigned long RelayComm::controlNumber(const char* frame, const char* key) {
-  const char* p = strstr(frame, key);
+  // Same prefix rule as controlEventIs(): search after the six prefix bytes, or
+  // the leading NUL makes every str* function see an empty frame.
+  const char* p = strstr(frame + kControlPrefixLen, key);
   if (!p) return 0;
   p = strchr(p, ':');
   if (!p) return 0;

@@ -275,6 +275,15 @@ const mutants = [
     find: "socketUp_ = client_.isConnected();", repl: "socketUp_ = true;",
     why: "the relay task stops publishing the real socket state — connected() reads a flag hard-coded true, so a refused or half-open car would read as connected and switch the safe-stop off" },
 
+  // U-94 Phase 2: a control frame BEGINS with the prefix's NUL, so parsing the
+  // body must start at frame + kControlPrefixLen. Searching the whole frame is
+  // strstr on an empty string — it matches nothing, silently, and the car never
+  // sees `paired`. This is the exact bug control-parse exists to catch.
+  { id: "M64", rule: "control-parse", file: RELAY,
+    find: "  return strstr(frame + kControlPrefixLen, needle) != nullptr;",
+    repl: "  return strstr(frame, needle) != nullptr;",
+    why: "control-event parsing searches the whole frame, whose first byte is the prefix's NUL - strstr sees an empty string, so `paired` (and every other control event) never matches and the car never enrols" },
+
   // ---- WebSocket pump vs the watchdog (U-95 1b/1c) ----
   { id: "M19", rule: "ws-loop-feed", file: WSC,
     find: "  esp_task_wdt_reset();\n  ws.loop();",

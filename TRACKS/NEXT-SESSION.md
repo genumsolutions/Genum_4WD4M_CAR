@@ -26,6 +26,14 @@ branch's PR. `FW_VERSION` is deliberately left at `1.2.4`.
   (proven). **Not verified:** the compile (CI only) and the bench (T-REL still pending).
 - **Files:** `RelayComm.h`, `RelayComm.cpp`, `tools/check-relay-contract.mjs`,
   `tools/mutate-gates.mjs`, plus the `TRACKS/` docs. See `TRACKS/CHANGELOG.md` § DRAFT.
+- **Review-pass fix (same draft): the relay could never pair.** `controlEventIs()`/`controlNumber()`
+  ran `strstr`/`strchr` on the whole frame, whose first byte is the prefix's NUL — so they searched
+  an empty string and matched nothing, and `enrolled_` never went true. Now they search from
+  `frame + kControlPrefixLen`. **Pre-existing on `main` (`6da6788`), not from the F-84 work.** Added a
+  `control-parse` gate rule (both helpers must offset) + mutant **M64** (revert the offset → red).
+  Also: `answerPing()` now copies the prefix as bytes and sends with an explicit length (a `%s`/`strlen`
+  build dropped the NUL prefix and leaked the echo to the phone as a car line); `stop()` no longer
+  clears `sInstance`, so RESET-then-reprovision can re-pair.
 
 ## This session (2026-10-09, round 2) — the 4WD4M OLED's network lines are done, v1.2.4
 

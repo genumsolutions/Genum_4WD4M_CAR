@@ -46,6 +46,28 @@ drift this forbids). Mutants: M18 retargeted (arm the host AND remove the task �
 `tools/check-relay-contract.mjs` is green; the build is unproven here — CI on the PR is the
 first compile.
 
+**A review pass found the relay could never pair — fixed in the same draft.** A control frame is
+`"\x00relay"` + JSON, and the WebSockets library hands the car that payload with the leading NUL
+intact. `isControlFrame()` correctly compares with `memcmp`, but `controlEventIs()` /
+`controlNumber()` then called `strstr`/`strchr` on the WHOLE frame — which begins with `'\0'`, so
+`strstr` searched an empty string and matched nothing, every time. `paired` (and `hello-required`,
+`ping`, `link-down`, `lagging`, `refused`) were all invisible, so `enrolled_` never became true and
+the entire method was a no-op dressed as a working transport. The helpers now search from
+`frame + kControlPrefixLen`. **This bug was on `main` too** (`6da6788`) — not introduced by the
+F-84 work — and the `control-prefix` gate was blind to it because it only checked that the prefix
+was *tested*, not that parsing *skips* it. So a `control-parse` rule was added (both helpers must
+offset by `kControlPrefixLen`), with **M64** proving it: revert the offset and `control-parse` goes
+red.
+
+**Two smaller fixes in the same pass.** `answerPing()` built its echo with
+`snprintf("%s{...}", kControlPrefix, ...)` — `%s` stops at the prefix's NUL, so the prefix was
+dropped and the echo would be forwarded to the phone as a raw car line (breaking the latency row).
+It now copies the prefix as BYTES and sends with an explicit length (`sendTXT(echo, n)`), because a
+`strlen`-based overload would send zero bytes for a NUL-first buffer. And `stop()` no longer clears
+`sInstance`: the task is never deleted (`stop()` only idles it), so a later
+`RELAYCFG;RESET`-then-reprovision reconnect was running with a dead event callback and could never
+re-pair.
+
 ## v1.2.4 - 4WD4M OLED network lines (2026-10-09)
 
 Owner directive (2026-10-09): the 4WD4M OLED's last two lines are the NETWORK truth.

@@ -804,6 +804,15 @@ any row below as a result.
 on its own FreeRTOS task, so arming `RELAY_HOST` passes `armed-handshake`. That
 branch is UNCOMPILED and unflashed, so nothing here changes yet.
 
+**(2026-10-10) A review pass found the relay could never pair, on `main` as well
+as the branch, and it is now fixed on the branch.** `controlEventIs()`/
+`controlNumber()` searched the whole frame with `strstr`/`strchr` even though a
+control frame's first byte is the prefix's NUL — so the T-REL-2 `paired` line
+below was unreachable: every control event matched nothing and `enrolled_` never
+went true. Parsing now starts at `frame + kControlPrefixLen`, guarded by the new
+`control-parse` gate rule + M64. So the T-REL rows are still NOT RUN, but a car
+flashed from the branch (or a merged `main`) can now actually reach `paired`.
+
 **Owner actions required first, in this order.** `RELAY_HOST` in `Config.h`
 must name the Supabase project (it ships empty, so the transport is inert until
 someone fills it in deliberately). The migration

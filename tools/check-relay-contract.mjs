@@ -196,6 +196,22 @@ if (/str(n?cmp|casecmp)/.test(isControlBody)) {
   pass("control-prefix", "isControlFrame() uses memcmp");
 }
 
+// Parsing a control frame must start AFTER the NUL+relay prefix. The frame
+// BEGINS with '\0', so a str* search over the whole thing searches an empty
+// string and matches nothing - the car connects, says hello, and then never
+// sees `paired`. That bug compiled and read as correct; it made the entire
+// method a no-op. The prefix is six BYTES, so the offset must be explicit and
+// every helper that reads the body must apply it.
+const eventBody = body(relayCode, "bool RelayComm::controlEventIs") ?? "";
+const numberBody = body(relayCode, "unsigned long RelayComm::controlNumber") ?? "";
+if (!eventBody || !numberBody) {
+  fail("control-parse", "could not locate controlEventIs()/controlNumber()");
+} else if (!/kControlPrefixLen/.test(eventBody) || !/kControlPrefixLen/.test(numberBody)) {
+  fail("control-parse", "control-event parsing searches from byte 0 - strstr on a NUL-prefixed frame matches nothing; it must start at frame + kControlPrefixLen");
+} else {
+  pass("control-parse", "control-event parsing starts after the NUL prefix");
+}
+
 // ---- 4. TLS ------------------------------------------------------------
 if (/setInsecure\s*\(/.test(relayCode)) {
   fail("tls", "setInsecure() is called - never on a car that takes drive commands");
