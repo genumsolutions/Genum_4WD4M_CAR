@@ -461,9 +461,14 @@ void RelayComm::handleTextFrame(const char* frame, size_t len) {
   }
 
   // A car line. Queue it; do not parse it, do not act on it, do not reorder it.
-  if (len > kLineLen) {
+  // Reject at len >= kLineLen, not len > kLineLen: a line of exactly kLineLen
+  // bytes cannot be stored WITH its NUL terminator in a kLineLen buffer, so
+  // queuePush() would silently drop the last byte. Better to refuse the frame
+  // and say so - the same rule the outbound side follows (never send a
+  // truncated frame). The max accepted line is kLineLen - 1.
+  if (len >= kLineLen) {
     FW_LOG("[RELAY] dropped inbound line of %u bytes (max %u)", static_cast<unsigned int>(len),
-           static_cast<unsigned int>(kLineLen));
+           static_cast<unsigned int>(kLineLen - 1));
     return;
   }
   if (!queuePush(frame)) FW_LOG("[RELAY] inbound queue full - line dropped");
@@ -579,14 +584,18 @@ bool RelayComm::queuePush(const char* line) {
 }
 
 size_t RelayComm::available() {
+  // BOOLEAN, exactly like WebServerComm::available(): the loop task only ever
+  // asks "is there a line?" - ModeManager::run() and readLineFromComm() test it
+  // as a condition, never as a byte budget. It must NOT try to report the
+  // current line's remaining byte count: once a line's characters are consumed,
+  // readPos_ reaches its NUL, and the byte-count form returned 0 WHILE the '\n'
+  // terminator was still pending - so readLineFromComm() spun its whole 20 ms
+  // timeout instead of taking the terminator and breaking. count_ is the line
+  // count; any line at all means "ready".
   if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
-  size_t cur = 0;
-  if (count_ > 0) {
-    cur = strlen(queue_[head_]) - readPos_;
-    if (count_ > 1) cur += 1;  // the '\n' between lines
-  }
+  const bool ready = count_ > 0;
   if (lock_) xSemaphoreGive(lock_);
-  return cur;
+  return ready ? 1 : 0;
 }
 
 int RelayComm::read() {

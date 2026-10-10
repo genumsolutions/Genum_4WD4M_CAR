@@ -68,6 +68,16 @@ It now copies the prefix as BYTES and sends with an explicit length (`sendTXT(ec
 `RELAYCFG;RESET`-then-reprovision reconnect was running with a dead event callback and could never
 re-pair.
 
+**Two review LOWs, also in the same pass.** `RelayComm::available()` now returns a boolean, exactly
+like `WebServerComm::available()`. The old byte-count form reported the current line's remaining
+bytes, so once a line's characters were consumed `readPos_` reached its NUL and `available()`
+returned 0 *while the `'\n'` terminator was still pending* — `readLineFromComm()` then spun its
+whole 20 ms timeout instead of taking the terminator. And `handleTextFrame()` now rejects an inbound
+line at `len >= kLineLen` rather than `len > kLineLen`: a line of exactly 128 bytes cannot be stored
+with its NUL in a 128-byte slot, so the old guard admitted it and `queuePush()` silently dropped the
+last byte. Refusing it (max accepted = 127) matches the outbound rule of never sending a truncated
+frame. A new `inbound-fit` gate rule + mutant **M65** pin the boundary.
+
 ## v1.2.4 - 4WD4M OLED network lines (2026-10-09)
 
 Owner directive (2026-10-09): the 4WD4M OLED's last two lines are the NETWORK truth.

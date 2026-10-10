@@ -284,6 +284,14 @@ const mutants = [
     repl: "  return strstr(frame, needle) != nullptr;",
     why: "control-event parsing searches the whole frame, whose first byte is the prefix's NUL - strstr sees an empty string, so `paired` (and every other control event) never matches and the car never enrols" },
 
+  // The inbound guard must be len >= kLineLen, not len > kLineLen: a line of
+  // exactly kLineLen bytes cannot be stored with its terminator, so queuePush()
+  // truncates the last byte instead of the frame being refused.
+  { id: "M65", rule: "inbound-fit", file: RELAY,
+    find: "  if (len >= kLineLen) {",
+    repl: "  if (len > kLineLen) {",
+    why: "an inbound line of exactly kLineLen bytes passes the check but only kLineLen-1 survive with the NUL terminator, so queuePush() silently truncates the last byte instead of dropping the frame" },
+
   // ---- WebSocket pump vs the watchdog (U-95 1b/1c) ----
   { id: "M19", rule: "ws-loop-feed", file: WSC,
     find: "  esp_task_wdt_reset();\n  ws.loop();",

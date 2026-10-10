@@ -363,6 +363,20 @@ if (!/static_assert\(\s*(RelayComm::)?\s*kLineLen\s*==\s*CMD_BUF_LEN/.test(relay
   pass("caps", "static_assert ties the inbound cap to CMD_BUF_LEN at compile time");
 }
 
+// The inbound guard must reject at len >= kLineLen, not len > kLineLen. A line
+// of exactly kLineLen bytes cannot be stored WITH its NUL terminator in a
+// kLineLen buffer, so queuePush() would copy kLineLen-1 bytes and silently drop
+// the last one - a command that arrives intact and is executed wrong is worse
+// than one that is refused. The max accepted line is kLineLen - 1.
+const inboundBody = body(relayCode, "void RelayComm::handleTextFrame") ?? "";
+if (!inboundBody) {
+  fail("inbound-fit", "could not locate handleTextFrame()");
+} else if (!/len\s*>=\s*kLineLen/.test(inboundBody)) {
+  fail("inbound-fit", "handleTextFrame() admits a line of exactly kLineLen bytes - it cannot fit with its terminator, so the last byte is silently truncated; reject at len >= kLineLen");
+} else {
+  pass("inbound-fit", "an inbound line must fit kLineLen including its terminator");
+}
+
 // boardIdHex must be the 6-char string the relay's regex demands. The relay's
 // regex is 6 after commit 40dac31; this is the car side of the same fact, and it
 // is asserted here because a car printing 12 would be refused by every hello -

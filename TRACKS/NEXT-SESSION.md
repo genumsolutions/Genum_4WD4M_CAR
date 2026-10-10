@@ -34,6 +34,11 @@ branch's PR. `FW_VERSION` is deliberately left at `1.2.4`.
   Also: `answerPing()` now copies the prefix as bytes and sends with an explicit length (a `%s`/`strlen`
   build dropped the NUL prefix and leaked the echo to the phone as a car line); `stop()` no longer
   clears `sInstance`, so RESET-then-reprovision can re-pair.
+- **Two review LOWs fixed (same draft).** `available()` is now boolean like `WebServerComm`'s — the
+  byte-count form returned 0 while a line's `'\n'` terminator was still pending, so the drain spun its
+  full 20 ms timeout each pass. `handleTextFrame()` now rejects at `len >= kLineLen` (max 127), so a
+  128-byte line is refused instead of silently losing its last byte in `queuePush()`. New gate rule
+  `inbound-fit` + mutant **M65**.
 
 ## This session (2026-10-09, round 2) — the 4WD4M OLED's network lines are done, v1.2.4
 
