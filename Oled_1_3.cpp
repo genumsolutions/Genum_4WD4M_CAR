@@ -97,32 +97,13 @@ void Oled_1_3::setLinkContext(const char* method, const char* type, bool connect
   linkDirty = true;  // the next draw() must render this frame immediately
 }
 
-void Oled_1_3::cycleNetworkDisplay() {
-  // Cycle through saved networks on the OLED display
-  // This is called periodically when in AP mode to show available networks
-  if (!u8g2 || !networkCyclingActive) return;
-
-  uint32_t now = millis();
-  if (now - lastNetworkCycleMs >= 3000) {  // Cycle every 3 seconds
-    lastNetworkCycleMs = now;
-    currentNetworkIndex = (currentNetworkIndex + 1) % 3;  // Cycle through up to 3 networks
-    // The next draw() will pick up the new network
-    redrawNow(0, false);  // Force a redraw with updated network info
-  }
-}
-
-void Oled_1_3::setNetworkCycling(bool active) {
-  networkCyclingActive = active;
-  if (active) {
-    lastNetworkCycleMs = millis();
-    currentNetworkIndex = 0;
-  }
-}
-
-void Oled_1_3::setSavedRouterCount(int count) {
-  // Called by WebServerComm to update the saved router count for cycling
-  // No-op here, the OLED gets the count from the extraInfo string
-}
+// REMOVED (2026-10-10): cycleNetworkDisplay() / setNetworkCycling() /
+// setSavedRouterCount() implemented the U-98 3-second rotation through saved
+// networks. Its only visible output was the "[n/m]" badge the owner asked to
+// drop, and it ranked the car's own network against the routers instead of
+// showing all of them equally. The state it read (networkCyclingActive,
+// currentNetworkIndex, lastNetworkCycleMs) went with it, so nothing can
+// re-enable it.
 
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
@@ -292,34 +273,17 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   // T-36 (owner 2026-09-15): the transport line shows the NETWORK the car is
   // actually on — joined SSID, or the AP-fallback broadcast id — not a generic
   // "Connected". extraInfo carries "pct,rssi,ip,<ssid>" (STA) or
-  // "AP:<name>,<ip>|Nets:…". v1.2.4 (owner 2026-10-09): row 4 renders the car's
+  // "AP:<name>,<ip>". v1.2.4 (owner 2026-10-09): row 4 renders the car's
   // CURRENT IP from ipBuf so the OLED matches the app's "WiFi · <ip>" — the
   // network's directed-broadcast stays on /status + the page's Bcast row.
   char netBuf[33] = "";
   char ipBuf[32] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
-  // U-98: Parse router count from extraBuf: format "AP:name,ip|Nets:ssid1,ssid2,ssid3"
-  int routerCount = 0;
-  const char* netsPtr = strstr(extraBuf, "|Nets:");
-  if (netsPtr) {
-    const char* nets = netsPtr + 6; // Skip "|Nets:"
-    const char* p = nets;
-    while (*p) {
-      if (*p == ',') routerCount++;
-      p++;
-    }
-    routerCount++; // Last one doesn't have trailing comma
-  }
-  // U-98: Cycle through saved networks in AP mode every 3 seconds
-  if (isApFallback && networkCyclingActive) {
-    uint32_t now = millis();
-    if (now - lastNetworkCycleMs >= 3000) {
-      lastNetworkCycleMs = millis();
-      if (routerCount > 1) {
-        currentNetworkIndex = (currentNetworkIndex + 1) % routerCount;
-      }
-    }
-  }
+  // REMOVED (2026-10-10): the "|Nets:" router-count parse and the 3-second
+  // rotation index it fed. Both existed only to render the "[n/m]" badge; the
+  // badge is gone, so the parse had no reader and the index no writer. Saved
+  // routers are shown on the page and in the app as an unordered set, which is
+  // what "treat all router networks equally" asks for.
   if (isApFallback) {
     const char* apName = extraBuf + 3;
     const char* comma = strchr(extraBuf, ',');
@@ -332,7 +296,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     } else {
       safeCopy(netBuf, sizeof(netBuf), extraBuf + 3);
     }
-    } else if (extraBuf[0] != '\0') {
+  } else if (extraBuf[0] != '\0') {
     const char* f2 = strchr(extraBuf, ',');
     const char* f3 = f2 ? strchr(f2 + 1, ',') : nullptr;
     const char* f4 = f3 ? strchr(f3 + 1, ',') : nullptr;

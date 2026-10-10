@@ -631,13 +631,101 @@ if (!staGuard.test(body)) {
 // the car unreachable, because it had joined a router the user was not on. A
 // connected client is the only proof that the user can reach the car WITHOUT the
 // beacon, so it is now a required condition.
-const inUse = /const bool inUse\s*=\s*ws\.connectedClients\(\)\s*>\s*0/;
-if (!inUse.test(body)) {
-  console.error(
-    "FAIL: the policy does not require a connected WebSocket client — the " +
-      "car can park its only way in while nobody can reach it",
-  );
+//
+// 2026-10-10, owner: "the car is not connected through its own hotspot for the
+// phone after some period of time ... not allowing to connect and switch
+// cleanly". The WS half alone cannot see WHICH side a client arrived on: a
+// phone driving the car from 4WDCar_Wifi raises connectedClients() like any
+// other client, so it was counted as a reason to PARK 4WDCar_Wifi and the car
+// dropped its own link ~20 s after the page opened. Hence the SECOND required
+// half — `WiFi.softAPgetStationNum() == 0` — asserted on its own below, because
+// a rule that only ever checked the WS half passed straight over this bug.
+const inUseRe = /const bool inUse\s*=\s*([\s\S]*?);/;
+const inUseMatch = inUseRe.exec(body);
+if (!inUseMatch) {
+  console.error("FAIL: the power policy computes no `inUse` at all");
   bad++;
+} else {
+  const inUseExpr = inUseMatch[1];
+  // Half 1 — U-87: a router-side client must be required.
+  if (!/ws\.connectedClients\(\)\s*>\s*0/.test(inUseExpr)) {
+    console.error(
+      "FAIL: the policy does not require a connected WebSocket client — the " +
+        "car can park its only way in while nobody can reach it",
+    );
+    bad++;
+  }
+  // Half 2 — 2026-10-10: nobody may be standing on the beacon being switched
+  // off. A client on the AP is the reason to KEEP it, not to drop it.
+  if (!/WiFi\.softAPgetStationNum\(\)\s*==\s*0/.test(inUseExpr)) {
+    console.error(
+      "FAIL: inUse does not require the car's own hotspot to be EMPTY — a phone " +
+        "connected through 4WDCar_Wifi counts as a reason to park 4WDCar_Wifi, " +
+        "so the car drops the link it is being driven over ~20 s after the page " +
+        "opens (the owner's own-hotspot report)",
+    );
+    bad++;
+  }
+  // Both must gate the SAME expression — one computed and discarded would pass
+  // either half while parking on the other.
+  if (!/ws\.connectedClients\(\)[\s\S]*softAPgetStationNum|softAPgetStationNum[\s\S]*ws\.connectedClients/.test(inUseExpr)) {
+    console.error(
+      "FAIL: the two halves of `inUse` are not part of one expression",
+    );
+    bad++;
+  }
+  // Half 3 — the HTTP branch must be FED, not merely read. `httpActive` is
+  // derived from `lastHttpAtMs_`, which only means something if a handler
+  // actually writes it; without the stamp the branch is permanently false and
+  // the page-load -> WebSocket window it exists to cover is silently uncovered
+  // while the comment above it claims otherwise (F-83: a rule that cannot
+  // reject is a comment with better manners — proven by deleting the stamp,
+  // which used to leave this gate green).
+  if (/httpActive/.test(inUseExpr)) {
+    // `httpActive` must MEASURE something: it is derived from a stamp, not a
+    // constant, or it is either always-false (window silently uncovered) or
+    // always-true (beacon held down forever).
+    const httpDecl = /const bool httpActive\s*=\s*([\s\S]*?);/.exec(body);
+    if (!httpDecl) {
+      console.error("FAIL: inUse reads httpActive but the policy never declares it");
+      bad++;
+    } else {
+      if (!/lastHttpAtMs_/.test(httpDecl[1])) {
+        console.error(
+          "FAIL: httpActive does not read lastHttpAtMs_ — it is not measuring " +
+            "anything",
+        );
+        bad++;
+      }
+      // And the window must be bounded, or one abandoned request pins the flag.
+      if (!/AP_PARK_HTTP_MS/.test(httpDecl[1])) {
+        console.error(
+          "FAIL: httpActive has no time bound — a stale HTTP stamp would hold " +
+            "the in-use flag (and the beacon) down indefinitely",
+        );
+        bad++;
+      }
+    }
+    // The stamp must actually be WRITTEN, or the whole branch is dead code.
+    const stamped = /void WebServerComm::armHttpGuard\(\)\s*\{[\s\S]*?\n\}/.exec(
+      fw,
+    );
+    if (!stamped || !/lastHttpAtMs_\s*=\s*millis\(\)/.test(stamped[0])) {
+      console.error(
+        "FAIL: armHttpGuard() never stamps lastHttpAtMs_ — the HTTP half of " +
+          "inUse is dead code, so a router-side client that has loaded the page " +
+          "but not yet attached its WebSocket is invisible to the policy",
+      );
+      bad++;
+    }
+    if (!/AP_PARK_HTTP_MS\s+\d+ul/.test(hdr)) {
+      console.error(
+        "FAIL: AP_PARK_HTTP_MS is not a compile-time constant — an unbounded " +
+          "HTTP window would hold the beacon down forever",
+      );
+      bad++;
+    }
+  }
 }
 // ...and parking must be gated on it, not merely computed.
 const parkBlock = /if\s*\(\s*apParked_\s*\)\s*\{([\s\S]*?)\n  \}/.exec(body);

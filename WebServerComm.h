@@ -122,6 +122,14 @@
 // not cause a teardown/rebuild flap, short enough that the power saving is
 // real. 20 s.
 #define AP_PARK_GRACE_MS 20000ul
+// How long a lone HTTP request counts as "somebody is using the car". The page
+// loads over :80 and only THEN opens :81, so there is a window in which the
+// only evidence of a user is a completed HTTP request. Deliberately short: it
+// exists to bridge page-load -> WebSocket, not to remember a visitor. If it
+// expires with no WebSocket attached, the car concludes idle and KEEPS the
+// beacon - the safe direction, because a stale "in use" is what drops a link
+// somebody may still be driving over.
+#define AP_PARK_HTTP_MS 15000ul
 #define SCAN_MAX_RESULTS 12
 // T-48 (round-5): saved-router registry — the car is the source of truth.
 // Max 6 routers (ssid ≤32 / pass ≤64, no ';' in either — split-rule parity
@@ -295,18 +303,29 @@ public:
   // there was no way in at all. "The car is on a router" does not mean "you can
   // reach that router".
   //
-  // So the beacon is parked ONLY while a WebSocket client is actually connected
-  // - because a connected client proves the user is on the router already - and
-  // it comes straight back when the last one leaves:
+  // So the beacon is parked ONLY while a client that does NOT need it is using
+  // the car - a phone on the ROUTER - and it comes straight back when that
+  // client leaves:
   //
   //   in use -> parked  (power saved, when it is safe to)
   //   idle   -> up      (always reachable, which is the safety property)
   //
   // It is a beacon, not the web server: HTTP :80 and WS :81 stay bound and the
   // page keeps working on the router's address throughout.
+  //
+  // CORRECTION (2026-10-10, owner: "the car is not connected through its own
+  // hotspot for the phone after some period of time"). A client count alone
+  // cannot say WHICH side of the car a client arrived on, so a phone sitting on
+  // 4WDCar_Wifi counted as a reason to PARK 4WDCar_Wifi - roughly 20 s after it
+  // opened the page the car dropped the very link it was being driven over. A
+  // client on the AP is proof the beacon is REQUIRED, never that it is spare.
+  // updateApPowerPolicy() now gates on WiFi.softAPgetStationNum() first, and
+  // HTTP activity (stamped by armHttpGuard()) counts as usage only while nobody
+  // is sitting on the AP.
   void updateApPowerPolicy();
   uint32_t staConnectedAtMs_;   // when the current association came up
   bool apParked_;               // beacon intentionally down, someone is using the car
+  uint32_t lastHttpAtMs_ = 0;   // last HTTP handler that ran (0 = never)
 void advanceRejoinStep();
   uint8_t rejoinStep_;
   // U-95 Phase 2: MODE_WAIT bookkeeping. modeWaitStartMs_ is the base of the

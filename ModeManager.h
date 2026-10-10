@@ -200,11 +200,12 @@ private:
   static constexpr size_t LINK_BUF_LEN = 40;
   char linkContext_[LINK_BUF_LEN];
   // 96: the STA row is "pct,rssi,ip,<ssid>" (~59 bytes) and the AP row
-  // "AP:<name>,<ip>|Nets:<list>" can pass 64 with three long saved-router names
+  // "AP:<name>,<ip>" - at most ~54 bytes (32-char AP name + 15-char IP).
   // — v1.2.4 shows the car's CURRENT IP (not the broadcast), so no |BC= payload
-  // rides extraInfo anymore; the bump stays for the AP list headroom. 64 was the
-  // pre-2026-10-09 size (arm + clock fit; the bump is additive and the member
-  // lives in the heap-backed ModeManager, not a hot wire).
+  // rides extraInfo anymore, and the "|Nets:" tail that needed the headroom
+  // went with the OLED "[n/m]" badge on 2026-10-10 (its only reader). The 96
+  // stays: already paid for, and headroom is cheap. Member lives in the
+  // heap-backed ModeManager, not a hot wire.
   static constexpr size_t EXTRA_INFO_LEN = 96;
   static constexpr size_t STATUS_TEXT_LEN = 64;
   char extraInfo_[EXTRA_INFO_LEN];

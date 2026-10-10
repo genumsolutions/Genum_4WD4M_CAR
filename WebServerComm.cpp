@@ -1193,7 +1193,42 @@ void WebServerComm::updateApPowerPolicy() {
   // might be. The idle case is the common one, so this saves less power than
   // first claimed - and that is the honest trade, because the alternative is a
   // car that cannot be set up.
-  const bool inUse = ws.connectedClients() > 0 || server.hasClient();
+  //
+  // WHO is using the car decides whether the beacon may go down - a count
+  // alone cannot say.
+  //
+  // The old line was `ws.connectedClients() > 0 || server.hasClient()`. The
+  // second call does not exist (hasClient() belongs to NetworkServer, which
+  // WebServer CONTAINS, not inherits - it never compiled). The first half was
+  // worse than the compile error: a phone driving the car from 4WDCar_Wifi
+  // raises connectedClients() like any other client, so it was counted as a
+  // reason to PARK 4WDCar_Wifi. Roughly AP_PARK_GRACE_MS after it opened the
+  // page the car dropped the very link it was being driven over - the owner's
+  // "not connected through its own hotspot after some period of time, and not
+  // allowing to connect and switch cleanly".
+  //
+  // `WiFi.softAPgetStationNum()` reads the driver's cached station count: no
+  // radio work, no netif config, so it does not break the one-call-per-pass
+  // rule (U-71/F-24) that everything else in this function obeys.
+  //
+  // HTTP counts as a user as well: the page loads over :80 and only then opens
+  // :81, so without this there is a window where a router-side client has
+  // loaded the page but not yet attached, and the beacon would park under it.
+  // Bounded by AP_PARK_HTTP_MS so an abandoned request cannot hold the beacon
+  // down forever; expiring means idle, which keeps the beacon UP.
+  const bool httpActive =
+      lastHttpAtMs_ != 0 && (nowMs - lastHttpAtMs_) < AP_PARK_HTTP_MS;
+
+  // inUse = somebody is using the car, AND they are using it from the router
+  // side. Anyone sitting on the AP forces this false, which both blocks a park
+  // and (below) restores a beacon that should never have been dropped.
+  //
+  // BOTH halves are load-bearing and tools/check-webpage-js.mjs asserts them
+  // separately: the WS client is the U-87 proof that the car is reachable
+  // without the beacon, and `WiFi.softAPgetStationNum() == 0` is the 2026-10-10
+  // proof that nobody is standing on the beacon we are about to switch off.
+  const bool inUse = WiFi.softAPgetStationNum() == 0 &&
+                     (ws.connectedClients() > 0 || httpActive);
 
   if (!staUp) {
     // Router gone or never joined: the beacon is the fallback, so make sure it
@@ -1209,8 +1244,9 @@ void WebServerComm::updateApPowerPolicy() {
   if (staConnectedAtMs_ == 0) staConnectedAtMs_ = nowMs;
 
   if (apParked_) {
-    // Parked: stay parked ONLY while a client is actually using the car, and
-    // only while there is a real lease to be using it over.
+    // Parked: stay parked ONLY while a ROUTER-side client is using the car, and
+    // only while there is a real lease to be using it over. `inUse` is already
+    // false when anyone is on the AP, so this restores rather than returning.
     if (inUse && storedSsid_[0] != '\0') return;
     apParked_ = false;
     if (!apRunning_) startOwnAP();
@@ -1224,9 +1260,10 @@ void WebServerComm::updateApPowerPolicy() {
     return;
   }
 
-  // Park only when ALL of these hold: associated, a lease exists, somebody is
-  // connected right now, and it has held long enough that a router dropping
-  // again immediately cannot cause a teardown/rebuild flap.
+  // Park only when ALL of these hold: associated, a lease exists, somebody on
+  // the ROUTER side is connected right now, nobody is sitting on the AP, and it
+  // has held long enough that a router dropping again immediately cannot cause
+  // a teardown/rebuild flap.
   if (!inUse) return;
   if (storedSsid_[0] == '\0') return;
   if (nowMs - staConnectedAtMs_ < AP_PARK_GRACE_MS) return;
@@ -2056,33 +2093,20 @@ void WebServerComm::updateExtraInfo() {
     // Own-network session: show the broadcast ID + the softAP IP on the
     // OLED so the user knows which network to join (the IP contains a dot,
     // which keeps isConnectedNow() true for the SERVER branch).
-    // Also list saved routers so the user sees available networks without connecting.
+    // 2026-10-10: this row no longer lists saved routers - that list fed only
+    // the removed "[n/m]" badge, and the routers are shown in full on the page
+    // and in the app.
     char ipStr[32];
     WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
-    char extraBuf[128];
-    extraBuf[0] = '\0';
-    if (savedRouterCount_ > 0) {
-      for (int i = 0; i < savedRouterCount_ && i < 3; ++i) {
-        if (i > 0) strncat(extraBuf, ",", sizeof(extraBuf) - strlen(extraBuf) - 1);
-        strncat(extraBuf, savedRouterSsid_[i], sizeof(extraBuf) - strlen(extraBuf) - 1);
-      }
-    }
-    if (extraBuf[0] != '\0') {
-      snprintf(extra, sizeof(extra), "AP:%s,%s|Nets:%s", apName_.c_str(), ipStr, extraBuf);
-    } else {
-      snprintf(extra, sizeof(extra), "AP:%s,%s", apName_.c_str(), ipStr);
-    }
-    // U-98: Enable network cycling on OLED display
-    if (modeManager && modeManager->getOledDisplay()) {
-      modeManager->getOledDisplay()->setNetworkCycling(true);
-      modeManager->getOledDisplay()->setSavedRouterCount(savedRouterCount_);
-    }
+    // 2026-10-10: the "|Nets:<saved routers>" tail is gone with the OLED's
+    // "[n/m]" badge. It had exactly one reader - the cycling index - and it was
+    // a truncation hazard on the line the owner actually asked for: this buffer
+    // is 128 B and three long router names pushed the IP out of the snprintf.
+    // extraInfo is OLED-internal (no app or page parses it), so the shorter
+    // form is invisible everywhere except that it now always fits.
+    snprintf(extra, sizeof(extra), "AP:%s,%s", apName_.c_str(), ipStr);
   } else {
     extra[0] = '\0';
-    // U-98: Disable network cycling when not in AP mode
-    if (modeManager && modeManager->getOledDisplay()) {
-      modeManager->getOledDisplay()->setNetworkCycling(false);
-    }
   }
   modeManager->setExtraInfo(extra);
 }
@@ -2255,6 +2279,10 @@ void WebServerComm::broadcastStatus() {
 // 500 ms per write keeps each handler bounded; the root page additionally
 // gets a TOTAL budget (serveRootBounded).
 void WebServerComm::armHttpGuard() {
+  // U-87 correction: every HTTP handler runs this first, so it is the one
+  // place that can see a router-side client that has loaded the page but not
+  // yet attached its WebSocket. Feeds the AP power policy's `inUse` test.
+  lastHttpAtMs_ = millis();
   NetworkClient& c = server.client();
   c.setNoDelay(true);
   c.setTimeout(HTTP_WRITE_TIMEOUT_MS);
