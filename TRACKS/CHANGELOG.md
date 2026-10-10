@@ -10,11 +10,73 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — the AP power policy, the `[1/2]` badge, and the build `c0e4ce6` broke
+
+`c0e4ce6` (2026-10-10) did not compile and left half of U-98 behind. Both fixed; `FW_VERSION`
+stays `1.2.4` because nothing has been flashed.
+
+**BUILD.** `server.hasClient()` does not exist. `hasClient()` belongs to `NetworkServer`, which
+`WebServer` **contains** rather than inherits (`WebServer.h:342`, and `_server` is in the
+protected section). The branch was red at CI run `38041257338`.
+
+**THE BUG UNDER THE BUG.** The first half of that line was worse than the compile error.
+`inUse = ws.connectedClients() > 0` counts clients, and a phone driving the car from
+`4WDCar_Wifi` raises that count like any other client — so the car treated **its own hotspot as
+a reason to park its own hotspot**, `AP_PARK_GRACE_MS` (20 s) after the page opened. That is
+the owner's *"the car is not connected through its own hotspot for the phone after some period
+of time … not allowing to connect and switch cleanly, also doesn't connect sometime."*
+`inUse` is now `WiFi.softAPgetStationNum() == 0 && (ws.connectedClients() > 0 || httpActive)`:
+anyone sitting on the AP forces it false, which both blocks a park and restores a beacon that
+should never have been dropped. `softAPgetStationNum()` reads a cached driver count — no radio
+work, no netif config — so the one-call-per-pass rule (U-71/F-24) still holds.
+
+The HTTP half is real now rather than a call to a method that never existed: `armHttpGuard()`
+runs first in **every** HTTP handler, so it stamps `lastHttpAtMs_`, and `httpActive` covers the
+page-load → WebSocket gap under `AP_PARK_HTTP_MS` (15 s, bounded on purpose).
+
+**`[1/2]` — REMOVED END TO END, NOT JUST THE FORMAT STRING.** `c0e4ce6` deleted the `snprintf`
+that rendered the badge and nothing else. Gone now: `cycleNetworkDisplay()`,
+`setNetworkCycling()`, `setSavedRouterCount()`, their three state fields
+(`networkCyclingActive` / `currentNetworkIndex` / `lastNetworkCycleMs`), the `|Nets:` parse in
+`Oled_1_3::redrawNow()`, the two callers in `updateExtraInfo()`, and the `|Nets:` producer.
+That tail had exactly one reader and it was a **truncation hazard on the line the owner asked
+for**: `extra` is 128 B and three long saved-router names pushed the IP out of the `snprintf`
+(the `ModeManager.h` comment had recorded the AP row "pass 64" for exactly this reason).
+`extraInfo` is OLED-internal — no app or page parses it — so the shorter form is invisible
+everywhere except that it now always fits. Saved routers are an unordered set in the firmware,
+the page and the app, which is what *"treat all router networks equally"* asks for.
+
+**THE PAGE NEEDED NOTHING.** `WebPage.h` rebuilds the router dropdown from `j.networks` as plain
+options — no ranking, no own-hotspot label, no index — and carries no guidance prose in its
+network section. Verified rather than assumed; no change made.
+
+**GATE — and why the old rule could not have caught this.** `check-webpage-js.mjs` asserted only
+`inUse = ws.connectedClients() > 0`, which is precisely the half that cannot see WHICH side a
+client arrived on. It now asserts the WS half, the AP-empty half, that both sit in **one**
+expression, and that the HTTP branch is actually fed. Mutation-proven in both directions:
+deleting either half fails by name, and deleting the `lastHttpAtMs_` stamp — which used to leave
+this gate green — now fails too.
+
+**One gate defect found while using it, NOT yet fixed (next session).**
+`check-firmware-syntax.ps1` sets `$ErrorActionPreference = "Stop"` (line 53), so PowerShell 5.1
+throws a `NativeCommandError` on gcc's stderr at line 158 — **before** the `FAIL <file>` /
+`Select-String 'error:'` reporting at 159–160 ever runs. Consequence: on a failing TU the gate
+prints no error text at all, and the `foreach` aborts, so the **remaining translation units are
+never checked**. It still exits 1, so it is not a silent pass — but it reports a failure with no
+cause and silently shrinks to partial coverage on the fail path, which is the U-96 class this
+gate exists to prevent. `gh run view --log-failed` and a direct gcc sweep were the only ways to
+see the error.
+
+Verified: syntax 10/10 · `check-webpage-js.mjs` · `check-relay-contract.mjs` · `mutate-gates.mjs`
+65/65 (byte-exact restore). **F-61: source-level only. Nothing flashed.**
+
 ## DRAFT — U-94 Phase 2: the relay dial moves to its own task — UNRELEASED
 
-> **Draft only, on branch `feat/relay-phase2-own-task`. Not merged to `main`, not
-> COMPILED (the local `arduino-cli` is blocked by an application-control policy; the first
-> real build is CI on this branch's PR), not flashed, not on a car.** `FW_VERSION` is
+> **Draft only, on branch `feat/relay-phase2-own-task`. Not merged to `main`, not flashed,
+> not on a car.** It now COMPILES: `tools/check-firmware-syntax.ps1` passes 10/10 and a direct
+> gcc sweep passes 10/10 (2026-10-10 — `c0e4ce6` had broken the build with `server.hasClient()`;
+> fixed below). CI on the PR is still the authoritative build because the local `arduino-cli` is
+> blocked by an application-control policy. `FW_VERSION` is
 > deliberately NOT bumped until the build and the bench pass, so this entry has no released
 > version behind it — F-61: source-level evidence and nothing more.
 

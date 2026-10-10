@@ -1,4 +1,44 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-10: relay Phase 2 DRAFT on branch `feat/relay-phase2-own-task` — UNCOMPILED, not merged; still NOT flashed; main unchanged)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-10, late: branch `feat/relay-phase2-own-task` COMPILES again; AP power policy fixed; `[1/2]` fully removed — still NOT flashed; main unchanged)
+
+## This session (2026-10-10, second round) — the branch compiles again, and the hotspot stops dropping itself
+
+The previous round ended with `c0e4ce6` pushed, **the branch red**, and half of U-98 still in the
+tree. Owner: *remove the `[1/2]` badge, treat all router networks equally, keep it clean, and the
+ESP32 "is not working at 100%" — the car's own hotspot drops after a while and will not connect
+or switch cleanly.*
+
+- **`c0e4ce6` had broken the build.** `server.hasClient()` — `hasClient()` belongs to
+  `NetworkServer`, which `WebServer` **contains**, not inherits (`WebServer.h:342`, protected).
+  CI run `38041257338` was red. Now 10/10.
+- **The bug under it was worse than the compile error, and it IS the hotspot report.**
+  `inUse = ws.connectedClients() > 0` counts clients and cannot tell which side they arrived on,
+  so a phone driving the car **from `4WDCar_Wifi`** counted as a reason to **park `4WDCar_Wifi`**
+  — `AP_PARK_GRACE_MS` (20 s) after the page opened the car dropped the very link it was being
+  driven over. `inUse` is now `WiFi.softAPgetStationNum() == 0 && (ws.connectedClients() > 0 ||
+  httpActive)`: anyone on the AP forces it false. `softAPgetStationNum()` is a cached driver
+  count — no radio work, so U-71/F-24's one-call-per-pass still holds. The HTTP half is real
+  now (`armHttpGuard()` stamps `lastHttpAtMs_` in every handler; bounded by `AP_PARK_HTTP_MS`).
+- **`[1/2]` removed END TO END.** Only the `snprintf` had gone. `cycleNetworkDisplay()`,
+  `setNetworkCycling()`, `setSavedRouterCount()`, the three state fields, the `|Nets:` parse, the
+  two callers in `updateExtraInfo()` and the `|Nets:` producer are all gone. That tail had one
+  reader and it truncated the IP line the owner asked for in v1.2.4.
+- **The car's own page needed nothing.** Verified, not assumed: `WebPage.h` rebuilds the router
+  dropdown from `j.networks` as plain options — no ranking, no own-hotspot label, no index — and
+  has no guidance prose in its network section. No change made.
+- **Gate: `check-webpage-js.mjs` asserted only the WS half of `inUse`**, which is exactly the half
+  that cannot see this bug. It now asserts both halves + that they share one expression + that
+  the HTTP branch is fed. Mutation-proven both directions, including deleting the stamp (which
+  used to leave it green).
+- **⚠ NEXT SESSION, a gate defect I found and did NOT fix:** `check-firmware-syntax.ps1` sets
+  `$ErrorActionPreference = "Stop"` (line 53), so PowerShell 5.1 throws `NativeCommandError` on
+  gcc's stderr at line 158 — **before** the `FAIL <file>` / `Select-String 'error:'` reporting at
+  159–160. On a failing TU it prints **no error at all** and the `foreach` ABORTS, so the
+  remaining translation units are never checked. It exits 1, so it is not a silent pass, but it
+  is a partial-coverage pass with no diagnosis — the U-96 class. Fix: wrap the gcc invocation so
+  stderr is captured without terminating (`2>&1 | Out-String` inside a `try/catch`, or set
+  `$ErrorActionPreference = 'Continue'` locally around that line).
+- **Verified:** syntax 10/10 · page-js · relay-contract · mutate-gates 65/65 (byte-exact).
+  **F-61: source-level. Nothing flashed. `RELAY_HOST` still unset. T-REL-1..4 still unrun.**
 
 ## This session (2026-10-10) — relay Phase 2 DRAFT: the dial moves off the loop task
 
