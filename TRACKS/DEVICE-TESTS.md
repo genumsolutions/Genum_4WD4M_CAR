@@ -38,11 +38,12 @@
       record is written as `http-root`), then leave the car completely idle and cause a fault. The
       recorded phase must be empty/idle, **not** `http-root`. This is the `83ecf15` fix: the idle
       transition used to be rate-limited away, so a parked-car crash inherited the last operation.
-- [ ] **U-95-6 — the relay sheet CANNOT be run yet, by design.** `RELAY_HOST` ships `""` and the new
-      `armed-handshake` gate now **fails the build** for any config that sets it, because the TLS
-      handshake still runs on the loop task with a 120 s timeout against a 5 s watchdog (F-84). Do not
-      work around this gate. T-REL-1..4 are blocked until the dial is moved to its own task. Record
-      that fact here rather than attempting the relay.
+- [ ] **U-95-6 — the relay sheet still CANNOT be run on 1.2.4, by design.** `RELAY_HOST` ships `""` and
+      the `armed-handshake` gate refuses any config that arms it while the TLS handshake runs on the
+      loop task with a 120 s timeout against a 5 s watchdog (F-84). **The fix is DRAFTED on branch
+      `feat/relay-phase2-own-task` (2026-10-10):** the dial moves to its own FreeRTOS task, after which
+      arming passes the gate. But that branch is UNCOMPILED and unflashed, so T-REL-1..4 stay blocked on
+      `main` until it builds, ships, and `RELAY_HOST` is set. Do not work around the gate on `main`.
 - [ ] **U-95-7 — the switch teardown walks all the way to `WiFi.begin()` (1.2.2, Phase 2a).** Car on
       router X, phone on X: pick router Y → `REPLY=ROUTERS;USED;Y`, then serial `[RADIO]` steps in
       order — `rejoin/mode-AP` → (confirmed by `getMode()`, no `rejoin/mode-AP-not-taken` breadcrumb)
@@ -797,6 +798,11 @@ flashed with `1.1.0`; the relay has not been deployed; the migration has not
 been applied. F-61 stands: the relay-contract gate and the Arduino compile are
 source-level evidence and nothing more. Read that sentence again before quoting
 any row below as a result.
+
+**(2026-10-10) The F-84 blocker now has a DRAFT fix on branch
+`feat/relay-phase2-own-task`** — the relay dial (and every `client_.loop()`) runs
+on its own FreeRTOS task, so arming `RELAY_HOST` passes `armed-handshake`. That
+branch is UNCOMPILED and unflashed, so nothing here changes yet.
 
 **Owner actions required first, in this order.** `RELAY_HOST` in `Config.h`
 must name the Supabase project (it ships empty, so the transport is inert until

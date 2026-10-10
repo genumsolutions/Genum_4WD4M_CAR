@@ -24,6 +24,27 @@
 // 2 s SAFE-STOP. See tools/check-relay-contract.mjs, which fails CI if a
 // CommInterface subclass is missing from any of them.
 //
+// U-94 PHASE 2 — THE DIAL LIVES ON ITS OWN TASK. This is the F-84 fix, and it
+// is the reason this file grows a FreeRTOS task. On the loop task, a relay
+// host that completed TCP and then stalled TLS held WebSocketsClient::loop()
+// for up to NetworkClientSecure's 120000 ms handshake_timeout, against a
+// loop-task watchdog measured in wall-clock milliseconds — so the car reset
+// every time the relay was slow to answer. WebSocketsClient keeps its
+// WiFiClientSecure private with no setter and deletes/recreates it on every
+// retry, so the timeout cannot be shortened from here. The only fix available
+// to this firmware is to run the dial (and every client_.loop()) on a task
+// that is NOT subscribed to that watchdog, so the loop task keeps feeding its
+// own watchdog and keeps running motor safety while the handshake waits.
+//
+// That moves real ownership, not just a call: `client_` is touched ONLY by
+// the relay task. The loop task talks to it through two lock-guarded queues
+// (lines in, lines out) and one published scalar (`socketUp_`, filled by the
+// task from client_.isConnected() right after every loop()). `connected()`
+// therefore gates on the PUBLISHED socket flag and on enrolment; the gate's
+// `enrolment` rule was changed deliberately to check both halves of that fact
+// (the flag is fed from the live socket) rather than let a second source of
+// truth drift from the socket it describes (F-82).
+//
 // NO STATE, NO QUEUE-FOR-RETRY: a frame the relay could not deliver is
 // dropped there, not parked here. Replaying a stale `F` is worse than never
 // sending it.
@@ -36,6 +57,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <WebSocketsClient.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 
 class RelayComm : public CommInterface {
 public:
@@ -45,6 +69,13 @@ public:
   // asserts the two are equal so they cannot drift.
   static constexpr size_t kQueueLen = 8;
   static constexpr size_t kLineLen = 128;
+
+  // The outbound queue holds WHOLE frames, and a frame can be a full STATE
+  // line, which the relay admits up to RELAY_MAX_OUT_BYTES (448). The .cpp
+  // static_asserts this equals RELAY_MAX_OUT_BYTES rather than trusting the
+  // number here, so the two cannot drift.
+  static constexpr size_t kOutQueueLen = 8;
+  static constexpr size_t kOutLineLen = 448;
 
   /** The relay's control plane: NUL + "relay". A NUL byte cannot start a car
    *  line (handleCommand reads a C string), so a control frame and a car line
@@ -75,16 +106,17 @@ public:
   bool connected() override;
 
   // ---- lifecycle -----------------------------------------------------
-  /** Pump the client. Must be called every loop: the WebSockets library does
-   *  its own I/O and reconnection from loop(), and a client that is not
-   *  pumped is a client that never connects and never notices a dead link. */
+  /** Supervisor, called every loop. The relay task does its own I/O and
+   *  reconnection from its own loop; this no longer pumps the client. Its job
+   *  now is to watch the task's heartbeat and drop the link flags if the task
+   *  stops ticking, so a relay that has wedged can never keep reading as a
+   *  live link (and so can never suppress the 2 s safe-stop). */
   void handle();
-  /** Disconnect and forget nothing. Idempotent. */
+  /** Disconnect and forget nothing. Idempotent. The task itself closes the
+   *  socket; this only clears the want-a-link state. */
   void stop();
-  /** Re-arm with the current credentials, after the current socket has actually
-   *  closed. Deferred rather than immediate: the library finishes a disconnect
-   *  inside loop(), so calling begin() in the same breath would re-arm a socket
-   *  that is still closing. */
+  /** Re-arm with the current credentials. The task owns the disconnect, so
+   *  this only requests it — the reconnect happens on the task, not here. */
   void restart();
 
   /** True when the socket is up AND the relay has accepted us (`paired`).
@@ -93,10 +125,9 @@ public:
    *  connected switches the safe-stop off. */
   bool enrolled() const { return enrolled_; }
   /** Attempting or established — used by the transport power policy, which
-   *  must keep the radio up while the relay needs it. Not const: the library's
-   *  isConnected() is not const either, and caching a duplicate of it here
-   *  would be a second source of truth about the same socket. */
-  bool isDialing() { return client_.isConnected() || wantsLink_; }
+   *  must keep the radio up while the relay needs it. Reads the socket flag
+   *  the relay task publishes; the loop task must not touch client_ itself. */
+  bool isDialing() { return socketUp_ || wantsLink_; }
 
   // ---- provisioning (the WIFICFG/ROUTERS command family) -------------
   /** `RELAYCFG;<32 hex>` stores the token, `RELAYCFG;RESET` forgets it,
@@ -112,6 +143,11 @@ public:
   bool hasToken() const { return token_[0] != '\0'; }
 
 private:
+  // ---- the relay task (U-94 Phase 2) ---------------------------------
+  static void taskTrampoline(void* arg);
+  void taskLoop();
+  void configureClient();
+
   static void onEventTrampoline(WStype_t type, uint8_t* payload, size_t length);
   void handleEvent(WStype_t type, uint8_t* payload, size_t length);
   void handleTextFrame(const char* frame, size_t len);
@@ -127,6 +163,10 @@ private:
   // reference at link time. Removed rather than left as a trap.
   void queueClear();
 
+  bool outPush(const char* line, size_t len);
+  bool outPop(char* dst, size_t cap);
+  void outClear();
+
   static bool isControlFrame(const char* frame, size_t len);
   static bool controlEventIs(const char* frame, const char* ev);
   static unsigned long controlNumber(const char* frame, const char* key);
@@ -139,19 +179,38 @@ private:
 
   // Inbound lines, drained by ModeManager::run() — exactly like the web
   // transport's queue, which is what keeps this on the one command path.
+  // Filled by the relay task, drained by the loop task: guarded by lock_.
   char queue_[kQueueLen][kLineLen];
   size_t head_ = 0;
   size_t tail_ = 0;
   size_t count_ = 0;
   size_t readPos_ = 0;
 
+  // Outbound lines, filled by the loop task, drained by the relay task.
+  // Guarded by lock_.
+  char outQ_[kOutQueueLen][kOutLineLen];
+  size_t outHead_ = 0;
+  size_t outTail_ = 0;
+  size_t outCount_ = 0;
+
   char token_[kTokenLen + 1] = "";
   char boardId_[16] = "";
   char lastReply_[96] = "";
 
-  bool started_ = false;
-  bool wantsLink_ = false;
-  bool enrolled_ = false;
-  bool sentHello_ = false;
-  unsigned long restartAtMs_ = 0;
+  // ---- task + shared state (U-94 Phase 2) -----------------------------
+  // Every member below is read or written by BOTH tasks, so each is volatile
+  // and every multi-word structure is guarded by lock_. client_ is the one
+  // member that is NOT shared: it belongs to the relay task alone.
+  TaskHandle_t task_ = nullptr;
+  SemaphoreHandle_t lock_ = nullptr;  // guards queue_/outQ_ and the flags below
+
+  volatile bool started_ = false;     // the relay task exists
+  volatile bool enabled_ = false;     // a live link is wanted
+  volatile bool configured_ = false;  // client_ has been configured on the task
+  volatile bool wantsLink_ = false;   // the power policy wants the radio up
+  volatile bool enrolled_ = false;    // the relay accepted us (paired)
+  volatile bool sentHello_ = false;
+  volatile bool socketUp_ = false;    // published from client_.isConnected() by the task
+  volatile bool restartRequested_ = false;
+  volatile unsigned long taskTickMs_ = 0;  // the task's heartbeat, for the supervisor
 };

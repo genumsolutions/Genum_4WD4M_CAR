@@ -10,6 +10,42 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## DRAFT — U-94 Phase 2: the relay dial moves to its own task — UNRELEASED
+
+> **Draft only, on branch `feat/relay-phase2-own-task`. Not merged to `main`, not
+> COMPILED (the local `arduino-cli` is blocked by an application-control policy; the first
+> real build is CI on this branch's PR), not flashed, not on a car.** `FW_VERSION` is
+> deliberately NOT bumped until the build and the bench pass, so this entry has no released
+> version behind it — F-61: source-level evidence and nothing more.
+
+**The F-84 fix.** On the loop task, a relay host that completed TCP and then stalled TLS held
+`WebSocketsClient::loop()` for up to `NetworkClientSecure`'s 120000 ms `handshake_timeout`,
+against a loop-task watchdog measured in wall-clock milliseconds — so the car reset every time
+the relay was slow to answer. That timeout is not reachable from the sketch: the client keeps
+its `WiFiClientSecure` in a `protected` member with no setter and deletes/recreates it every
+retry, and `WEBSOCKETS_TCP_TIMEOUT` is read inside the library's own translation unit.
+`RelayComm` now runs the dial, the handshake and every `client_.loop()` on its OWN task
+(`xTaskCreate`, 20 KB stack) that is deliberately NOT subscribed to the loop-task watchdog, so
+the loop task keeps feeding its watchdog and keeps running motor safety while the handshake
+waits.
+
+**That moves ownership, not just a call.** `client_` is touched ONLY by the relay task. The
+loop task queues outbound frames and drains inbound frames through two mutex-guarded queues and
+reads one published scalar — `socketUp_`, filled by the task from `client_.isConnected()` after
+every `loop()`. A supervisor in `handle()` drops the link flags if the task's heartbeat goes
+stale, so a wedged relay can never keep the 2 s safe-stop switched OFF. `connected()` is now
+`started_ && socketUp_ && enrolled_`.
+
+**Gates, changed deliberately.** `armed-handshake` no longer refuses a non-empty `RELAY_HOST`
+(the task IS the evidence the handshake is bounded) but still refuses a config that arms the
+relay with the dial back on the loop task. The `enrolment` rule was extended to check both
+halves of the socket fact: `connected()` gates on `socketUp_` + `enrolled_`, AND the task fills
+`socketUp_` from `client_.isConnected()` (a second source of truth about a socket is the F-82
+drift this forbids). Mutants: M18 retargeted (arm the host AND remove the task → must fail
+`armed-handshake`), M63 added (sever the socket feed → must fail `enrolment`).
+`tools/check-relay-contract.mjs` is green; the build is unproven here — CI on the PR is the
+first compile.
+
 ## v1.2.4 - 4WD4M OLED network lines (2026-10-09)
 
 Owner directive (2026-10-09): the 4WD4M OLED's last two lines are the NETWORK truth.

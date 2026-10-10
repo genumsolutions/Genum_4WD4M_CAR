@@ -1,4 +1,31 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-09 round 2: 4WD4M OLED network lines, v1.2.4; still NOT flashed; relay still BLOCKED; backup branch added)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-10: relay Phase 2 DRAFT on branch `feat/relay-phase2-own-task` — UNCOMPILED, not merged; still NOT flashed; main unchanged)
+
+## This session (2026-10-10) — relay Phase 2 DRAFT: the dial moves off the loop task
+
+**Draft only, on branch `feat/relay-phase2-own-task`. Not merged to `main`, not COMPILED, not
+flashed.** The local `arduino-cli`
+(`C:\Users\caspe\AppData\Local\Exort\runtime\arduino-cli\managed\1.5.0\win32-x64\arduino-cli.exe`)
+is present but blocked by an application-control policy, so the first real build is CI on this
+branch's PR. `FW_VERSION` is deliberately left at `1.2.4`.
+
+- **The F-84 fix, implemented.** `RelayComm` now runs the dial, the TLS handshake and every
+  `client_.loop()` on its own FreeRTOS task (`xTaskCreate`, 20 KB stack) that is NOT subscribed to
+  the loop-task watchdog. The loop task only queues outbound lines, drains inbound lines, and
+  supervises a task heartbeat; it never touches `client_`. A supervisor in `handle()` drops the link
+  flags if the task stalls, so a wedged relay cannot keep the 2 s safe-stop switched off.
+  `connected()` = `started_ && socketUp_ && enrolled_`, where `socketUp_` is published by the task
+  from `client_.isConnected()`.
+- **Gates changed deliberately.** `armed-handshake` no longer refuses a non-empty `RELAY_HOST` (the
+  task is the evidence the handshake is bounded) but still refuses arming the relay with the dial
+  back on the loop task; `enrolment` now checks both halves — `connected()` gates on `socketUp_` +
+  `enrolled_`, AND the task fills `socketUp_` from `client_.isConnected()`. Mutants: M18 retargeted
+  (arm the host AND remove the task → must fail `armed-handshake`), M63 added (sever the socket feed
+  → must fail `enrolment`).
+- **Verified here:** `node tools/check-relay-contract.mjs` → green. Arming `RELAY_HOST` now passes
+  `armed-handshake` (proven by temp edit + revert); severing the `socketUp_` feed fails `enrolment`
+  (proven). **Not verified:** the compile (CI only) and the bench (T-REL still pending).
+- **Files:** `RelayComm.h`, `RelayComm.cpp`, `tools/check-relay-contract.mjs`,
+  `tools/mutate-gates.mjs`, plus the `TRACKS/` docs. See `TRACKS/CHANGELOG.md` § DRAFT.
 
 ## This session (2026-10-09, round 2) — the 4WD4M OLED's network lines are done, v1.2.4
 
@@ -98,15 +125,16 @@ was unreachable.
   `/status` and in the page. The second commit fixed a real bug in the first: the write floor
   rate-limited the *idle* transition too, so a parked-car crash was blamed on whatever the car last
   did. The header had promised otherwise and no gate noticed.
-- **NOT fixed — and it now blocks U-94 deployment (F-84, `d78c27d`).** The relay TLS handshake runs
+- **NOT fixed in 1.2.4 — the fix is DRAFTED on branch `feat/relay-phase2-own-task` (2026-10-10, uncompiled; see the session note at the top; F-84, `d78c27d`).** The relay TLS handshake runs
   on the loop task with `handshake_timeout = 120000` (core default, `NetworkClientSecure.cpp:41`) and
   the task watchdog measures wall-clock time, so the handshake's `vTaskDelay(2)` does not save it. A
   host that completes TCP then stalls TLS resets the car for up to two minutes. It cannot be tuned
   from here: `WebSocketsClient` keeps its `WiFiClientSecure` in a `protected` member, recreates it
   every retry, and `WEBSOCKETS_TCP_TIMEOUT` is read inside the library's own translation unit, so
   `#define`ing it in the sketch is a no-op. **The `armed-handshake` gate now FAILS THE BUILD for any
-  config that sets `RELAY_HOST`.** The real fix is moving the dial to its own FreeRTOS task, deferred
-  until the relay can be bench-tested against a live host. A TCP pre-flight was considered and
+  config that sets `RELAY_HOST` while the dial is still on the loop task.** The fix is moving the dial
+  to its own FreeRTOS task — now drafted (2026-10-10) on `feat/relay-phase2-own-task`, still awaiting a
+  compile + a live-host bench. A TCP pre-flight was considered and
   REJECTED: it cannot help, because the dangerous host is one that *accepts* the connection and then
   stalls TLS.
 

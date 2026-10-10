@@ -515,11 +515,15 @@ const wdt = Number(wsh.match(/#define\s+LOOP_TASK_WDT_TIMEOUT_MS\s+(\d+)ul/)?.[1
 // #define'ing it in this sketch is a no-op, and the owner's Arduino IDE build
 // passes no build flags.
 //
-// So the honest position is that ARMING the relay is the dangerous act, and the
-// gate refuses it. Shipping RELAY_HOST="" keeps every car on the safe side of
-// this bug; a build that sets it is a build that will reboot the car whenever the
-// relay is slow to answer. The fix is to move the dial off the loop task, after
-// which this rule is deleted deliberately rather than quietly.
+// (U-94 Phase 2) The fix has now landed: RelayComm runs the dial, the TLS
+// handshake and every client_.loop() on its OWN task (xTaskCreate in
+// RelayComm.cpp), so the handshake no longer runs on the watchdog-subscribed
+// loop task and ARMING the relay is no longer the reboot described above. The
+// rule is KEPT, not deleted: it still refuses any build that sets RELAY_HOST
+// while the dial is back on the loop task (no xTaskCreate), which is exactly the
+// regression a later refactor could reintroduce. Shipping RELAY_HOST="" keeps a
+// car inert; a build that sets it must also carry the task, and this is the
+// interlock that says so.
 const hostIsSet = !/#define\s+RELAY_HOST\s+""/.test(cfg);
 const handshakeBounded =
   /RELAY_HANDSHAKE_BOUNDED/.test(cfg) ||
@@ -535,13 +539,25 @@ if (hostIsSet && !handshakeBounded) {
 }
 // connected() must require enrolment, not just a socket: a car refused with
 // close 4401 is not connected, and must not switch the safe-stop off.
+//
+// (U-94 Phase 2) The dial moved to RelayComm's own task, so the loop task may
+// no longer touch client_ (the task deletes and recreates the socket on every
+// retry). The task publishes the socket fact into socketUp_ after every
+// client_.loop(), and connected() gates on that PUBLISHED flag. A second source
+// of truth about a socket is precisely the drift F-82 warns about, so this rule
+// checks BOTH halves of the fact: connected() must read socketUp_ AND
+// enrolment, and the task must genuinely fill socketUp_ from
+// client_.isConnected(). Break either half and the rule goes red (mutation M63).
 const connBody = body(relayCode, "bool RelayComm::connected") ?? "";
+const taskLoopBody = body(relayCode, "void RelayComm::taskLoop") ?? "";
 if (!/enrolled_/.test(connBody)) {
   fail("enrolment", "connected() does not require the relay's paired ack");
-} else if (!/client_\s*\.\s*isConnected\s*\(\s*\)/.test(connBody)) {
-  fail("enrolment", "connected() does not require the socket");
+} else if (!/socketUp_/.test(connBody)) {
+  fail("enrolment", "connected() does not require the socket flag the relay task publishes (U-94 Phase 2)");
+} else if (!/socketUp_\s*=\s*client_\s*\.\s*isConnected\s*\(\s*\)/.test(taskLoopBody)) {
+  fail("enrolment", "the relay task never fills socketUp_ from client_.isConnected() - connected() reads a flag nothing feeds");
 } else {
-  pass("enrolment", "connected() requires paired AND an open socket");
+  pass("enrolment", "connected() requires paired AND the socket flag the task publishes from the live socket");
 }
 
 // ---- 8. the restart record (U-95/F-79) ---------------------------------

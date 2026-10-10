@@ -262,9 +262,18 @@ const mutants = [
     find: "  if (RELAY_HOST[0] == '\\0') {", repl: "  if (RELAY_HOST[0] == 'z') {",
     why: "the guard exists but can never fire: the empty-host case is not actually tested" },
 
-  { id: "M18", rule: "armed-handshake", file: "Config.h",
-    find: '#define RELAY_HOST ""', repl: '#define RELAY_HOST "xyzcompany.supabase.co"',
-    why: "the relay is armed while the 120 s handshake is still unbounded — the interlock must refuse this" },
+  { id: "M18", rule: "armed-handshake", file: RELAY,
+    find: "xTaskCreate(taskTrampoline", repl: "createRelayTask(taskTrampoline",
+    also: [{ file: "Config.h", find: '#define RELAY_HOST ""', repl: '#define RELAY_HOST "xyzcompany.supabase.co"' }],
+    why: "the relay is armed with the dial back on the loop task (the task is gone) — the 120 s handshake is unbounded again; the interlock must refuse this" },
+
+  // U-94 Phase 2: connected() must gate on the socket fact the relay task
+  // PUBLISHES (socketUp_), and that flag must be fed from client_.isConnected().
+  // A second source of truth about the socket is the F-82 drift this rule
+  // exists to prevent, so severing the feed must go red.
+  { id: "M63", rule: "enrolment", file: RELAY,
+    find: "socketUp_ = client_.isConnected();", repl: "socketUp_ = true;",
+    why: "the relay task stops publishing the real socket state — connected() reads a flag hard-coded true, so a refused or half-open car would read as connected and switch the safe-stop off" },
 
   // ---- WebSocket pump vs the watchdog (U-95 1b/1c) ----
   { id: "M19", rule: "ws-loop-feed", file: WSC,

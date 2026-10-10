@@ -28,6 +28,29 @@
 // reason; none of them interpolate anything. tools/check-relay-contract.mjs
 // fails CI if a printf-family call ever mentions the token, or if a reply stops
 // being a plain literal.
+//
+// U-94 PHASE 2 — THREADING MODEL (the F-84 fix). Everything below splits into
+// two owners:
+//
+//   THE RELAY TASK owns `client_`. It configures the TLS client, runs
+//   client_.loop() (the connect + handshake + read/write pump), handles the
+//   library's events, and publishes two facts the rest of the car reads:
+//   `socketUp_` (from client_.isConnected(), refreshed after every loop()) and
+//   `taskTickMs_` (a heartbeat). Because this task is NOT subscribed to the
+//   loop-task watchdog, a handshake that stalls for its full 120000 ms costs a
+//   slow link and nothing else — the loop task keeps feeding its own watchdog
+//   and keeps running motor safety the whole time.
+//
+//   THE LOOP TASK owns everything else. It queues outbound frames (write/send),
+//   drains inbound frames (available/read), and runs ModeManager.
+//
+// The two meet at exactly three places, all guarded: the inbound queue, the
+// outbound queue, and the small set of volatile scalars. Nothing calls across
+// the boundary while holding the lock for more than a memcpy, and nothing on
+// the loop task touches client_ at all. That last point is why connected()
+// reads the published socketUp_ rather than calling client_.isConnected() —
+// reading the socket from the loop task would race the task's delete-and-
+// recreate of the underlying WiFiClientSecure.
 // Property of GENUM SOLUTIONS PVT. LTD.
 // =====================================================================
 #include "RelayComm.h"
@@ -91,6 +114,12 @@ static_assert(RELAY_MAX_OUT_BYTES >= 448,
 static_assert(RelayComm::kLineLen == CMD_BUF_LEN,
               "relay's inbound cap (128) is CMD_BUF_LEN; if this changes, change the relay too");
 
+// The outbound queue holds whole frames, and a whole frame is exactly what the
+// relay admits from the car. One number, asserted, rather than two 448s that
+// can drift (the same reasoning as the static_assert above).
+static_assert(RelayComm::kOutLineLen == RELAY_MAX_OUT_BYTES,
+              "the outbound queue's line size must equal the relay's car->controller cap");
+
 // 2 s heartbeat, 5 s pong timeout, give up after 2 misses. This is not
 // politeness: without it a half-open TCP connection (phone in a lift) leaves
 // `connected()` true, and a link that claims to be connected is a link that
@@ -104,10 +133,21 @@ constexpr uint8_t kMaxPongMisses = 2;
 // otherwise be dialling every second for the life of the battery.
 constexpr unsigned long kRedialMs = 15000;
 
-// How long to let a socket finish closing before re-arming with new credentials
-// (RELAYCFG). Long enough for the close handshake, short enough that the owner
-// has not yet reached for the reset button.
-constexpr unsigned long kRestartDelayMs = 500;
+// The relay task's stack, in BYTES (this is the ESP-IDF xTaskCreate convention,
+// not vanilla FreeRTOS words). It must carry an mbedTLS handshake plus the
+// WebSockets client's buffers, which is why it is generously sized: this task's
+// worst case is the one the loop task used to be reset by, and a stack overflow
+// here would be a crash with no other symptom.
+constexpr uint32_t kRelayTaskStack = 20480;
+
+// How long the relay task may go without a heartbeat before the loop task
+// treats the link as dead. Strictly below the loop-task watchdog (10000 ms) is
+// NOT required — the supervisor is not a watchdog, it is a safety interlock —
+// but it is comfortably below the 120000 ms handshake so a stalled dial is
+// noticed long before it would have mattered. This is deliberately longer than
+// the WebSockets library's worst single operation (8000 ms) so a normal slow
+// pass never trips it.
+constexpr unsigned long kRelayTaskStallMs = 15000;
 
 }  // namespace
 
@@ -120,10 +160,96 @@ void RelayComm::onEventTrampoline(WStype_t type, uint8_t* payload, size_t length
   if (sInstance) sInstance->handleEvent(type, payload, length);
 }
 
+// ---- the relay task (U-94 Phase 2) ------------------------------------
+
+void RelayComm::taskTrampoline(void* arg) {
+  // The task runs for the life of the firmware and is never deleted: stop()
+  // idles it instead. Deleting and re-creating a task that owns `client_` would
+  // race a reconnect against its own teardown, which is the exact class of bug
+  // this whole change exists to remove.
+  static_cast<RelayComm*>(arg)->taskLoop();
+}
+
+void RelayComm::configureClient() {
+  // Runs ON THE RELAY TASK, never on the loop task. beginSslWithCA() itself is
+  // cheap (it stores host/path and the CA); the blocking part is the handshake
+  // inside client_.loop(), which is why loop() — not this call — is the thing
+  // that had to move off the watchdog-subscribed task.
+  crashLogPhase("relay-tls");
+  client_.beginSslWithCA(RELAY_HOST, RELAY_PORT, RELAY_PATH, kIsrgRootX1);
+  crashLogPhase("");
+  client_.setReconnectInterval(kRedialMs);
+  client_.enableHeartbeat(kHeartbeatMs, kPongTimeoutMs, kMaxPongMisses);
+  client_.onEvent(onEventTrampoline);
+}
+
+void RelayComm::taskLoop() {
+  for (;;) {
+    if (!enabled_) {
+      // Idle: the owner asked for no link (stop(), or RELAYCFG;RESET). Keep the
+      // socket down and keep ticking so the supervisor sees a live, idle task.
+      if (configured_) {
+        client_.disconnect();
+        configured_ = false;
+      }
+      socketUp_ = false;
+      taskTickMs_ = millis();
+      vTaskDelay(pdMS_TO_TICKS(50));
+      continue;
+    }
+
+    if (restartRequested_) {
+      // Credentials changed (RELAYCFG). Do the disconnect and the reconfigure
+      // HERE, on the task that owns client_, rather than deferring through the
+      // loop task — the library finishes its disconnect inside loop(), so
+      // re-arming from another task would race a socket that is still closing.
+      restartRequested_ = false;
+      client_.disconnect();
+      configured_ = false;
+      enrolled_ = false;
+      sentHello_ = false;
+      queueClear();
+      outClear();
+    }
+
+    if (!configured_) {
+      configureClient();
+      configured_ = true;
+    }
+
+    // Drain anything the loop task queued for us. Only send while the relay has
+    // accepted us: a car refused with close 4401 has nothing to say, and a frame
+    // that was queued just before a `link-down` must not be replayed after it.
+    char line[kOutLineLen];
+    while (outPop(line, sizeof(line))) {
+      if (enrolled_ && client_.isConnected()) {
+        client_.sendTXT(line, strlen(line));
+      }
+    }
+
+    // The untunable part. This may block for the whole 120000 ms handshake and
+    // that is now acceptable: it blocks THIS task, not the loop task and not
+    // the loop-task watchdog.
+    client_.loop();
+
+    // Publish the socket fact the loop task is allowed to read. Done after
+    // loop() so the flag always describes the state loop() just left behind.
+    socketUp_ = client_.isConnected();
+    taskTickMs_ = millis();
+    vTaskDelay(1);
+  }
+}
+
 // ---- lifecycle --------------------------------------------------------
 
 bool RelayComm::begin() {
-  if (started_) return true;
+  // The task exists after the first successful begin() and lives for the
+  // session; a later begin() (after a stop()) just re-enables it.
+  if (started_) {
+    enabled_ = true;
+    wantsLink_ = true;
+    return true;
+  }
 
   // U-95 Phase 1e: an EXPLICIT empty-host guard, ahead of everything else.
   //
@@ -159,43 +285,41 @@ bool RelayComm::begin() {
   }
 
   sInstance = this;
-  // U-95/F-79 + Phase 1d — STILL AN OPEN DEFECT, and the comment used to read as
-  // if this were handled. It is not.
+
+  // U-94 Phase 2 — the F-84 fix. This is where the earlier version of this file
+  // carried a long comment saying the real fix was "deferred until the relay can
+  // be bench-tested"; it is no longer deferred. The dial, the handshake and
+  // every client_.loop() now run on their own task (taskLoop), which is NOT
+  // subscribed to the loop-task watchdog. That removes the two-minute reboot
+  // without needing to reach into WebSocketsClient's private WiFiClientSecure —
+  // which was impossible anyway: it has no setter and is deleted/recreated on
+  // every retry. The loop task keeps feeding its watchdog throughout.
   //
-  // Measured, not assumed: NetworkClientSecure sets sslclient->handshake_timeout
-  // to 120000 (NetworkClientSecure.cpp:41/69) and `ssl_starttls_handshake()`
-  // (ssl_client.cpp:325) loops on that value alone. WebSocketsClient::loop() is
-  // what runs it, on THIS task, and this task is subscribed to a 5000 ms
-  // watchdog. The handshake loop calls vTaskDelay(2), which does not help: the
-  // task watchdog measures wall-clock time since the last esp_task_wdt_reset(),
-  // not CPU time, so yielding for two minutes still trips it.
-  //
-  // So a relay host that completes TCP and then stalls TLS resets the car for up
-  // to two minutes. There is no way to set that timeout from here: WebSocketsClient
-  // keeps its WiFiClientSecure in a protected member, exposes no setter, and
-  // DELETES AND RECREATES it on every retry (WebSocketsClient.cpp, loop()), so
-  // even a value set once would be discarded. WEBSOCKETS_TCP_TIMEOUT would not
-  // help either — it is read inside the library's own translation unit, so
-  // defining it here changes nothing, and the owner's Arduino IDE build takes no
-  // build flags.
-  //
-  // The real fix is to move the dial off this task, so loop() keeps feeding its
-  // watchdog AND keeps running motor safety while the handshake waits. That is
-  // deferred until the relay can actually be bench-tested against a live host;
-  // until then the `armed-handshake` gate in tools/check-relay-contract.mjs
-  // refuses any build that sets RELAY_HOST, because deploying this is exactly how
-  // the car reboots. Phase 1e's empty-host guard above is what keeps an
-  // unconfigured car out of this code entirely.
-  crashLogPhase("relay-tls");
-  client_.beginSslWithCA(RELAY_HOST, RELAY_PORT, RELAY_PATH, kIsrgRootX1);
-  crashLogPhase("");
-  client_.setReconnectInterval(kRedialMs);
-  client_.enableHeartbeat(kHeartbeatMs, kPongTimeoutMs, kMaxPongMisses);
-  client_.onEvent(onEventTrampoline);
+  // tools/check-relay-contract.mjs tracks this: its `armed-handshake` interlock
+  // no longer refuses a non-empty RELAY_HOST, because xTaskCreate() here is the
+  // evidence that the handshake is bounded (it checks for exactly that). The
+  // `enrolment` rule was extended in the same change to check that the socket
+  // flag the loop task reads (socketUp_) is genuinely fed from
+  // client_.isConnected() by this task.
+  if (!lock_) lock_ = xSemaphoreCreateMutex();
+  if (!lock_) {
+    FW_LOG("[RELAY] could not create the relay mutex");
+    return false;
+  }
+
+  enabled_ = true;
+  wantsLink_ = true;
+
+  BaseType_t ok = xTaskCreate(taskTrampoline, "relay", kRelayTaskStack, this, 1, &task_);
+  if (ok != pdPASS) {
+    task_ = nullptr;
+    enabled_ = false;
+    wantsLink_ = false;
+    FW_LOG("[RELAY] could not start the relay task");
+    return false;
+  }
 
   started_ = true;
-  wantsLink_ = true;
-  restartAtMs_ = 0;
   FW_LOG("[RELAY] dialling %s:%d/%s as %s", RELAY_HOST, RELAY_PORT, RELAY_PATH, boardId_);
   return true;
 }
@@ -205,40 +329,49 @@ void RelayComm::restart() {
     begin();
     return;
   }
-  // The disconnect is finished by loop(), so the redial waits a beat and the
-  // pump keeps running in the meantime. Without the delay this would call
-  // begin() on a client that is still closing its socket, which is the kind of
-  // thing that works once on the bench and never again.
-  restartAtMs_ = millis() + kRestartDelayMs;
+  // The task owns the disconnect, so this only asks for it. The flag is checked
+  // at the top of every task pass and does disconnect -> reconfigure in one
+  // place, so a redial can never race a socket that is still closing.
   enrolled_ = false;
   sentHello_ = false;
   queueClear();
+  outClear();
+  restartRequested_ = true;
+  enabled_ = true;
+  wantsLink_ = true;
 }
 
 void RelayComm::handle() {
-  // The library reconnects from loop(). It also does all socket I/O here, so
-  // NOT calling this is the same as not having a relay.
-  if (restartAtMs_ != 0 && static_cast<long>(millis() - restartAtMs_) >= 0) {
-    restartAtMs_ = 0;
-    client_.disconnect();
-    started_ = false;
-    begin();
-    return;
+  // The relay task pumps the client now; this is the SUPERVISOR. The task
+  // publishes taskTickMs_ every pass. While it is inside client_.loop() it
+  // cannot be preempted — a stalled TLS handshake holds it for up to 120000 ms
+  // — but a relay task that has stopped ticking must never keep reading as a
+  // live link: a link that reads as connected is a link that has switched the
+  // 2 s safe-stop OFF while nothing is controlling the car. So a stale
+  // heartbeat drops the link flags and the safe-stop re-arms. The task is left
+  // running; when its call returns it simply resumes ticking.
+  if (!enabled_) return;
+  if (taskTickMs_ != 0 && (millis() - taskTickMs_) > kRelayTaskStallMs) {
+    if (enrolled_) FW_LOG("[RELAY] relay task stalled - safe-stop re-armed");
+    enrolled_ = false;
+    socketUp_ = false;
   }
-  if (!started_) return;
-  client_.loop();
 }
 
 void RelayComm::stop() {
-  if (!started_ && restartAtMs_ == 0) return;
-  restartAtMs_ = 0;
-  client_.disconnect();
-  sInstance = nullptr;
-  started_ = false;
+  if (!started_ && !enabled_) return;
+  // Clear the want-a-link state and ALL the shared flags immediately, so
+  // connected()/isDialing() stop reporting a link on the very next loop. The
+  // task observes enabled_ == false and closes the socket on its next pass; if
+  // it is wedged in a handshake, the supervisor covers the gap.
+  enabled_ = false;
   wantsLink_ = false;
   enrolled_ = false;
   sentHello_ = false;
+  socketUp_ = false;
   queueClear();
+  outClear();
+  sInstance = nullptr;
 }
 
 void RelayComm::noteDisconnect() {
@@ -253,6 +386,7 @@ void RelayComm::noteDisconnect() {
 // ---- events -----------------------------------------------------------
 
 void RelayComm::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
+  // Runs on the relay task, inside client_.loop().
   switch (type) {
     case WStype_CONNECTED:
       FW_LOG("[RELAY] socket up, saying hello");
@@ -332,6 +466,7 @@ void RelayComm::handleTextFrame(const char* frame, size_t len) {
 }
 
 void RelayComm::sendHello() {
+  // Runs on the relay task.
   if (!client_.isConnected() || !hasToken()) return;
   char hello[192];
   // v is the relay's RELAY_PROTOCOL_VERSION; a mismatch is refused with a name.
@@ -363,49 +498,60 @@ void RelayComm::answerPing(const char* frame) {
 // ---- outbound ---------------------------------------------------------
 
 size_t RelayComm::write(const char* buf, size_t len) {
+  // Runs on the loop task. It no longer calls client_ (the relay task owns it):
+  // it splits the buffer into lines and queues them. The counting semantics are
+  // preserved - the return value is bytes accepted for sending.
   if (!buf || len == 0) return 0;
   if (!connected()) return 0;
 
   // One line per frame. ModeManager fans out whole STATE/NETW/SCAN lines
   // ending in '\n'; splitting on it here means the phone sees lines, not one
   // growing blob, and a partial line can never be mistaken for a complete one.
-  size_t sent = 0;
+  size_t queued = 0;
   size_t start = 0;
   for (size_t i = 0; i < len; i++) {
     if (buf[i] != '\n') continue;
     size_t n = i - start + 1;
     if (i > start && n < RELAY_MAX_OUT_BYTES) {
-      if (client_.sendTXT(buf + start, n)) sent += n;
+      if (outPush(buf + start, n)) queued += n;
     }
     start = i + 1;
   }
   // A tail with no newline: forwarded, because dropping the last line of a
   // state burst would be a silent lie about the car's state.
   if (start < len && len - start < RELAY_MAX_OUT_BYTES) {
-    if (client_.sendTXT(buf + start, len - start)) sent += len - start;
+    if (outPush(buf + start, len - start)) queued += len - start;
   }
-  return sent;
+  return queued;
 }
 
 bool RelayComm::send(const char* msg) {
   if (!msg || !connected()) return false;
-  return client_.sendTXT(msg);
+  return outPush(msg, strlen(msg));
 }
 
 void RelayComm::flush() {
-  // Nothing to flush: sendTXT hands the frame to the library, which writes it
-  // from handle(). Claiming otherwise here would be inventing a guarantee.
+  // Nothing to flush: the loop task hands the frame to the task's queue, and
+  // the task writes it from its own loop(). Claiming otherwise here would be
+  // inventing a guarantee.
 }
 
 bool RelayComm::connected() {
   // Socket AND enrolled. A car refused with close 4401 is not "connected" -
-  // and if it read as connected, it would switch the safe-stop off.
-  return started_ && client_.isConnected() && enrolled_;
+  // and if it read as connected, it would switch the safe-stop off. socketUp_
+  // is the flag the relay task publishes from client_.isConnected() after every
+  // loop(); the loop task must NOT call client_ itself, because the task
+  // deletes and recreates the underlying socket on every retry.
+  return started_ && socketUp_ && enrolled_;
 }
 
 // ---- inbound queue (identical shape to the web transport's) -----------
+// Filled by the relay task, drained by the loop task: every access is under
+// lock_. The critical sections are a single memcpy/strlen, never a client_
+// call, so the lock is never held across a blocking operation.
 
 bool RelayComm::queuePush(const char* line) {
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
   if (count_ >= kQueueLen) {
     // Drop the OLDEST, not the newest: a command queue is a stream, and the
     // newest line is the one the owner most recently asked for.
@@ -416,41 +562,58 @@ bool RelayComm::queuePush(const char* line) {
   queue_[tail_][kLineLen - 1] = '\0';
   tail_ = (tail_ + 1) % kQueueLen;
   count_++;
+  if (lock_) xSemaphoreGive(lock_);
   return true;
 }
 
 size_t RelayComm::available() {
-  if (count_ == 0) return 0;
-  size_t cur = strlen(queue_[head_]) - readPos_;
-  if (count_ > 1) cur += 1;  // the '\n' between lines
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
+  size_t cur = 0;
+  if (count_ > 0) {
+    cur = strlen(queue_[head_]) - readPos_;
+    if (count_ > 1) cur += 1;  // the '\n' between lines
+  }
+  if (lock_) xSemaphoreGive(lock_);
   return cur;
 }
 
 int RelayComm::read() {
-  if (count_ == 0) return -1;
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
+  if (count_ == 0) {
+    if (lock_) xSemaphoreGive(lock_);
+    return -1;
+  }
   char c = queue_[head_][readPos_];
   if (c == '\0') {
     head_ = (head_ + 1) % kQueueLen;
     count_--;
     readPos_ = 0;
+    if (lock_) xSemaphoreGive(lock_);
     return '\n';
   }
   readPos_++;
+  if (lock_) xSemaphoreGive(lock_);
   return c;
 }
 
 int RelayComm::peek() {
-  if (count_ == 0) return -1;
-  char c = queue_[head_][readPos_];
-  return c == '\0' ? '\n' : c;
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
+  int out = -1;
+  if (count_ > 0) {
+    char c = queue_[head_][readPos_];
+    out = (c == '\0') ? '\n' : c;
+  }
+  if (lock_) xSemaphoreGive(lock_);
+  return out;
 }
 
 size_t RelayComm::readBytes(char* buf, size_t len, unsigned long timeoutMs) {
   // Single-shot: the car drains this transport from ModeManager::run(), which
   // already has its own 20 ms budget on readLineFromComm(). Blocking here for
-  // a timeout would stall the whole loop - including the socket pump that keeps
-  // this transport alive - so the timeout is accepted for interface parity and
-  // only ever waited on when nothing at all was available.
+  // a timeout would stall the whole loop - so the timeout is accepted for
+  // interface parity and only ever waited on when nothing at all was available.
+  // The lock is taken and released around each available()/read() pair, never
+  // held across the delay().
   size_t n = 0;
   const unsigned long start = millis();
   do {
@@ -468,9 +631,51 @@ size_t RelayComm::readBytes(char* buf, size_t len, unsigned long timeoutMs) {
 }
 
 void RelayComm::queueClear() {
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
   head_ = tail_ = 0;
   count_ = 0;
   readPos_ = 0;
+  if (lock_) xSemaphoreGive(lock_);
+}
+
+// ---- outbound queue ---------------------------------------------------
+
+bool RelayComm::outPush(const char* line, size_t len) {
+  if (!line || len == 0 || len >= kOutLineLen) return false;
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
+  if (outCount_ >= kOutQueueLen) {
+    // Same rule as the inbound queue: drop the OLDEST. The newest frame is the
+    // car's current state; the oldest is the one most likely to be stale.
+    outHead_ = (outHead_ + 1) % kOutQueueLen;
+    outCount_--;
+  }
+  memcpy(outQ_[outTail_], line, len);
+  outQ_[outTail_][len] = '\0';
+  outTail_ = (outTail_ + 1) % kOutQueueLen;
+  outCount_++;
+  if (lock_) xSemaphoreGive(lock_);
+  return true;
+}
+
+bool RelayComm::outPop(char* dst, size_t cap) {
+  bool got = false;
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
+  if (outCount_ > 0 && cap > 0) {
+    strncpy(dst, outQ_[outHead_], cap - 1);
+    dst[cap - 1] = '\0';
+    outHead_ = (outHead_ + 1) % kOutQueueLen;
+    outCount_--;
+    got = true;
+  }
+  if (lock_) xSemaphoreGive(lock_);
+  return got;
+}
+
+void RelayComm::outClear() {
+  if (lock_) xSemaphoreTake(lock_, portMAX_DELAY);
+  outHead_ = outTail_ = 0;
+  outCount_ = 0;
+  if (lock_) xSemaphoreGive(lock_);
 }
 
 // ---- control-frame helpers -------------------------------------------
