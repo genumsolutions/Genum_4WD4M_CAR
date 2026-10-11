@@ -214,6 +214,19 @@ const mutants = [
     find: '"\\"crash_count\\":%lu,"', repl: '"\\"crash_cnt\\":%lu,"',
     why: "a crash key is renamed out of the status JSON, so /status stops reporting it" },
 
+  // U-96i, both halves: the fw SLOT must exist, and it must be fed from
+  // FW_VERSION in that slot's position. M66 deletes the key (the app can never
+  // learn the firmware version); M67 severs the feed (the slot reports some
+  // other argument's bytes - identity, a stale literal, anything but the
+  // version). Each must fail status-fw by name.
+  { id: "M66", rule: "status-fw", file: WSC,
+    find: '"\\"fw\\":\\"%s\\","', repl: '"\\"fw_ver\\":\\"%s\\","',
+    why: "the fw key is renamed out of the status JSON, so the app never learns the firmware version and falls back to a static catalog guess presented as truth" },
+
+  { id: "M67", rule: "status-fw", file: WSC,
+    find: "      boardId,\n      FW_VERSION,\n      networks,", repl: "      boardId,\n      networks,",
+    why: "FW_VERSION is severed from its snprintf slot - the fw key now reports whatever argument follows, so the app is told a version that is not one (the board-id-as-version bug, restated on the car side)" },
+
   // ---- page (own harness) ----
   { id: "M10", rule: "crash-visible", file: "WebPage.h",
     find: "cc>0", repl: "cc>-1",

@@ -743,6 +743,24 @@ if (!/crash_count[\s\S]{0,400}crashCount\s*>\s*0/.test(page) && !/cc\s*>\s*0[\s\
   pass("crash-visible", "the page shows the restart row only when crash_count > 0");
 }
 
+// (f) U-96i: the firmware's own version must be on the wire, fed from FW_VERSION
+// in the argument position of its slot. Two failure shapes this exists to catch:
+// a car that reports NO version (the app then presents a static catalog guess as
+// truth, and fills the fleet crash table's fw_version with it), and a value that
+// is not FW_VERSION — the app once filled a field named `fw` with the BOARD ID,
+// which is identity, not a version. snprintf argument order IS the contract: a
+// right key fed from the wrong slot reports a different field's bytes.
+// The key is checked on the RAW view (it lives inside the format string literal,
+// which the code view blanks); the argument pairing on the CODE view, so the
+// word FW_VERSION in a comment cannot satisfy it.
+if (!/\\"fw\\":\\"%s\\"/.test(stJson)) {
+  fail("status-fw", "status JSON has no fw:%s slot - the app cannot learn the firmware version");
+} else if (!/boardId\s*,\s*FW_VERSION\s*,\s*networks/.test(code(stJson))) {
+  fail("status-fw", "the fw slot is not fed by FW_VERSION in the position of its %s - snprintf order is the contract");
+} else {
+  pass("status-fw", "status JSON carries fw, fed from FW_VERSION in its argument position");
+}
+
 /** Extract the braced block that starts at `from`, by brace matching. Used where
  *  a fixed-size character window would be wrong: comments and formatting decide
  *  how much text sits between two lines of code, and a window that happens to be

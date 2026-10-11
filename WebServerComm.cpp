@@ -2566,6 +2566,11 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // Connections-Hub: the stable board id (fw:<id> profile key for WiFi cars).
   char boardId[8] = "";
   boardIdHex(boardId, sizeof(boardId));
+  // U-96i: the firmware's own version, on the wire. The app had NO way to know
+  // what firmware a car runs — the registry's bundled catalog value (a static
+  // guess) was presented as truth, and the fleet crash table's fw_version column
+  // was filled from it. `boardId` is identity, not a version; the two must never
+  // be conflated again (the app had exactly that bug: `fw: telemetry.id`).
   // U-95/F-79: the restart record, over the wire. Until this existed, the only
   // reason the car had rebooted was a Serial line printed at the instant of the
   // fault, which is exactly the moment nobody is watching. `/status` is a place
@@ -2608,6 +2613,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
        "\"want\":\"%s\","
        "\"ap\":\"%s\","
        "\"id\":\"%s\","
+       "\"fw\":\"%s\","
        "\"networks\":[%s],"
        "\"scan\":%s"
      "}",
@@ -2638,9 +2644,9 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
      static_cast<int>(MAX_SPEED),
      ssidOut,
      wantOut,
-     apOut,
-     boardId,
-     networks,
-     scanJson
+     apOut,      boardId,
+      FW_VERSION,
+      networks,
+      scanJson
   );
 }
