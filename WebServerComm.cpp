@@ -1084,9 +1084,18 @@ void WebServerComm::beginAlwaysOn() {
   // Gate rule: `wifi-persistent`.
   WiFi.persistent(false);
   
-  // Initialize WiFi stack (non-blocking, runs in handle())
-  beginStation();  // WIFI_AP + startOwnAP() + server.begin() + ws.begin()
-  WiFi.mode(WIFI_AP_STA);  // ready for explicit router joins without a mode dance
+  // U-99 (owner 2026-10-12): set the FINAL mode BEFORE the AP is brought up, so
+  // the own hotspot is configured exactly ONCE — in AP_STA — with its real name
+  // and IP.
+  //
+  // This used to be beginStation() in WIFI_AP followed by WiFi.mode(AP_STA).
+  // On this core esp_wifi_set_mode() stops and restarts the radio, so the second
+  // set re-created the just-started AP from the SDK-default config: the panel
+  // then held the real hotspot (4WDCar_Wifi · 192.168.245.1) AND a nameless
+  // default one (· 192.168.4.1) — the owner's "duplicate hotspot, two IPs during
+  // first start". One mode set, one softAP, one identity.
+  WiFi.mode(WIFI_AP_STA);  // resting mode: AP now, STA joins without a mode dance
+  beginStation();  // startOwnAP() + server.begin() + ws.begin() (mode already AP_STA)
   updateExtraInfo();
   
   // Protect state variables with critical section
@@ -1118,7 +1127,12 @@ bool WebServerComm::beginStation() {
   // WIFICFG via rejoinNetwork — the paths the owner confirms work), never
   // automatically on mode entry. Own AP channel therefore never hops on boot.
   // T-64 still holds: with nothing stored the own network IS the network.
-  WiFi.mode(WIFI_AP);
+  // U-99: the caller (beginAlwaysOn) sets WIFI_AP_STA before this runs. Setting
+  // the mode HERE would be a SECOND radio restart AFTER startOwnAP() — the move
+  // that re-created the AP with the SDK-default name / 192.168.4.1 and produced
+  // the duplicate-hotspot OLED. The AP is brought up once, in the caller's
+  // (AP_STA) mode, on channel 1 while nothing is joined (startOwnAP's staSharing
+  // rule), so R-16's fixed-channel-1 own AP is unchanged.
   startOwnAP();
   // FIN-40/D2 state stays initialised so rejoinNetwork() budgets are the only
   // STA retry paths (no auto-join means handle()'s retry branch stays idle).

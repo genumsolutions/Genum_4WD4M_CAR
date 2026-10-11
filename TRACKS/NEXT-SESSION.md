@@ -17,6 +17,27 @@ via the GitHub API: `Genum_4WD4M_CAR` HEAD on `main` == local HEAD == `c5b8b9d`,
 repos under `genumsolutions` are in sync with their remotes, and no clone in the workspace has
 unpushed commits. The report was the stale old repo, not lost work.
 
+## This session (2026-10-12) — U-99: the own hotspot is configured ONCE (no duplicate hotspot / two IPs)
+
+The owner flashed/started 1.3.0 for the first time and the OLED showed the car's OWN hotspot
+TWICE — one blank with `192.168.4.1`, one `4WDCar_Wifi` with `192.168.245.1`. Source-only fix (not
+yet re-flashed; **F-61**):
+
+- **Root cause.** `beginAlwaysOn()` ran `beginStation()` in `WIFI_AP` (AP up as the real
+  `4WDCar_Wifi · 192.168.245.1`), then `WiFi.mode(WIFI_AP_STA)`. Core 3.3.12 `WiFiGeneric::mode()`
+  returns early only for the SAME mode; AP→AP_STA calls `esp_wifi_set_mode()`, which stops/restarts
+  the radio and rebuilds the softAP from the SDK defaults (blank name, `192.168.4.1`). The panel
+  then held BOTH identities.
+- **Fix.** Set the final mode FIRST, then bring the AP up once: `WiFi.mode(WIFI_AP_STA)` →
+  `beginStation()` (which no longer calls `WiFi.mode(WIFI_AP)` — `startOwnAP()` is now the only
+  wifi-config op). One softAP, one name, one IP. R-16 kept: `startOwnAP()` still runs with nothing
+  joined (`staSharing` false) → own AP on channel 1.
+- **App note (same report, checked).** `WifiPanel`'s row builder deduped the scan list
+  case-sensitively and did not skip empty SSIDs, so a hidden/blank beacon produced a nameless row
+  and a differently-cased duplicate of a saved network. Fixed in `genumsolutions-app` with ONE
+  empty-safe, case-insensitive key for the whole list (+ mirrored test + two new cases).
+- **Gates.** syntax 10/10 · relay-contract PASS · webpage-js PASS. No hardware; F-61.
+
 ## This session (2026-10-11, third round) — U-98: a flash starts clean, and a boot returns to the last-switched router
 
 Committed and **UNFLASHED** (F-61): D1–D3 at `b59236a`, P2 on top. `FW_VERSION` → `1.3.0`.

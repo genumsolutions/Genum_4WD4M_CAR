@@ -10,6 +10,33 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.0 (U-99, 2026-10-12): the own hotspot is configured ONCE — no duplicate hotspot / two IPs on first start
+
+**UNFLASHED (F-61).** Owner report, verbatim: *"when the very first time car starts the oled
+displayes the same esp's hotspot two times one is blank and shows 192.168.4.1 and another shows
+4WDCar_Wifi and 192.168.245.1. RESOLVE and keep only the proper one with the name and the proper
+ip displayed in the cars oled and dont break other things."*
+
+**D1 — `beginAlwaysOn()` changed the Wi-Fi mode AFTER the AP was up.** The boot path ran
+`beginStation()` while the driver was in `WIFI_AP` (the own AP came up on `192.168.245.1`, name
+`4WDCar_Wifi`, via `startOwnAP()`), then called `WiFi.mode(WIFI_AP_STA)`. On ESP32 core 3.3.12
+`WiFiGeneric::mode()` only returns early for the SAME mode; an AP→AP_STA change calls
+`esp_wifi_set_mode()`, which **stops and restarts the radio**. The restarted softAP was rebuilt
+from the SDK-default config — a blank name on `192.168.4.1` — while the panel still held the real
+`4WDCar_Wifi · 192.168.245.1`. The OLED showed BOTH: the owner's "same hotspot two times, one blank
+with 192.168.4.1". **FIX: set the FINAL mode (`WIFI_AP_STA`) FIRST, then bring the AP up exactly
+once** — `beginStation()` no longer sets the mode (`startOwnAP()` is the only wifi-config op, and
+the AP config is the last one). One mode set, one softAP, one identity. R-16 is preserved:
+`startOwnAP()` still runs with nothing joined (`staSharing` false), so the own AP stays on
+channel 1.
+
+**SAFETY — the U-92 own-AP guards are untouched and still hold.** The saved-router registry still
+purges a row named like the own hotspot at load, and the stored active pair still refuses the own
+name; this round is purely about the softAP being configured once, not about the registry.
+
+**VERIFY — source only.** `tools/check-firmware-syntax.ps1` 10/10 · `check-relay-contract.mjs`
+PASS · `check-webpage-js.mjs` PASS. Nothing flashed; F-61 stands.
+
 ## UNRELEASED — 1.3.0 (U-98, 2026-10-11): a fresh flash starts clean, and a boot returns to the LAST-SWITCHED router
 
 **UNFLASHED (F-61).** Owner report, verbatim: *"clear all the other saved router
