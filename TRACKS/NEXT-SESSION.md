@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11: the syntax gate's fail-path abort is FIXED; all gates green; still NOT flashed on the bench)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11, later: the version handshake is done both repos — /status carries `fw`; syntax gate fail-path fixed; still NOT flashed on the bench)
 
 ## READ THIS FIRST — WHICH REPO IS THE CAR
 
@@ -16,6 +16,25 @@ Owner report (2026-10-10): *"the car repo says no recent commits but which is no
 via the GitHub API: `Genum_4WD4M_CAR` HEAD on `main` == local HEAD == `c5b8b9d`, all eight
 repos under `genumsolutions` are in sync with their remotes, and no clone in the workspace has
 unpushed commits. The report was the stale old repo, not lost work.
+
+## This session (2026-10-11, second round) — U-96i done: the car tells the app its version
+
+- **The car reports its firmware version on `/status`** (`"fw":"<FW_VERSION>"`, commit
+  `3168cac`). The app had no way to know what firmware a car runs: the bundled registry
+  catalog value was presented as truth and the fleet crash table's `fw_version` was filled
+  from it. Gate rule `status-fw` pins both halves — the slot exists, and FW_VERSION feeds it
+  in that slot's snprintf position (argument order IS the contract). Mutants M66 + M67 added;
+  harness now 67/67.
+- **App half** (`genumsolutions-app 25e72a9`): `j.fw` → `telemetry.fwVersion`; the hub passes
+  it to `syncCrashReport`; the `statusJson.fw: telemetry.id` mislabel (BOARD ID in a field
+  named fw) is fixed; the 4wd4m catalog row synced to 1.2.4 as a model fact. Three
+  source-reader rules, all mutation-proven — including one that initially PASSED over a
+  deleted dep (the slice included the call body; narrowed to the deps array — the recurring
+  vacuous-pass class, recorded in FAILSAFE).
+- **Gates after this session:** syntax 10/10 · page-js · relay-contract (incl. status-fw) ·
+  mutate-gates 67/67 byte-exact · app tsc 0 / vitest 671/671 / prettier clean.
+- **Pre-1.2.5 cars send no `fw`** — the app treats absent as unknown. Only a flash makes the
+  handshake live; F-61 stands.
 
 ## This session (2026-10-10, second round) — the branch compiles again, and the hotspot stops dropping itself
 

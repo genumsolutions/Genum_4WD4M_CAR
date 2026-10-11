@@ -69,9 +69,15 @@ See `TRACKS/DEVICE-TESTS.md` round 1.
 - [ ] **U-96h** `RELAYCFG` has ZERO app surface (firmware U-94 Phase 2 has it; the app has no
       hit for the string). Deliberate today — the `armed-handshake` gate blocks the relay by
       design until the relay service is deployed + `RELAY_HOST` is set. **Do not unblock it.**
-- [ ] **U-96i** no firmware/app version handshake exists. The firmware reports no version at
-      all, and the app's `deviceRegistryService.ts` claims `fwVersion: "1.0.0"` against
-      firmware `1.2.0`. Cosmetic today, but it means a real handshake later needs BOTH repos.
+- [x] **U-96i** the version handshake now exists, both repos (2026-10-11). The car's `/status`
+      carries `"fw":"<FW_VERSION>"` (`3168cac`, pinned by the `status-fw` gate rule + mutants
+      M66/M67 — the slot must exist AND be fed from FW_VERSION in its argument position). The
+      app parses it into `telemetry.fwVersion`, passes it to `syncCrashReport` (the fleet
+      table's `fw_version` was previously always `""`), and the `statusJson.fw` mislabel that
+      carried the BOARD ID is fixed (`25e72a9`). The bundled catalog row is now a commented
+      model fact (1.2.4), not a claim about a live car. Source-level only — F-61; the
+      handshake is proven by gates, not by a device. NOTE: pre-1.2.5 cars send no `fw`, so
+      the app treats absent as unknown until the owner flashes.
 
 ## Sweep — scan removed from the car's own page (2026-10-09) — DONE
 - [x] **owner** the car's own page no longer offers a scan. The network table, its Scan

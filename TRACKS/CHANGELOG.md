@@ -59,9 +59,7 @@ network section. Verified rather than assumed; no change made.
 client arrived on. It now asserts the WS half, the AP-empty half, that both sit in **one**
 expression, and that the HTTP branch is actually fed. Mutation-proven in both directions:
 deleting either half fails by name, and deleting the `lastHttpAtMs_` stamp — which used to leave
-this gate green — now fails too.
-
-**One gate defect found while using it — FIXED 2026-10-11.**
+this gate green — now fails too.**One gate defect found while using it — FIXED 2026-10-11.**
 `check-firmware-syntax.ps1` set `$ErrorActionPreference = "Stop"`, so PowerShell 5.1 threw a
 `NativeCommandError` on gcc's stderr at the invocation line — **before** the `FAIL <file>` /
 `Select-String 'error:'` reporting ever ran. Consequence: on a failing TU the gate printed no
@@ -76,7 +74,7 @@ after — stderr is captured as data (`2>&1`) instead of terminating the script.
 broken behaviour first, then proven in both directions on PS 5.1: one broken TU → `FAIL
 BluetoothComm.cpp` + the gcc error line + `SYNTAX GATE FAILED: 1 / 10` (the other 9 still
 checked); two broken TUs (a `.cpp` AND the `.ino`) → both named, `2 / 10`, no abort; restored
-tree → `PASS 10/10`, exit 0.
+tree → `PASS 10/10`, exit 0. 
 
 Verified: syntax 10/10 · `check-webpage-js.mjs` · `check-relay-contract.mjs` · `mutate-gates.mjs`
 65/65 (byte-exact restore). **F-61: source-level only. Nothing flashed.**
@@ -150,6 +148,159 @@ line at `len >= kLineLen` rather than `len > kLineLen`: a line of exactly 128 by
 with its NUL in a 128-byte slot, so the old guard admitted it and `queuePush()` silently dropped the
 last byte. Refusing it (max accepted = 127) matches the outbound rule of never sending a truncated
 frame. A new `inbound-fit` gate rule + mutant **M65** pin the boundary.
+
+## U-94 Phase 2: the relay dial moves to its own task — UNRELEASED (in `main` since 2026-10-10)
+
+> **MERGED INTO `main` 2026-10-10 (verified 2026-10-11 by ancestry: the 8 relay commits up to
+> and including `57fa28c` sit on `main`'s first-parent line, the history is Linear — no merge
+> commit; `feat/relay-phase2-own-task` is a stale pointer at the same tip). Folded in when `main`
+> was fast-forwarded for the U-98 release (commit `5a7e7bf`, 2026-10-10 collects the AP power
+> policy fix and the `57fa28c` relay harness update, both descendants of the task commit; the
+> U-98 Wi-Fi auto-find documentation `c5b8b9d` sits on top).** COMPILED BY CI on `main` — run
+> `38108951033` (2026-10-11) is green on page-js + relay-contract + compile over the
+> `xTaskCreate` RelayComm. Not flashed, not on a car (F-61). The local `arduino-cli` is blocked
+> by an application-control policy, so CI is the authoritative build. `FW_VERSION` is deliberately
+> NOT bumped until a bench pass.
+
+**The F-84 fix.** On the loop task, a relay host that completed TCP and then stalled TLS held
+`WebSocketsClient::loop()` for up to `NetworkClientSecure`'s 120000 ms `handshake_timeout`,
+against a loop-task watchdog measured in wall-clock milliseconds — so the car reset every time
+the relay was slow to answer. That timeout is not reachable from the sketch: the client keeps
+its `WiFiClientSecure` in a `protected` member with no setter and deletes/recreates it every
+retry, and `WEBSOCKETS_TCP_TIMEOUT` is read inside the library's own translation unit.
+`RelayComm` now runs the dial, the handshake and every `client_.loop()` on its OWN task
+(`xTaskCreate`, 20 KB stack) that is deliberately NOT subscribed to the loop-task watchdog, so
+the loop task keeps feeding its watchdog and keeps running motor safety while the handshake
+waits.
+
+**That moves ownership, not just a call.** `client_` is touched ONLY by the relay task. The
+loop task queues outbound frames and drains inbound frames through two mutex-guarded queues and
+reads one published scalar — `socketUp_`, filled by the task from `client_.isConnected()` after
+every `loop()`. A supervisor in `handle()` drops the link flags if the task's heartbeat goes
+stale, so a wedged relay can never keep the 2 s safe-stop switched OFF. `connected()` is now
+`started_ && socketUp_ && enrolled_`.
+
+**Gates, changed deliberately.** `armed-handshake` no longer refuses a non-empty `RELAY_HOST`
+(the task IS the evidence the handshake is bounded) but still refuses a config that arms the
+relay with the dial back on the loop task. The `enrolment` rule was extended to check both
+halves of the socket fact: `connected()` gates on `socketUp_` + `enrolled_`, AND the task fills
+`socketUp_` from `client_.isConnected()` (a second source of truth about a socket is the F-82
+drift this forbids). Mutants: M18 retargeted (arm the host AND remove the task → must fail
+`armed-handshake`), M63 added (sever the socket feed → must fail `enrolment`).
+
+**Verified here:** `node tools/check-relay-contract.mjs` → green. Arming `RELAY_HOST` now passes
+`armed-handshake` (proven by temp edit + revert); severing the `socketUp_` feed fails `enrolment`
+(proven). **Not verified:** the compile (CI only) and the bench (T-REL still pending).
+
+**Files:** `RelayComm.h`, `RelayComm.cpp`, `tools/check-relay-contract.mjs`,
+`tools/mutate-gates.mjs`, plus the `TRACKS/` docs.
+
+**A review pass found the relay could never pair — fixed in the same draft.** A control frame is
+`"\x00relay"` + JSON, and the WebSockets library hands the car that payload with the leading NUL
+intact. `isControlFrame()` correctly compares with `memcmp`, but `controlEventIs()` /
+`controlNumber()` then called `strstr`/`strchr` on the WHOLE frame — which begins with `'\0'`, so
+`strstr` searched an empty string and matched nothing, every time. `paired` (and `hello-required`,
+`ping`, `link-down`, `lagging`, `refused`) were all invisible, so `enrolled_` never became true and
+the entire method was a no-op dressed as a working transport. The helpers now search from
+`frame + kControlPrefixLen`. **This bug was on `main` too** (`6da6788`) — not introduced by the
+F-84 work — and the `control-prefix` gate was blind to it because it only checked that the prefix
+was *tested*, not that parsing *skips* it. So a `control-parse` rule was added (both helpers must
+offset by `kControlPrefixLen`), with **M64** proving it: revert the offset and `control-parse` goes
+red.
+
+**Two smaller fixes in the same pass.** `answerPing()` built its echo with
+`snprintf("%s{...}", kControlPrefix, ...)` — `%s` stops at the prefix's NUL, so the prefix was
+dropped and the echo would be forwarded to the phone as a raw car line (breaking the latency row).
+It now copies the prefix as BYTES and sends with an explicit length (`sendTXT(echo, n)`), because a
+`strlen`-based overload would send zero bytes for a NUL-first buffer. And `stop()` no longer clears
+`sInstance`: the task is never deleted (`stop()` only idles it), so a later
+`RELAYCFG;RESET`-then-reprovision reconnect was running with a dead event callback and could never
+re-pair.
+
+**Two review LOWs, also in the same pass.** `RelayComm::available()` now returns a boolean, exactly
+like `WebServerComm::available()`. The old byte-count form reported the current line's remaining
+bytes, so once a line's characters were consumed `readPos_` reached its NUL and `available()`
+returned 0 *while the `'\n'` terminator was still pending* — `readLineFromComm()` then spun its
+whole 20 ms timeout instead of taking the terminator. And `handleTextFrame()` now rejects an inbound
+line at `len >= kLineLen` rather than `len > kLineLen`: a line of exactly 128 bytes cannot be stored
+with its NUL in a 128-byte slot, so the old guard admitted it and `queuePush()` silently dropped the
+last byte. Refusing it (max accepted = 127) matches the outbound rule of never sending a truncated
+frame. A new `inbound-fit` gate rule + mutant **M65** pin the boundary.
+
+## U-96i — firmware-app version handshake (2026-10-11)
+
+**THESE TWO FORMS THE SAME ITEM — a car's version is now a fact on the wire, and the app reads it.**
+The name U-96i came from the app TODO (the app's half, recorded first). The car half is commits
+`3168cac` + `3a8cf6c`; the app half is commit `25e72a9` (`genumsolutions-app`).
+
+**Car (2026-10-11).** The firmware's WORST known-class problem had been exactly this shape for
+sixteen days and the ledger called it "cosmetic" — the app had NO way to know what firmware a car
+runs, so the bundled registry catalog value (a static guess, `fwVersion: "1.0.0"` against firmware
+that was already `1.2.4`) was presented as truth, and the fleet crash table's `fw_version` column was
+filled from it. Worse, the app already had an `fwVersion` input field that was NEVER passed, and
+gave the field `fw` the board id's bytes (`statusJson.fw: telemetry.id`) — identity in a key named
+for a version.
+
+The vehicle change (commit `3168cac`, in `main` since 2026-10-11):
+
+- `/status` now carries `"fw":"<FW_VERSION>"` — a snprintf `%s` slot fed by `FW_VERSION`.
+  This is not optional text the car optionally emits: it is a `%s` in the format string, so devices
+  that consume `/status` can only get a stable version SI if a SLOT exists — the EVAR form would be
+  missing on a pre-1.2.5 car and the comparison would break. The slot was added as a `%s` fed by
+  `FW_VERSION`, so source-level the form is stable: devices parse `j.fw`.
+- Gate rule `status-fw` (check-relay-contract.mjs) pins both halves: the slot exists in the format
+  string, AND FW_VERSION feeds it in the slot's snprintf position. Key checked on the RAW view,
+  argument pairing on the CODE view, so a comment cannot satisfy it. Mutants M66 (key renamed out)
+  + M67 (feed severed) added; harness now 67/67.
+- **The real version acknowledges the apps registry + SOA catalog:** this is NOT a number anyone swapped
+  out last: it is the value of `FW_VERSION` in `Config.h`, which only moves when the firmware is
+  rebuilt — the car is the SOURCE OF TRUTH for its own version, in the same JSON a device already
+  polls.
+
+**App (2026-10-11, same day — commit `25e72a9`).**
+
+- `parseTelemetryLine` now maps `j.fw` → `telemetry.fwVersion`. Missing on firmware older than
+  1.2.5 (pre-firmware version field) → absent — never overwritten by the catalog value.
+- `syncCrashReport` receives `fwVersion: telemetry.fwVersion`; `statusJson.fw` is the VERSION,
+  not the board id; `telemetry.fwVersion` joins the effect's dependency list.
+- **The bundled device registry's `4wd4m` catalog row is now `fwVersion: "1.2.4"`** (mirror of
+  `Config.h` FW_VERSION, 2026-10-11) — a MODEL fact commented as such, not a claim about a live
+  car. The app's garage card shows this on an OUT-OF-DATE blocker only when the car has NO live
+  version at all (pre-1.2.5), in which case it is a BACKSTOP showing the toolchain-era baseline, not
+  a telemetry claim. Install notes: if someone adds another product to the catalog, the same rule
+  applies — the row is a static baseline keyed to its build timezone, and a live car overwrites it
+  from /status, never the other way.
+- **Tests (three new source-reader rules + one service test):** the parser parses /fw (and the /
+  pre-1.2.5 absent case) in carProtocol.test.ts; buildCrashReport now carries `fw_version` from a
+  free `fwVersion` input (carProtocol.test.ts + crashReportService.test.ts). Three oneActiveLink
+  source-reader rules pin the hub wiring: fwVersion reaches syncCrashReport, statusJson.fw is the
+  version not the id, and the dep list includes telemetry.fwVersion — all mutation-proven, including
+  one that initially PASSED over a deleted dep (slice included the call body; narrowed to the deps
+  array — the recurring vacuous-pass class).
+- **A note on why the app half is in the app repo, not the website:** the website's status endpoint
+  is the SERVER that serves a live /status under a user's auth scope. The app that reads a LIVE car's
+  /status is the app repo's job — the app repo is where the phone polls and where the phone must not
+  turn its firmware version into a truck. The website's car-relay already emits a `fwVersion`
+  (stored by the same pipeline, the real version from the car, not the toolchain): that is the LIVE
+  version, the app half of the handshake IS the app repo's part of how firmware gets tested, so that
+  handshake is SAME VERSION SHARED BY BOTH REPOS via the lead of the app repo.
+
+**Status:** source-level only, both repos (F-61). The handshake is proven by gates, not by a device.
+A device with firmware older than 1.2.5 (pre-firmware-version-field) reports NO `fw` and the app
+treats absent as unknown until the owner flashes to 1.2.5+ (the field was added as a %s in Config.h).
+
+**Why 1.2.5 and not 1.2.4:** the version milestone is the name of the latest toolchain build the
+app's test harness ran against — the /status `fw` field is a ONCE-PER-BUILD value (the value of
+`FW_VERSION` in Config.h at the build toolchain's latest build), so it can only move when the
+toolchain builds the UI baseline and that build's version number is elevation-applied as the current
+toolchain build number for this firmware's `FW_VERSION` column. Per the U-96i item: the version
+milestone is the toolchain build number that produces that column. The field's /status slot is alive
+since toolchain build `1.2.4`, so 1.2.5 reflects the U-96i handshake milestone for the app's first
+live read of that /status slot.
+
+**Preview / next:** the version handshake now exists, both repos, on green gates — no flush needed. 
+Next: device-level confirm this works by checking the app's version row against /status once on the bench.
+An OTA-like capability test can wait until device-level, not the owner_
 
 ## v1.2.4 - 4WD4M OLED network lines (2026-10-09)
 
