@@ -241,7 +241,7 @@ filled from it. Worse, the app already had an `fwVersion` input field that was N
 gave the field `fw` the board id's bytes (`statusJson.fw: telemetry.id`) — identity in a key named
 for a version.
 
-The vehicle change (commit `3168cac`, in `main` since 2026-10-11):
+The vehicle change (commit `3168cac`, in `main` since 2026-10-11, the single commit covering the firmware field, the gate rule and the two mutants):
 
 - `/status` now carries `"fw":"<FW_VERSION>"` — a snprintf `%s` slot fed by `FW_VERSION`.
   This is not optional text the car optionally emits: it is a `%s` in the format string, so devices
@@ -252,12 +252,8 @@ The vehicle change (commit `3168cac`, in `main` since 2026-10-11):
   string, AND FW_VERSION feeds it in the slot's snprintf position. Key checked on the RAW view,
   argument pairing on the CODE view, so a comment cannot satisfy it. Mutants M66 (key renamed out)
   + M67 (feed severed) added; harness now 67/67.
-- **The real version acknowledges the apps registry + SOA catalog:** this is NOT a number anyone swapped
-  out last: it is the value of `FW_VERSION` in `Config.h`, which only moves when the firmware is
-  rebuilt — the car is the SOURCE OF TRUTH for its own version, in the same JSON a device already
-  polls.
 
-**App (2026-10-11, same day — commit `25e72a9`).**
+**App (2026-10-11, same day — commit `25e72a9` in `genumsolutions-app`).**
 
 - `parseTelemetryLine` now maps `j.fw` → `telemetry.fwVersion`. Missing on firmware older than
   1.2.5 (pre-firmware version field) → absent — never overwritten by the catalog value.
@@ -265,11 +261,7 @@ The vehicle change (commit `3168cac`, in `main` since 2026-10-11):
   not the board id; `telemetry.fwVersion` joins the effect's dependency list.
 - **The bundled device registry's `4wd4m` catalog row is now `fwVersion: "1.2.4"`** (mirror of
   `Config.h` FW_VERSION, 2026-10-11) — a MODEL fact commented as such, not a claim about a live
-  car. The app's garage card shows this on an OUT-OF-DATE blocker only when the car has NO live
-  version at all (pre-1.2.5), in which case it is a BACKSTOP showing the toolchain-era baseline, not
-  a telemetry claim. Install notes: if someone adds another product to the catalog, the same rule
-  applies — the row is a static baseline keyed to its build timezone, and a live car overwrites it
-  from /status, never the other way.
+  car.
 - **Tests (three new source-reader rules + one service test):** the parser parses /fw (and the /
   pre-1.2.5 absent case) in carProtocol.test.ts; buildCrashReport now carries `fw_version` from a
   free `fwVersion` input (carProtocol.test.ts + crashReportService.test.ts). Three oneActiveLink
@@ -277,30 +269,12 @@ The vehicle change (commit `3168cac`, in `main` since 2026-10-11):
   version not the id, and the dep list includes telemetry.fwVersion — all mutation-proven, including
   one that initially PASSED over a deleted dep (slice included the call body; narrowed to the deps
   array — the recurring vacuous-pass class).
-- **A note on why the app half is in the app repo, not the website:** the website's status endpoint
-  is the SERVER that serves a live /status under a user's auth scope. The app that reads a LIVE car's
-  /status is the app repo's job — the app repo is where the phone polls and where the phone must not
-  turn its firmware version into a truck. The website's car-relay already emits a `fwVersion`
-  (stored by the same pipeline, the real version from the car, not the toolchain): that is the LIVE
-  version, the app half of the handshake IS the app repo's part of how firmware gets tested, so that
-  handshake is SAME VERSION SHARED BY BOTH REPOS via the lead of the app repo.
 
 **Status:** source-level only, both repos (F-61). The handshake is proven by gates, not by a device.
 A device with firmware older than 1.2.5 (pre-firmware-version-field) reports NO `fw` and the app
 treats absent as unknown until the owner flashes to 1.2.5+ (the field was added as a %s in Config.h).
 
-**Why 1.2.5 and not 1.2.4:** the version milestone is the name of the latest toolchain build the
-app's test harness ran against — the /status `fw` field is a ONCE-PER-BUILD value (the value of
-`FW_VERSION` in Config.h at the build toolchain's latest build), so it can only move when the
-toolchain builds the UI baseline and that build's version number is elevation-applied as the current
-toolchain build number for this firmware's `FW_VERSION` column. Per the U-96i item: the version
-milestone is the toolchain build number that produces that column. The field's /status slot is alive
-since toolchain build `1.2.4`, so 1.2.5 reflects the U-96i handshake milestone for the app's first
-live read of that /status slot.
-
-**Preview / next:** the version handshake now exists, both repos, on green gates — no flush needed. 
-Next: device-level confirm this works by checking the app's version row against /status once on the bench.
-An OTA-like capability test can wait until device-level, not the owner_
+**Why 1.2.5 and not 1.2.4:** 1.2.4 is the current `FW_VERSION` in Config.h for this session's local toolchain build; 1.2.5 reflects the `STATUS` version milestone after the U-96i handshake.
 
 ## v1.2.4 - 4WD4M OLED network lines (2026-10-09)
 
