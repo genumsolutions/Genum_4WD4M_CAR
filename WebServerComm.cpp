@@ -50,7 +50,7 @@ WebServerComm::WebServerComm()
   : cmdHead(0), cmdTail(0), cmdCount(0), readPos(0),
   connectingPending_(false), pendingRejoin_(false), retryBeginPending_(false), connectStartMs_(0), lastWifiRetryMs_(0),
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
-  mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), modeWaitStartMs_(0), modeDropAttempts_(0), staConnectedAtMs_(0), apParked_(false), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
+  mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), modeWaitStartMs_(0), modeDropAttempts_(0), staConnectedAtMs_(0), apParked_(false), apPowerSave_(false), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
   scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
     serverRunning(false), startedAsAP(false), apRunning_(false),
     modeManager(nullptr), pendingModeAtMs(0)
@@ -111,6 +111,30 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     storedSsid_[0] = '\0';
     storedPass_[0] = '\0';
     snprintf(reply, sizeof(reply), "WIFICFG;CLEARED");
+  } else if (strncasecmp(rest, ";APSAVE", 7) == 0) {
+    // U-100 (owner 2026-10-12): *"keep the car's own hotspot always reachable"*
+    // — so the own-hotspot POWER-SAVE switch ships OFF and the beacon is never
+    // parked by default. ON restores the U-86 parking for power once the car is
+    // reachable on a router. Bare / `?` reports the current setting; ON/OFF
+    // persists to NVS `botcfg/ap_psave`. The actual park/restore is done by
+    // updateApPowerPolicy() on the loop; this only flips the switch and answers.
+    const char* arg = rest + 7;  // "" | ";ON" | ";OFF" | ";?"
+    if (arg[0] == '\0' || (arg[0] == ';' && (arg[1] == '?' || arg[1] == '\0'))) {
+      snprintf(reply, sizeof(reply), "WIFICFG;APSAVE;%s",
+               apPowerSave_ ? "ON" : "OFF");
+    } else if (strcasecmp(arg, ";ON") == 0 || strcasecmp(arg, ";OFF") == 0) {
+      apPowerSave_ = (strcasecmp(arg, ";ON") == 0);
+      Preferences prefs;
+      prefs.begin("botcfg", false);
+      prefs.putBool("ap_psave", apPowerSave_);
+      prefs.end();
+      FW_LOG_VERBOSE("[WIFICFG] own-hotspot power-save %s\n",
+                     apPowerSave_ ? "ON" : "OFF");
+      snprintf(reply, sizeof(reply), "WIFICFG;APSAVE;%s",
+               apPowerSave_ ? "ON" : "OFF");
+    } else {
+      snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
+    }
   } else if (rest[0] == ';') {
     // WIFICFG;<ssid>;<password> — password may be empty (open network).
     const char* ssid = rest + 1;
@@ -173,6 +197,9 @@ void WebServerComm::loadStoredWifi() {
   String pass = prefs.getString("wifi_pass", "");
   prefs.getString("last_ok_ssid", lastGoodSsid_, sizeof(lastGoodSsid_));
   prefs.getString("last_ok_pass", lastGoodPass_, sizeof(lastGoodPass_));
+  // U-100: the own-hotspot power-save switch. Absent on a virgin board -> false,
+  // so the own hotspot is ALWAYS reachable out of the box (owner 2026-10-12).
+  apPowerSave_ = prefs.getBool("ap_psave", false);
   prefs.end();
   lastGoodSsid_[ROUTER_SSID_LEN - 1] = '\0';
   lastGoodPass_[ROUTER_PASS_LEN - 1] = '\0';
@@ -237,6 +264,9 @@ bool WebServerComm::wipeRoutersOnFreshFirmware() {
   w.remove("last_ok_ssid");
   w.remove("last_ok_pass");
   w.remove("last_transport");
+  // U-100: a fresh install returns the own-hotspot power-save switch to its
+  // safe default (off -> hotspot always reachable), same clean-state rule.
+  w.remove("ap_psave");
   w.putString("fw_mark", FW_VERSION);
   w.end();
   Serial.printf("[FIRST-BOOT] firmware %s is a fresh install - saved "
@@ -1255,6 +1285,13 @@ void WebServerComm::rejoinNetwork() {
 // softAPdisconnect()/softAP() — no `WiFi.mode()` driver restart, which is the
 // call that caused the U-75 watchdog reboot. `softAPdisconnect` alone leaves the
 // STA association and the driver up.
+//
+// U-100 (owner 2026-10-12): parking is now OPT-IN and OFF by default. The owner
+// reported that a car which auto-joined a router stopped being reachable on its
+// own hotspot, and asked to *"keep the car's own hotspot always reachable"*
+// while still having a way to turn the power saving off from the app. So the
+// beacon is never parked unless `apPowerSave_` (NVS `ap_psave`, set by
+// `WIFICFG;APSAVE;ON`) is on. Default OFF = the own hotspot is always a way in.
 void WebServerComm::updateApPowerPolicy() {
   const bool staUp = (WiFi.status() == WL_CONNECTED);
   const unsigned long nowMs = millis();
@@ -1332,10 +1369,11 @@ void WebServerComm::updateApPowerPolicy() {
   if (staConnectedAtMs_ == 0) staConnectedAtMs_ = nowMs;
 
   if (apParked_) {
-    // Parked: stay parked ONLY while a ROUTER-side client is using the car, and
-    // only while there is a real lease to be using it over. `inUse` is already
-    // false when anyone is on the AP, so this restores rather than returning.
-    if (inUse && storedSsid_[0] != '\0') return;
+    // Parked: stay parked ONLY while power-save is ON, a ROUTER-side client is
+    // using the car, and there is a real lease to be using it over. `inUse` is
+    // already false when anyone is on the AP, so this restores rather than
+    // returning. U-100: switching power-save OFF restores immediately too.
+    if (apPowerSave_ && inUse && storedSsid_[0] != '\0') return;
     apParked_ = false;
     if (!apRunning_) startOwnAP();
     Serial.println("[POWER] car idle - hotspot beacon restored (stay reachable)");
@@ -1348,6 +1386,13 @@ void WebServerComm::updateApPowerPolicy() {
     return;
   }
 
+  // U-100 (owner 2026-10-12): the own hotspot is ALWAYS reachable by default.
+  // Parking is opt-in — only when the owner switched power-save ON from the app
+  // (`WIFICFG;APSAVE;ON`, NVS `ap_psave`). With the switch OFF (the shipped
+  // default) the beacon is never parked, so 4WDCar_Wifi stays a way in even
+  // while the car is healthy on a router. This is the reachability property the
+  // owner asked for; the park below is the power saving, and it is now optional.
+  if (!apPowerSave_) return;
   // Park only when ALL of these hold: associated, a lease exists, somebody on
   // the ROUTER side is connected right now, nobody is sitting on the AP, and it
   // has held long enough that a router dropping again immediately cannot cause

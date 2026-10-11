@@ -10,6 +10,43 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.0 (U-100, 2026-10-12): the own hotspot is ALWAYS reachable — parking is now opt-in (default OFF)
+
+**UNFLASHED (F-61).** Owner report, verbatim: *"the car now goes into one of the other router and
+doesnt display its own homepage and doesnt connect to the app too."* Owner ruling (2026-10-12,
+this session): *"option 1 but always have the feature to turn those off through the app's remote
+screen through the setting."* — i.e. keep `4WDCar_Wifi` broadcast while the car is on a router, and
+keep a switch to re-enable the power saving.
+
+**Root cause (source-confirmed).** ESP32 AP_STA is single-radio: when the car joins a router the
+softAP follows the router's channel, so a phone on `4WDCar_Wifi` (`192.168.245.1`) loses the link
+(`genumsolutions-app .../connection/discovery.ts:12-19`) and the app keeps dialling the stale AP
+address. U-98 makes the car auto-join the last-switched router at boot, so it now happens
+unattended. Separately, U-86's `updateApPowerPolicy()` could *park* the beacon (drop the AP ~20 s
+after a router-side client connected) and then could not re-raise it while the car stayed
+associated — so the own hotspot was not a guaranteed way in.
+
+**FIX — parking is now OPT-IN and OFF by default.** The own hotspot is never parked unless the new
+NVS switch `botcfg/ap_psave` is on. `updateApPowerPolicy()` gained `if (!apPowerSave_) return;`
+before the park, and the parked branch restores whenever the switch is off as well as when the last
+router-side client leaves. The U-86/U-87 safety form is untouched (still `softAPdisconnect(false)`
+only, never `WiFi.mode()`; `inUse` still requires BOTH a router-side WS/HTTP client AND an empty own
+AP; the `!staUp` branch still restores via `startOwnAP()`; a fresh install still wipes the key).
+
+**SWITCH — `WIFICFG;APSAVE;ON|OFF` (bare / `?` reports).** Handled in
+`handleWifiConfigCommand()`, persisted to `botcfg/ap_psave`, and answered as `WIFICFG;APSAVE;ON|OFF`
+over the existing WIFICFG reply channel (BT or web). It rides the SAME single system-command hook as
+ROUTERS/WIFICFG/RELAYCFG. `tools/check-webpage-js.mjs` section 8 now pins both halves: parking must
+be gated on the switch, and the NVS read must default to `false`.
+
+**App note.** The app-side mechanism the owner named — *"the app auto-runs findCarForUser on the
+phone's network change"* — already exists (U-80b: `useControlHub` watches NetInfo and re-finds the
+car). The Remote-screen toggle that drives `WIFICFG;APSAVE` lands in the Remote Connectivity rebuild
+(next phase), where the connection settings live.
+
+**VERIFY — source only.** `tools/check-firmware-syntax.ps1` 10/10 · `check-relay-contract.mjs` PASS
+· `check-webpage-js.mjs` PASS. Nothing flashed; F-61 stands.
+
 ## UNRELEASED — 1.3.0 (U-99, 2026-10-12): the own hotspot is configured ONCE — no duplicate hotspot / two IPs on first start
 
 **UNFLASHED (F-61).** Owner report, verbatim: *"when the very first time car starts the oled

@@ -17,6 +17,25 @@ via the GitHub API: `Genum_4WD4M_CAR` HEAD on `main` == local HEAD == `c5b8b9d`,
 repos under `genumsolutions` are in sync with their remotes, and no clone in the workspace has
 unpushed commits. The report was the stale old repo, not lost work.
 
+## This session (2026-10-12, second round) — U-100: the own hotspot is ALWAYS reachable (parking is opt-in, default OFF)
+
+Part of the multi-repo "connectivity rebuild" (phased; see
+`TRACKS/PLAN-2026-10-12-connectivity-rebuild.md`). Source-only, **UNFLASHED (F-61)**.
+
+- **Owner report.** *"the car now goes into one of the other router and doesnt display its own
+  homepage and doesnt connect to the app too."* Ruling: keep `4WDCar_Wifi` always reachable, but
+  keep an app setting to turn the power saving back on.
+- **Cause.** ESP32 AP_STA is single-radio: joining a router moves the softAP's channel, so a phone
+  on the car's own hotspot loses it (`discovery.ts:12-19`); U-98's boot auto-join makes it happen
+  unattended. And U-86 could park the beacon without being able to re-raise it while still
+  associated.
+- **Fix.** Park is now opt-in: `updateApPowerPolicy()` returns early unless `apPowerSave_`
+  (NVS `botcfg/ap_psave`) is on. Default OFF → the own hotspot is never parked → always a way in.
+  New command `WIFICFG;APSAVE;ON|OFF` (bare/`?` reports) sets + persists it; a fresh install wipes
+  the key with the other router keys.
+- **Gates.** syntax 10/10 · relay-contract PASS · webpage-js PASS (two new section-8 rules).
+- **Next.** App UI toggle (Remote → Connectivity settings) + the rest of the phased rebuild.
+
 ## This session (2026-10-12) — U-99: the own hotspot is configured ONCE (no duplicate hotspot / two IPs)
 
 The owner flashed/started 1.3.0 for the first time and the OLED showed the car's OWN hotspot

@@ -25,16 +25,20 @@ Owner answers to the 4 decisions:
   only at the end.
 
 ## Phases (car-side work only; app side is the mirrored doc)
-- [ ] **Phase 1 — car-on-router reachability** (`WebServerComm.cpp` `updateApPowerPolicy()`
-      + `tools/check-webpage-js.mjs:599-813`). See "Phase 1" below.
+- [x] **Phase 1 — car-on-router reachability** (DONE, U-100, source-only). Park is now opt-in
+      (NVS `botcfg/ap_psave`, default OFF) so `4WDCar_Wifi` is always reachable; command
+      `WIFICFG;APSAVE;ON|OFF`; two new gate rules in `tools/check-webpage-js.mjs` section 8.
+      See "Phase 1" below.
 - [ ] **Phase 4 — parallel transports** (`Genum_4WD4M_CAR.ino` U-79 loop + `allow_parallel`
       NVS key + a command to set it). See "Phase 4" below.
 - [ ] **Phase 5 — final sweep** (`FW_VERSION` bump, ledgers, `RESUME-ME.md`).
 
 ## RESUME HERE
-> Phase 1 not started. Next action: edit `updateApPowerPolicy()` in
-> `WebServerComm.cpp:1258` and update the pinned assertions in
-> `tools/check-webpage-js.mjs:599-813` in the SAME commit; then run the car gates.
+> **Phase 1 car half DONE** (U-100). Firmware + gate green; committed/pushed. The app half of
+> Phase 1 (auto-discovery) already existed (U-80b); its new UI — the Remote-settings toggle that
+> sends `WIFICFG;APSAVE;ON|OFF` — is folded into **Phase 2** (the Remote "Connectivity" rebuild),
+> where the connection settings live. Next action: **Phase 2 car-side work is none** (Phase 2 is
+> app-side); if starting on the car, go to Phase 4. `FW_VERSION` bump waits for Phase 5.
 
 ---
 

@@ -339,6 +339,13 @@ public:
   void updateApPowerPolicy();
   uint32_t staConnectedAtMs_;   // when the current association came up
   bool apParked_;               // beacon intentionally down, someone is using the car
+  // U-100 (owner 2026-10-12): the own-hotspot POWER-SAVE switch. OFF by default,
+  // deliberately: the own hotspot stays broadcast while the car is on a router, so
+  // `4WDCar_Wifi` is ALWAYS a way in (the reachability property the owner asked
+  // for: *"keep the car's own hotspot always reachable"*). ON restores the U-86
+  // parking (beacon dropped AP_PARK_GRACE_MS after a router-side client connects).
+  // Live-settable via `WIFICFG;APSAVE;ON|OFF`, persisted in NVS `botcfg/ap_psave`.
+  bool apPowerSave_;
   uint32_t lastHttpAtMs_ = 0;   // last HTTP handler that ran (0 = never)
 void advanceRejoinStep();
   uint8_t rejoinStep_;

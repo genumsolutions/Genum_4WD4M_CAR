@@ -805,6 +805,27 @@ if (!giveUp) {
   );
   bad++;
 }
+// U-100 (owner 2026-10-12): the own hotspot is ALWAYS reachable by DEFAULT. The
+// beacon may only be parked while the power-save switch is ON, so a fresh car can
+// never silently lose 4WDCar_Wifi as a way in (the reported "car went into a
+// router and stopped showing its own page" bug).
+if (!/if\s*\(\s*!apPowerSave_\s*\)\s*return;/.test(body)) {
+  console.error(
+    "FAIL: parking is not gated on the power-save switch — a fresh car would " +
+      "park its own hotspot even though 4WDCar_Wifi must stay reachable by " +
+      "default (U-100)",
+  );
+  bad++;
+}
+// ...and the switch itself must default OFF in the NVS load, or a virgin board
+// still parks. Asserted on the read, not the member name.
+if (!/getBool\(\s*"ap_psave"\s*,\s*false\s*\)/.test(fw)) {
+  console.error(
+    "FAIL: the own-hotspot power-save switch does not default to OFF in " +
+      "loadStoredWifi() — a fresh car would park 4WDCar_Wifi (U-100)",
+  );
+  bad++;
+}
 if (!bad) {
   console.log(
     "PASS: the beacon can only be parked while the car is reachable on a " +
