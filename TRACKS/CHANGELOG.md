@@ -81,15 +81,15 @@ tree → `PASS 10/10`, exit 0.
 Verified: syntax 10/10 · `check-webpage-js.mjs` · `check-relay-contract.mjs` · `mutate-gates.mjs`
 65/65 (byte-exact restore). **F-61: source-level only. Nothing flashed.**
 
-## DRAFT — U-94 Phase 2: the relay dial moves to its own task — UNRELEASED
+## U-94 Phase 2: the relay dial moves to its own task — UNRELEASED (in `main` since 2026-10-10)
 
-> **Draft only, on branch `feat/relay-phase2-own-task`. Not merged to `main`, not flashed,
-> not on a car.** It now COMPILES: `tools/check-firmware-syntax.ps1` passes 10/10 and a direct
-> gcc sweep passes 10/10 (2026-10-10 — `c0e4ce6` had broken the build with `server.hasClient()`;
-> fixed below). CI on the PR is still the authoritative build because the local `arduino-cli` is
-> blocked by an application-control policy. `FW_VERSION` is
-> deliberately NOT bumped until the build and the bench pass, so this entry has no released
-> version behind it — F-61: source-level evidence and nothing more.
+> **IN `main` since 2026-10-10 (verified 2026-10-11 by ancestry: `14cbf5d` sits on `main`'s
+> first-parent line; the history is linear, no merge commit), and COMPILED by CI on `main` —
+> run `38108951033` (2026-10-11) is green on page-js + relay-contract + compile over the
+> `xTaskCreate` RelayComm. Not flashed, not on a car (F-61).** The local `arduino-cli` is blocked
+> by an application-control policy, so CI is the authoritative build. `FW_VERSION` is deliberately
+> NOT bumped until a bench pass, so this entry has no released version behind it — F-61:
+> source-level evidence and nothing more.
 
 **The F-84 fix.** On the loop task, a relay host that completed TCP and then stalled TLS held
 `WebSocketsClient::loop()` for up to `NetworkClientSecure`'s 120000 ms `handshake_timeout`,

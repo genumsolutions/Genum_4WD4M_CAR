@@ -62,13 +62,19 @@ or switch cleanly.*
 - **Verified:** syntax 10/10 · page-js · relay-contract · mutate-gates 65/65 (byte-exact).
   **F-61: source-level. Nothing flashed. `RELAY_HOST` still unset. T-REL-1..4 still unrun.**
 
-## This session (2026-10-10) — relay Phase 2 DRAFT: the dial moves off the loop task
+## This session (2026-10-10) — relay Phase 2: the dial moves off the loop task
 
-**Draft only, on branch `feat/relay-phase2-own-task`. Not merged to `main`, not COMPILED, not
-flashed.** The local `arduino-cli`
-(`C:\Users\caspe\AppData\Local\Exort\runtime\arduino-cli\managed\1.5.0\win32-x64\arduino-cli.exe`)
-is present but blocked by an application-control policy, so the first real build is CI on this
-branch's PR. `FW_VERSION` is deliberately left at `1.2.4`.
+**UPDATE 2026-10-11: this "draft" is MERGED and COMPILED.** Verified by ancestry, not assumed:
+`14cbf5d` (the task commit) is an ancestor of `main`, `git branch --merged main` lists
+`feat/relay-phase2-own-task`, and CI run `38108951033` compiled `main` (which contains the
+`xTaskCreate` RelayComm) green — page-js + relay-contract + compile, all three jobs. The history
+is linear: `14cbf5d` and its follow-ups sit directly on `main`'s first-parent line (no merge
+commit); `feat/relay-phase2-own-task` is just a stale pointer at the same tip. Still **not
+flashed** (F-61);
+`RELAY_HOST` still unset, so T-REL-1..4 still unrun. `FW_VERSION` deliberately left at `1.2.4`.
+
+*(As written 2026-10-10: draft on `feat/relay-phase2-own-task`; the local `arduino-cli` is
+present but blocked by an application-control policy, so CI was to be the first real build.)*
 
 - **The F-84 fix, implemented.** `RelayComm` now runs the dial, the TLS handshake and every
   `client_.loop()` on its own FreeRTOS task (`xTaskCreate`, 20 KB stack) that is NOT subscribed to
