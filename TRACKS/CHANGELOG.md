@@ -61,15 +61,22 @@ expression, and that the HTTP branch is actually fed. Mutation-proven in both di
 deleting either half fails by name, and deleting the `lastHttpAtMs_` stamp — which used to leave
 this gate green — now fails too.
 
-**One gate defect found while using it, NOT yet fixed (next session).**
-`check-firmware-syntax.ps1` sets `$ErrorActionPreference = "Stop"` (line 53), so PowerShell 5.1
-throws a `NativeCommandError` on gcc's stderr at line 158 — **before** the `FAIL <file>` /
-`Select-String 'error:'` reporting at 159–160 ever runs. Consequence: on a failing TU the gate
-prints no error text at all, and the `foreach` aborts, so the **remaining translation units are
-never checked**. It still exits 1, so it is not a silent pass — but it reports a failure with no
-cause and silently shrinks to partial coverage on the fail path, which is the U-96 class this
-gate exists to prevent. `gh run view --log-failed` and a direct gcc sweep were the only ways to
-see the error.
+**One gate defect found while using it — FIXED 2026-10-11.**
+`check-firmware-syntax.ps1` set `$ErrorActionPreference = "Stop"`, so PowerShell 5.1 threw a
+`NativeCommandError` on gcc's stderr at the invocation line — **before** the `FAIL <file>` /
+`Select-String 'error:'` reporting ever ran. Consequence: on a failing TU the gate printed no
+error text at all, and the `foreach` aborted, so the **remaining translation units were never
+checked**. It still exited 1, so it was not a silent pass — but it reported a failure with no
+cause and silently shrank to partial coverage on the fail path, which is the U-96 class this
+gate exists to prevent.
+
+**The fix (2026-10-11):** the gcc invocation now runs with `$ErrorActionPreference` locally
+relaxed to `Continue` inside `try/finally` that restores the script-wide `Stop` immediately
+after — stderr is captured as data (`2>&1`) instead of terminating the script. Reproduced the
+broken behaviour first, then proven in both directions on PS 5.1: one broken TU → `FAIL
+BluetoothComm.cpp` + the gcc error line + `SYNTAX GATE FAILED: 1 / 10` (the other 9 still
+checked); two broken TUs (a `.cpp` AND the `.ino`) → both named, `2 / 10`, no abort; restored
+tree → `PASS 10/10`, exit 0.
 
 Verified: syntax 10/10 · `check-webpage-js.mjs` · `check-relay-contract.mjs` · `mutate-gates.mjs`
 65/65 (byte-exact restore). **F-61: source-level only. Nothing flashed.**

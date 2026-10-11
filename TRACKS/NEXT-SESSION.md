@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-10, late: branch COMPILES again; AP power policy fixed; `[1/2]` fully removed; `main` fast-forwarded to `c5b8b9d` with CI green so the owner can flash from `main` — still NOT flashed on the bench)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11: the syntax gate's fail-path abort is FIXED; all gates green; still NOT flashed on the bench)
 
 ## READ THIS FIRST — WHICH REPO IS THE CAR
 
@@ -46,14 +46,19 @@ or switch cleanly.*
   that cannot see this bug. It now asserts both halves + that they share one expression + that
   the HTTP branch is fed. Mutation-proven both directions, including deleting the stamp (which
   used to leave it green).
-- **⚠ NEXT SESSION, a gate defect I found and did NOT fix:** `check-firmware-syntax.ps1` sets
-  `$ErrorActionPreference = "Stop"` (line 53), so PowerShell 5.1 throws `NativeCommandError` on
-  gcc's stderr at line 158 — **before** the `FAIL <file>` / `Select-String 'error:'` reporting at
-  159–160. On a failing TU it prints **no error at all** and the `foreach` ABORTS, so the
-  remaining translation units are never checked. It exits 1, so it is not a silent pass, but it
-  is a partial-coverage pass with no diagnosis — the U-96 class. Fix: wrap the gcc invocation so
-  stderr is captured without terminating (`2>&1 | Out-String` inside a `try/catch`, or set
-  `$ErrorActionPreference = 'Continue'` locally around that line).
+- **Fixed 2026-10-11 — the gate defect the previous session flagged and left open.**
+  `check-firmware-syntax.ps1` set `$ErrorActionPreference = "Stop"`, so PowerShell 5.1 threw a
+  `NativeCommandError` on gcc's stderr at the invocation line — **before** the `FAIL <file>` /
+  `Select-String 'error:'` reporting could run. On a failing TU it printed **no error at all**
+  and the `foreach` ABORTED, so the remaining translation units were never checked: exit 1, but
+  a partial-coverage run with no diagnosis — the U-96 class. **Reproduced first, then fixed:**
+  the gcc call now captures stderr as data with EAP locally relaxed (`Continue`) inside
+  `try/finally` that restores the script-wide `Stop`, so every other line still fails fast.
+  **Proven in both directions on PS 5.1:** one broken TU → `FAIL BluetoothComm.cpp` + the gcc
+  error line + `1 / 10` (the other 9 still checked); TWO broken TUs (a `.cpp` AND the `.ino`)
+  → both reported by name, `2 / 10`, loop not aborted; clean tree → `PASS 10/10`, exit 0.
+  NOTE: only Windows PowerShell 5.1 exists on this machine (`pwsh` not installed) — that is the
+  exact runtime where the defect lived.
 - **Verified:** syntax 10/10 · page-js · relay-contract · mutate-gates 65/65 (byte-exact).
   **F-61: source-level. Nothing flashed. `RELAY_HOST` still unset. T-REL-1..4 still unrun.**
 

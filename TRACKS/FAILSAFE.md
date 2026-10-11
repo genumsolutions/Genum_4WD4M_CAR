@@ -60,3 +60,14 @@ ruling + a ledger note BEFORE the change.
 14. **A green gate is not a build.** `tools/check-firmware-syntax.ps1` proves the sources PARSE.
     The Arduino CI job is the real build. Neither proves behaviour, and neither substitutes for
     flashing. F-61 stands.
+15. **A gate's FAIL path needs testing too (2026-10-11).** The syntax gate set
+    `$ErrorActionPreference = "Stop"`, so under PowerShell 5.1 gcc's **stderr** became a
+    terminating `NativeCommandError` at the invocation line — before the `FAIL` reporting could
+    run. On a broken TU the gate exited 1 but printed **no diagnosis** and the `foreach`
+    **aborted**, silently skipping the remaining translation units: a fail path with partial
+    coverage, the U-96 class one level down. The PASS path had been exercised hundreds of times;
+    the FAIL path had never been run once. Every gate that reports per-file now needs a
+    deliberately broken file pushed through it — the green side proves nothing about the red one.
+    The gcc call now relaxes EAP to `Continue` locally (restoring `Stop` in `finally`); proven
+    both directions: broken `.cpp` + broken `.ino` both named with `1/10`…`2/10` counts, clean
+    tree `10/10`.

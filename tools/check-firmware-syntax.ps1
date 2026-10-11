@@ -155,7 +155,26 @@ foreach ($f in $sources) {
   # gcc has no rule for the .ino extension; -x c++ is what tells it to treat the
   # file as C++ the way the Arduino builder does.
   $lang = if ($f.Extension -eq '.ino') { @('-x', 'c++') } else { @() }
-  $out = & $gcc "@$rsp" @lang $f.FullName 2>&1
+  # U-96-CLASS DEFECT (found 2026-10-10, fixed here): under PowerShell 5.1 the
+  # script-level $ErrorActionPreference = "Stop" turns gcc's stderr into a
+  # TERMINATING NativeCommandError at this very line - BEFORE the FAIL reporting
+  # below could ever run. On a failing TU the gate printed no diagnosis at all
+  # and the foreach aborted, so the remaining translation units were never
+  # checked: a partial-coverage run with no error named. Exit was 1, so it was
+  # not a silent pass, but it was the U-96 class - a gate reporting over a hole.
+  # Fix: capture stderr as DATA (2>&1) with EAP locally relaxed, so a broken TU
+  # yields error lines in $out instead of killing the loop. The script-wide
+  # Stop preference is restored immediately, so every other line still fails
+  # fast. Proven both directions: broken BluetoothComm.cpp now prints
+  # "FAIL BluetoothComm.cpp" + the gcc errors AND still checks the other 9 TUs;
+  # the clean tree still reports PASS 10/10.
+  $prevEAP = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $out = & $gcc "@$rsp" @lang $f.FullName 2>&1
+  } finally {
+    $ErrorActionPreference = $prevEAP
+  }
   if ($LASTEXITCODE -ne 0) {
     $failed += $f.Name
     Write-Host "FAIL $($f.Name)"
