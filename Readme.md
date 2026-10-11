@@ -1,4 +1,4 @@
-Version 1.2.3
+Version 1.3.0
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -20,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.2.4` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.0` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -67,7 +67,7 @@ OLED (I2C), Li-ion pack. Pins in `Config.h`. Libraries: WebSockets 2.7.2, U8g2, 
 | Flash baud | 115200 |
 | Baseline build | donor 1.8.4 measured 1,740,754 B (55%) / RAM 69,492 B (21%) — current figures reported by the CI compile gate |
 | Build tool | `arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app .` |
-| NVS namespace | `botcfg` (wifi_ssid/wifi_pass, mode/speed) |
+| NVS namespace | `botcfg` (wifi_ssid/wifi_pass, rnet0-5s/p, last_ok_ssid/pass, last_transport, fw_mark, mode/speed) |
 | CI | `.github/workflows/arduino-ci.yml` — compile gate + deltas report, secrets-free |
 
 ## 7. Modules
@@ -80,6 +80,17 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.3.0 (2026-10-11, U-98)** — **a flash starts clean, and a boot returns to the last-switched
+  router.** (a) `botcfg/fw_mark` stores `FW_VERSION`; on the first boot after a (re-)install
+  `wipeRoutersOnFreshFirmware()` erases every saved router + the stored pair + the last-good pair
+  and writes the mark — Arduino flashing does not erase NVS, so the owner's *"clean and fresh
+  always"* now actually happens (same-firmware power cycles keep the routers, U-84). (b) Boot
+  auto-join now targets `storedSsid_` (the last-SWITCHED router) instead of `last_ok_ssid`, which
+  a `ROUTERS;DEL` of the active router left behind — that was *"i deleted the saved router but the
+  car restarted with the old router"*. The last-good pair is informational and is erased with the
+  stored pair at all four clear sites. (c) `BOOT_STA_TIMEOUT_MS`/`BOOT_STA_MAX_RETRIES` removed:
+  the boot join uses the full explicit-switch budget, safe because the own hotspot beacon stays up
+  the whole retry. Still UNFLASHED.
 - **1.2.3 (2026-10-07, U-95 Phase 3)** — **the car's own page**. (3a) `MODECYCLE`/`MODEPREV`/
   `MODENEXT` tokens on the one shared `cycleMode()` walk (previously GPIO-only), wrap both ways.
   (3b) Scan rows carry `channel`/`own`/`saved`/`current` computed ONCE car-side (three app modules

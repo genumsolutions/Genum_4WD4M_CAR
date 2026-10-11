@@ -3,6 +3,42 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## U-98 round — a flash starts clean, a boot returns to the last-switched router (2026-10-11, firmware 1.3.0 — DEVICE VERIFY PENDING)
+
+> Owner: *"clear all the other saved router datas and only have its own data each time i flash the
+> car … the car is clean and fresh always"* · *"the car should always go to the last switched router
+> network always; if it is not available it should show its own router …"* · *"i deleted the saved
+> router but the car restarted with the old router that i was previously connected"* · *"the car is
+> stuck on one of the outside router and not even showing its own webpage"*. **Flash 1.3.0 first** —
+> the FIRST boot after this flash must come up with an EMPTY router registry (the `[FIRST-BOOT]` line).
+
+- [ ] **U-98-1 — the first boot after a flash is clean.** Right after flashing 1.3.0 the serial shows
+      `[FIRST-BOOT] firmware 1.3.0 is a fresh install - saved router/config NVS erased`. The saved
+      router list (`NETW;` / the page dropdown) contains only `4WDCar_Wifi`; no pre-flash router
+      survives. This runs ONCE — a later power-cycle of the same 1.3.0 wipes nothing.
+- [ ] **U-98-2 — same-firmware power cycles KEEP the routers (U-84).** Add a router, power-cycle the
+      car (NO re-flash): the router is still saved, no `[FIRST-BOOT]` line, and the boot log shows the
+      return-to-router attempt. The wipe must never fire on a plain power cycle.
+- [ ] **U-98-3 — boot returns to the last-SWITCHED router.** With a reachable router saved,
+      power-cycle: serial shows `[WIFICFG] boot: returning to last-switched router "<ssid>" (full
+      budget)` and the car associates (STATE `SSID=` = the router, a real DHCP IP). The own hotspot is
+      up the whole time (a phone scan can see `4WDCar_Wifi` during the attempt).
+- [ ] **U-98-4 — ⭐ the deleted router does NOT come back (the owner's report).** Save router A and
+      switch to it, then **delete A** (`ROUTERS;DEL;A`, page or app). Power-cycle. The car must NOT
+      return to A — it comes up on its own hotspot (`4WDCar_Wifi`, `192.168.245.1`). Pre-fix it
+      re-joined A from the surviving last-good pair. Confirm `NETW;` no longer lists A.
+- [ ] **U-98-5 — an unreachable last-switched router still ends on the own hotspot.** Save router B,
+      switch to it, then turn B OFF. Power-cycle: the car spends the full budget on B, then
+      `WiFi STA gave up (router unreachable) - AP-only mode`; `4WDCar_Wifi` is joinable and the page
+      loads at `192.168.245.1`. It must never sit on B with no reachable page.
+- [ ] **U-98-6 — "back to my own hotspot" then power-cycle stays on the own hotspot.** From a router,
+      pick `4WDCar_Wifi` (page dropdown / app), let it return, then power-cycle: the car comes up on
+      its own hotspot and does NOT hop back to the router (the last-good pair was cleared with the
+      stored pair). STATE `SSID=` shows the AP / no router association.
+- [ ] **U-98-7 — WIFICFG;RESET and ROUTERS;CLEAR wipe the last-good pair too.** With a router set, send
+      `WIFICFG;?;RESET` (or `ROUTERS;CLEAR`), then power-cycle: the car stays on its own hotspot;
+      nothing re-joins.
+
 ## U-95 round — evidence gathering + the reset loop itself (2026-10-06/07, firmware 1.2.3 — DEVICE VERIFY PENDING)
 
 > Owner report was `_the car resets again and again_` with no cause attached. Nothing could name a

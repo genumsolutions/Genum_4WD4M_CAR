@@ -26,10 +26,11 @@
 // only STA_MAX_RETRIES explicit attempts (spaced WIFI_RETRY_INTERVAL_MS) run;
 // after that the car settles AP-ONLY so 4WDCar_Wifi stays rock-solid for
 // phone joins. A later ROUTERS;USE / WIFICFG / mode re-entry starts STA fresh.
-// R-16 (2026-09-18): with the own AP now the boot default (no auto-join on
-// mode entry), this budget only ever applies to EXPLICIT user joins
-// (ROUTERS;USE / WIFICFG) — a deliberate request earns a fuller budget
-// (6 × 10 s) before the AP-only settle.
+// R-16 (2026-09-18) budget note, REWRITTEN 2026-10-11 (U-98): the budget now
+// covers BOTH the explicit user join (ROUTERS;USE / WIFICFG) AND the boot
+// auto-join — they are one policy: join whatever router the owner last chose,
+// keep the own hotspot up throughout, and settle AP-only once the capped budget
+// is spent (the beacon never blanks, FIN-40/D2).
 #define STA_MAX_RETRIES 6
 // FIN-40/D1: retry cadence for a softAP() that failed to start (radio busy).
 #define AP_RETRY_INTERVAL_MS 2000ul
@@ -39,11 +40,15 @@
 // SCAN_TIMEOUT_MS bounds the wait so a radio that never finishes reports
 // honestly instead of leaving the app waiting. SCAN_MAX_RESULTS caps both the
 // kept list and the JSON fragment so the status buffer stays bounded.
-// U-71: the boot auto-join gets a SHORT window and ONE retry. It must fall back
-// to the car's own hotspot quickly and CERTAINLY: the hotspot is the only way
-// in when the router is absent, so a boot must never leave the car unreachable.
-#define BOOT_STA_TIMEOUT_MS 6000ul
-#define BOOT_STA_MAX_RETRIES 1
+// U-71 (2026-10-02) budget note, REWRITTEN 2026-10-11 (U-98): the boot
+// auto-join uses the FULL explicit-switch budget (WIFI_STA_TIMEOUT_MS /
+// STA_MAX_RETRIES above). The old short boot window is gone because the own
+// hotspot beacon stays UP throughout the whole retry — parking only ever runs
+// while the car is CONNECTED and in use — so a long boot retry can never
+// strand the car, and an unreachable router still ends in the give-up path,
+// which restores the hotspot. Owner rule (2026-10-11): a power-up always
+// returns to the last-switched router, and only settles on the own hotspot
+// when that router is gone.
 // U-76: how often a DEFERRED mDNS publication is retried once the STA settles.
 #define MDNS_RETRY_INTERVAL_MS 2000ul
 // U-77 (2026-10-03): stalled-client guards — the last two ways loop() could
@@ -198,6 +203,15 @@ public:
   // rnet0s/rnet0p …); promotes the stored active pair (wifi_ssid) when it is
   // not already present so the live network always shows in the list.
   void loadSavedRouters();
+  // U-98 (2026-10-11): *"the car should be clean and fresh always — clear all
+  // the other saved router datas each time i flash."* Arduino flashing does not
+  // erase NVS, so saved routers/credentials/last-good survive every re-flash
+  // and a boot silently re-joins an outside router the owner had deleted.
+  // `botcfg/fw_mark` stores the FW_VERSION; a mismatch (absent on a virgin
+  // board, different on a re-install) erases every router-related key and
+  // writes the new mark. Power cycles with the SAME firmware keep the saved
+  // routers (U-84). Call in setup() BEFORE loadStoredWifi()/loadSavedRouters().
+  bool wipeRoutersOnFreshFirmware();
   // T-49: broadcast the registry names-only. SPP line: "NETW;<s1>;<s2>;…"
   // (fed into the remote's saved-networks menu). WS JSON: networks:[...].
   void buildNetworksLine(char* buf, size_t bufLen);
@@ -388,9 +402,10 @@ void advanceRejoinStep();
   char lastGoodSsid_[ROUTER_SSID_LEN];
   char lastGoodPass_[ROUTER_PASS_LEN];
 
-  // Per-attempt association window and the retry cap. Both are shorter for the
-  // boot auto-join than for an explicit user switch, so an unreachable router
-  // never keeps the car off its own hotspot for long (the reason R-16 existed).
+  // Per-attempt association window and the retry cap. U-98 (2026-10-11): the
+  // boot auto-join and an explicit user switch now share the SAME full budget —
+  // a power-up returns to the last-switched router, and an unreachable one ends
+  // in the give-up path, which restores the own hotspot (up the whole time).
   unsigned long staTimeoutMs_;
   uint8_t staRetryCap_;
   // R-12: the AP fallback broadcast id (4WDCar_Wifi, T-56) once started;
@@ -497,7 +512,7 @@ private:
   // Both were wrong. `begin()` is a no-op stub ({ return true; }) that exists
   // only to satisfy the pure virtual — nothing calls it, the real entry is
   // beginAlwaysOn(). And handle() resolves on `staTimeoutMs_`, which on the boot
-  // path is BOOT_STA_TIMEOUT_MS (6000 ms), not WIFI_STA_TIMEOUT_MS (8000 ms).
+  // path now uses the SAME full budget as an explicit switch (U-98, 2026-10-11).
   // Reading the old text would have meant budgeting the wrong number.
   //
   // pendingRejoin_ (T-34) forces reconnection to the NEW credentials even

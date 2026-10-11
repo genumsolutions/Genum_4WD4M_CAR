@@ -60,9 +60,11 @@ static bool btEverConnected = false;
 //    transport the client is using is never touched.
 //  - When that connection goes away, both broadcast again after a short
 //    grace period — the car is always reachable somehow.
-//  - Boot/resume prefer the LAST USED transport: Wi-Fi last -> auto-join the
-//    last good router (short budget, hotspot fallback of last resort);
-//    Bluetooth last -> stay on hotspot + BT, no router hop.
+//  - Boot/resume return to the LAST SWITCHED router when one is stored (U-98,
+//    2026-10-11): full retry budget, own hotspot beacon up the whole time, and
+//    the give-up path restores it when the router is gone. Bluetooth being the
+//    last transport is NOT a reason to skip that — the last-switch is a property
+//    of the router the owner chose, not of the phone's last transport.
 enum class LastTransport : uint8_t { WIFI = 0, BT = 1 };
 static LastTransport lastTransport = LastTransport::WIFI;
 static bool webUp = false;   // web layer (AP + HTTP/WS + router join) is up
@@ -210,6 +212,13 @@ void setup() {
 
   webServerComm.init();
   webServerComm.setModeManager(&modeManager);
+  // U-98 (owner 2026-10-11): a firmware re-install starts with a CLEAN router
+  // surface. Arduino flashing does NOT erase NVS, so saved routers and the
+  // stored/last-good credentials survive every re-flash and the next boot then
+  // re-joins an outside router the owner had deleted. This erases them when the
+  // running firmware differs from the one that last wrote `botcfg/fw_mark`.
+  // Runs BEFORE the loads below so they read the wiped NVS directly.
+  webServerComm.wipeRoutersOnFreshFirmware();
   // T-33: load app-provisioned credentials NOW that NVS is live. The
   // WebServerComm GLOBAL constructor runs before the Arduino core's
   // nvs_flash_init(), so reading Preferences there always failed — the car
@@ -277,16 +286,18 @@ void setup() {
   // loop and no-ops when !started_, so this line is safe on a donor car.
   relayComm.begin();
   modeManager.setRelayComm(&relayComm);
-  // U-79: boot network preference. Wi-Fi was the transport the user LAST
-  // used -> try the last good router (short budget; the own hotspot is the
-  // fallback of last resort). Bluetooth was last -> skip the router hop
-  // entirely; hotspot + BT are already broadcasting.
+  // U-98: a power-up ALWAYS returns to the last-switched router when one is
+  // stored (the owner's rule: *"the car should always go to the last switched
+  // router network always; if it is not available it should show its own
+  // router"*). armBootAutoJoin() no-ops when nothing is stored, uses the full
+  // retry budget, and the own hotspot stays up the whole time — an unreachable
+  // router just means the give-up path restores the hotspot after the budget is
+  // spent. The old last-transport gate (BT last -> skip the hop) is gone: the
+  // last-switch is about the router the owner chose, not the last transport.
   loadLastTransport();
-  if (lastTransport == LastTransport::WIFI) {
-    webServerComm.armBootAutoJoin();
-  } else {
-    Serial.println("[BOOT] Last used: Bluetooth - staying on hotspot + BT (router join skipped)");
-  }
+  Serial.printf("[BOOT] last transport: %s (boot auto-join is router-first, U-98)\n",
+                lastTransport == LastTransport::BT ? "Bluetooth" : "Wi-Fi");
+  webServerComm.armBootAutoJoin();
   // U-96: motors deferred to end of setup — the H-bridge is the biggest
   // non-comms power load and the car is reachable before it loads.
   delay(500);  // give the supply time to stabilize after WiFi+Bluetooth+relay
@@ -452,12 +463,10 @@ void loop() {
       // Just became idle, wait for grace period
     } else if (millis() - transportsIdleSinceMs >= TRANSPORT_GRACE_MS) {
       bool shouldStartBt = false, shouldStartWeb = false, shouldArmAutoJoin = false;
-      LastTransport lt;
       {
         TRANSPORT_POWER_ENTER_CRITICAL();
         shouldStartBt = !btUp;
         shouldStartWeb = !webUp;
-        lt = lastTransport;
         if (shouldStartBt) btUp = true;
         if (shouldStartWeb) webUp = true;
         TRANSPORT_POWER_EXIT_CRITICAL();
@@ -469,11 +478,14 @@ void loop() {
       }
       if (shouldStartWeb) {
         webServerComm.beginAlwaysOn();
-        shouldArmAutoJoin = (lt == LastTransport::WIFI);
+        // U-98: the web layer returns to the last-switched router too — the
+        // resume and boot paths share one policy. armBootAutoJoin() no-ops when
+        // nothing is stored, so this is safe on a clean car.
+        shouldArmAutoJoin = true;
         Serial.println("[POWER] Wi-Fi up (no client)");
       }
       if (shouldArmAutoJoin) {
-        webServerComm.armBootAutoJoin();  // short budget; hotspot fallback
+        webServerComm.armBootAutoJoin();  // full budget; own hotspot stays up
       }
       {
         TRANSPORT_POWER_ENTER_CRITICAL();

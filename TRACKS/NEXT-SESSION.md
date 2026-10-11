@@ -1,12 +1,12 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11, later: the version handshake is done both repos — /status carries `fw`; syntax gate fail-path fixed; still NOT flashed on the bench)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11, third round: U-98 — fresh-flash router wipe + boot returns to the last-switched router; UNCOMMITTED + UNFLASHED, source-only)
 
 ## READ THIS FIRST — WHICH REPO IS THE CAR
 
 There are TWO car repositories and they are easy to confuse:
 
 - **`Genum_4WD4M_CAR` (THIS repo) — the LIVE one.** Every car fix since 2026-09-28 lands here.
-  `main` carries the branch tip `c5b8b9d` (2026-10-10); CI run `38070703254` green
-  (relay-contract + page-js + compile).
+  `main` carries the tip `2a92009` (2026-10-11, U-96i ledger); CI green. **U-98 (1.3.0) is
+  uncommitted on top of it** — see the session block below.
 - **`Genum_WIRELESS_CAR` — the OLD one, frozen.** `main` = `d0bf8c0` (1.8.4, 2026-09-26).
   It has no recent commits because nothing is developed there any more; 4WD4M was bootstrapped
   from it as a "fresh baseline" (see the repo description). If a repo page shows
@@ -16,6 +16,41 @@ Owner report (2026-10-10): *"the car repo says no recent commits but which is no
 via the GitHub API: `Genum_4WD4M_CAR` HEAD on `main` == local HEAD == `c5b8b9d`, all eight
 repos under `genumsolutions` are in sync with their remotes, and no clone in the workspace has
 unpushed commits. The report was the stale old repo, not lost work.
+
+## This session (2026-10-11, third round) — U-98: a flash starts clean, and a boot returns to the last-switched router
+
+Working tree is **UNCOMMITTED** and **UNFLASHED** (F-61). `FW_VERSION` → `1.3.0`. Four owner
+reports, one root-caused cluster:
+
+- *"clear all the other saved router datas and only have its own data each time i flash the car …
+  the car is clean and fresh always"* · *"the car should always go to the last switched router
+  network always; if it is not available it should show its own router …"* · *"i deleted the saved
+  router but the car restarted with the old router that i was previously connected"* · *"the car is
+  stuck on one of the outside router and not even showing its own webpage too so that i can change
+  and delete and edit things"*.
+
+- **D1 — a re-flash did not reset the router surface.** Arduino flashing does NOT erase NVS, so
+  saved routers + the stored pair + the last-good pair survived every re-install. New
+  `botcfg/fw_mark` stores `FW_VERSION`; `wipeRoutersOnFreshFirmware()` — called in `setup()`
+  before `loadStoredWifi()`/`loadSavedRouters()` — erases every router key and writes the mark on
+  a mismatch. Same-firmware power cycles keep the routers (U-84); only a firmware (re-)install
+  wipes them. Mode/speed/relay keys in `botcfg` are untouched.
+- **D2 — a deleted router resurrected on the next boot.** `armBootAutoJoin()` trusted
+  `lastGoodSsid_` (`last_ok_ssid`), and `ROUTERS;DEL` cleared only `wifi_ssid`, so the deleted
+  network came back. Boot now joins `storedSsid_` (the last-SWITCHED router); the last-good pair
+  is informational and is erased with the stored pair at all four clear sites
+  (`WIFICFG;RESET` · `ROUTERS;USE 4WDCar_Wifi` · `ROUTERS;DEL` active · `ROUTERS;CLEAR`).
+- **D3 — "stuck on an outside router, no own webpage"** is D2's symptom: the car hopped to a
+  router the phone was not on, and in AP_STA the softAP follows the STA channel, so
+  `4WDCar_Wifi` was not findable. D1+D2 fix it at the source.
+- **Budget:** `BOOT_STA_TIMEOUT_MS`/`BOOT_STA_MAX_RETRIES` (6 s / 1) removed — the boot auto-join
+  uses the full explicit-switch budget (`WIFI_STA_TIMEOUT_MS`/`STA_MAX_RETRIES`); the own hotspot
+  beacon stays up the whole retry, so it can never strand the owner. `lastTransport` no longer
+  gates the hop (boot log line only).
+- **Gates after this session:** syntax **10/10** · `check-webpage-js.mjs` PASS ·
+  `check-relay-contract.mjs` PASS · `mutate-gates.mjs` **67/67** byte-exact. All source-level —
+  **nothing flashed; F-61 stands.** Files: `Config.h`, `WebServerComm.h/.cpp`,
+  `Genum_4WD4M_CAR.ino` (uncommitted).
 
 ## This session (2026-10-11, second round) — U-96i done: the car tells the app its version
 

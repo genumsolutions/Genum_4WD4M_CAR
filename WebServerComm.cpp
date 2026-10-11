@@ -98,7 +98,15 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     prefs.begin("botcfg", false);
     prefs.remove("wifi_ssid");
     prefs.remove("wifi_pass");
+    // U-98: the last-good pair must die with the stored pair, or a later boot
+    // could re-join the very router RESET just un-forgot (the deleted-router
+    // resurrection the owner reported). Boot auto-join reads storedSsid_ only
+    // now, but a stale last-good would still be a trap on any later USE replay.
+    prefs.remove("last_ok_ssid");
+    prefs.remove("last_ok_pass");
     prefs.end();
+    lastGoodSsid_[0] = '\0';
+    lastGoodPass_[0] = '\0';
     hasStoredWifi_ = false;
     storedSsid_[0] = '\0';
     storedPass_[0] = '\0';
@@ -191,6 +199,49 @@ void WebServerComm::loadStoredWifi() {
     storedSsid_[0] = '\0';
     storedPass_[0] = '\0';
   }
+}
+
+// U-98 (owner 2026-10-11): *"clear all the other saved router datas and only
+// have its own data each time i flash the car so that i can always test from
+// the start and the car is clean and fresh always."*
+//
+// Arduino flashing does NOT erase NVS, so a re-flash keeps every saved router,
+// the stored credentials AND the last-good pair — and the next boot then
+// silently re-joins an outside router the owner had deleted (the session's
+// exact report: *"i deleted the saved router but the car restarted with the old
+// router that i was previously connected"*). "First boot after a flash" is not
+// a power cycle: it is the first boot where the RUNNING firmware differs from
+// the one that last wrote the mark. `botcfg/fw_mark` stores the FW_VERSION; a
+// mismatch (absent on a virgin board too) means a fresh install, so every
+// router-related key is erased and the new mark written. Power cycles with the
+// SAME firmware keep the saved routers (U-84: they must survive a power cycle)
+// — only a firmware (re-)install resets them. Mode/speed/relay prefs share the
+// namespace but are deliberately NOT touched: this is the router surface only.
+bool WebServerComm::wipeRoutersOnFreshFirmware() {
+  Preferences prefs;
+  prefs.begin("botcfg", true);
+  const String mark = prefs.getString("fw_mark", "");
+  prefs.end();
+  if (mark.length() > 0 && mark == FW_VERSION) return false;  // same install
+
+  Preferences w;
+  w.begin("botcfg", false);
+  static const char* sKeys[] = { "rnet0s", "rnet1s", "rnet2s", "rnet3s", "rnet4s", "rnet5s" };
+  static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
+  for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
+    w.remove(sKeys[i]);
+    w.remove(pKeys[i]);
+  }
+  w.remove("wifi_ssid");
+  w.remove("wifi_pass");
+  w.remove("last_ok_ssid");
+  w.remove("last_ok_pass");
+  w.remove("last_transport");
+  w.putString("fw_mark", FW_VERSION);
+  w.end();
+  Serial.printf("[FIRST-BOOT] firmware %s is a fresh install - saved "
+                "router/config NVS erased for a clean test state\n", FW_VERSION);
+  return true;
 }
 
 // T-48: load the saved-router registry from NVS (contiguous "rnet<N>s"/"rnet<N>p"
@@ -383,10 +434,16 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
       hasStoredWifi_ = false;
       storedSsid_[0] = '\0';
       storedPass_[0] = '\0';
+      // U-98: back on the own hotspot means the last-good router is no longer
+      // the car's network; drop it so a later boot cannot hop back on its own.
+      lastGoodSsid_[0] = '\0';
+      lastGoodPass_[0] = '\0';
       Preferences prefs;
       prefs.begin("botcfg", false);
       prefs.remove("wifi_ssid");
       prefs.remove("wifi_pass");
+      prefs.remove("last_ok_ssid");
+      prefs.remove("last_ok_pass");
       prefs.end();
       snprintf(reply, sizeof(reply), "ROUTERS;USED;%s", WIFI_AP_NAME);
       if (serverRunning) rejoinNetwork();
@@ -514,6 +571,17 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
           hasStoredWifi_ = false;
           storedSsid_[0] = '\0';
           storedPass_[0] = '\0';
+          // U-98: deleting the ACTIVE router must also erase the last-good
+          // pair. This is the owner's exact report — DEL cleared `wifi_ssid`,
+          // but `last_ok_ssid` survived, so the next boot re-joined the router
+          // that had just been deleted.
+          lastGoodSsid_[0] = '\0';
+          lastGoodPass_[0] = '\0';
+          Preferences wprefs;
+          wprefs.begin("botcfg", false);
+          wprefs.remove("last_ok_ssid");
+          wprefs.remove("last_ok_pass");
+          wprefs.end();
         }
         snprintf(reply, sizeof(reply), "ROUTERS;DELETED;%s", ssid);
         if (wasActive) {
@@ -540,10 +608,16 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     }
     prefs.remove("wifi_ssid");
     prefs.remove("wifi_pass");
+    // U-98: clear the last-good pair too, so a wiped registry cannot be
+    // re-joined from a stale boot target.
+    prefs.remove("last_ok_ssid");
+    prefs.remove("last_ok_pass");
     prefs.end();
     hasStoredWifi_ = false;
     storedSsid_[0] = '\0';
     storedPass_[0] = '\0';
+    lastGoodSsid_[0] = '\0';
+    lastGoodPass_[0] = '\0';
     snprintf(reply, sizeof(reply), "ROUTERS;CLEARED");
     // The car reverts to its own AP as the network (default) right away.
     if (serverRunning) rejoinNetwork();
@@ -1500,8 +1574,12 @@ void WebServerComm::advanceRejoinStep() {
 // trusted `storedSsid_` would dutifully retry the router that had just failed.
 //
 // `lastGoodSsid_` / `lastGoodPass_` record the router that ACTUALLY associated.
-// They are written only from the connect-success path, and they are what a boot
-// auto-join uses. "What we tried" and "what worked" are now separate facts.
+// They are written only from the connect-success path. U-98 (2026-10-11): they
+// are now INFORMATIONAL — the boot auto-join reads `storedSsid_` (the
+// last-SWITCHED router), NOT this pair, because a router the owner deleted
+// stayed here and a boot re-joined it. The pair is still maintained (and is
+// erased alongside the stored pair on DEL/CLEAR/RESET) so "what we tried" and
+// "what worked" remain separate facts.
 void WebServerComm::saveLastGoodRouter() {
   if (!hasStoredWifi_ || !storedSsid_[0]) return;
   if (strcmp(lastGoodSsid_, storedSsid_) == 0 &&
@@ -1521,42 +1599,46 @@ void WebServerComm::saveLastGoodRouter() {
 }
 
 void WebServerComm::armBootAutoJoin() {
-  // U-71: on power-up, try the router that last WORKED - and only that one.
+  // U-98 (2026-10-11, owner: *"the car should always go to the last switched
+  // router network always; if it is not available it should show its own router
+  // for the user to connect or control through the car's own webpage"*).
   //
-  // The budget is deliberately SHORT. This reverses R-16/T-64 ("the own AP is THE
-  // default network; a stored router is joined ONLY on explicit request"), which
-  // the owner has now overridden - but the reason that rule existed still stands:
-  // an unreachable router must never keep the car off its own hotspot, because
-  // the hotspot is the only way in when the router is not there. So the boot
-  // attempt gets ONE association window (BOOT_STA_TIMEOUT_MS) and then settles
-  // AP-only immediately. The full retry budget is reserved for an EXPLICIT user
-  // switch, where the user is waiting and watching.
+  // The target is the last-SWITCHED router: `storedSsid_`, written by every
+  // ROUTERS;USE / WIFICFG. It is deliberately NOT `lastGoodSsid_`
+  // (`last_ok_ssid`) any more: a router the owner DELETED stayed in
+  // `last_ok_ssid` (DEL only cleared `wifi_ssid`), so the old boot silently
+  // re-joined the very network the owner just removed — the session's report
+  // (*"i deleted the saved router but the car restarted with the old router
+  // that i was previously connected"*). `storedSsid_` cannot resurrect a
+  // deleted network: DEL/CLEAR/WIFICFG;RESET all wipe it, the last-good pair is
+  // wiped with it (U-98), and a fresh flash starts empty.
   //
-  // `saveLastGoodRouter()` is what fills these, so a router that has never
-  // connected is never auto-joined - there is no point burning the boot window on
-  // something that has already failed once.
-  if (!lastGoodSsid_[0]) {
-    FW_LOG_VERBOSE("[WIFICFG] boot: no last-good router, staying on own hotspot\n");
+  // The budget is now the FULL explicit-switch budget (WIFI_STA_TIMEOUT_MS /
+  // STA_MAX_RETRIES), not the old SHORT boot window (BOOT_STA_*, removed). That
+  // reversal of R-16/T-64 is safe because the own hotspot beacon stays UP for
+  // the whole retry — parking only ever runs while the car is CONNECTED and in
+  // use — so a long attempt can never strand the owner; and an unreachable
+  // router still ends in the give-up path, which restores the own hotspot the
+  // moment the budget is spent.
+  if (!storedSsid_[0]) {
+    FW_LOG_VERBOSE("[WIFICFG] boot: no last-switched router, staying on own hotspot\n");
     return;
   }
-  FW_LOG("[WIFICFG] boot: will try last-good router \"%s\" (short budget)\n",
-         lastGoodSsid_);
-  // Adopt it as the active target for this attempt only. The saved-routers
-  // registry and `storedSsid_` are untouched, so an explicit switch still wins.
-  strncpy(storedSsid_, lastGoodSsid_, ROUTER_SSID_LEN - 1);
-  storedSsid_[ROUTER_SSID_LEN - 1] = '\0';
-  strncpy(storedPass_, lastGoodPass_, ROUTER_PASS_LEN - 1);
-  storedPass_[ROUTER_PASS_LEN - 1] = '\0';
   hasStoredWifi_ = true;
+  // Already on the router it would join (a power-policy resume that never tore
+  // the association down): do not tear it down just to re-join it.
+  if (WiFi.status() == WL_CONNECTED &&
+      strcmp(WiFi.SSID().c_str(), storedSsid_) == 0) {
+    FW_LOG_VERBOSE("[WIFICFG] boot: already on \"%s\", no rejoin needed\n",
+                   storedSsid_);
+    return;
+  }
+  FW_LOG("[WIFICFG] boot: returning to last-switched router \"%s\" (full budget)\n",
+         storedSsid_);
+  // rejoinNetwork() arms the full budget and does no radio work itself; handle()
+  // walks the drop -> restore -> begin step machine, one radio call per pass
+  // (U-71/U-95 Phase 2).
   rejoinNetwork();
-  // U-75: the SHORT boot budget is applied AFTER rejoinNetwork(), because that
-  // function now sets the full explicit-switch budget for every caller. Order
-  // matters: this is a boot-time concession, not a policy for the session.
-  staTimeoutMs_ = BOOT_STA_TIMEOUT_MS;
-  // U-94: reduced boot auto-join budget to 1 attempt so the car does not
-  // repeatedly switch routers on power-up; the user can explicitly switch
-  // via the app if desired.
-  staRetryCap_ = 1;
 }
 
 void WebServerComm::stop() {

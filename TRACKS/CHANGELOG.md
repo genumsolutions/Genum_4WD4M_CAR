@@ -10,6 +10,58 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.0 (U-98, 2026-10-11): a fresh flash starts clean, and a boot returns to the LAST-SWITCHED router
+
+**UNCOMMITTED + UNFLASHED (F-61).** Owner report, verbatim: *"clear all the other saved router
+datas and only have its own data each time i flash the car so that i can always test from the
+start and the car is clean and fresh always"* · *"the car should always go to the last switched
+router network always; if it is not available it should show its own router for the user to
+connect or control through the car's own webpage"* · *"i deleted the saved router but the car
+restarted with the old router that i was previously connected"* · *"the car is stuck on one of
+the outside router and not even showing its own webpage too so that i can change and delete and
+edit things"*. `FW_VERSION` → `1.3.0`.
+
+**D1 — A RE-FLASH DID NOT RESET THE ROUTER SURFACE.** Arduino flashing does NOT erase NVS, so
+every saved router, the stored pair and the last-good pair survived each re-install, and the
+next boot silently re-joined an outside router the owner had deleted. `botcfg/fw_mark` now
+stores the `FW_VERSION`; `wipeRoutersOnFreshFirmware()` (called in `setup()` **before** the
+loads) erases every router-related key (`rnet<N>s/p`, `wifi_ssid/pass`, `last_ok_ssid/pass`,
+`last_transport`) and writes the new mark when it does not match. "First boot after a flash" is
+the first boot where the RUNNING firmware differs — NOT a power cycle: same-firmware power
+cycles keep the saved routers, which U-84 requires. Mode/speed/relay prefs share the `botcfg`
+namespace and are deliberately untouched.
+
+**D2 — A DELETED ROUTER RESURRECTED ON THE NEXT BOOT (the "restarted with the old router"
+report).** `armBootAutoJoin()` trusted `lastGoodSsid_` (`last_ok_ssid`), and `ROUTERS;DEL`
+cleared only `wifi_ssid` — so deleting the ACTIVE router left the last-good pair intact and the
+next boot re-joined the very network the owner had just removed. Boot now joins `storedSsid_` —
+the last-SWITCHED router, written by every `ROUTERS;USE`/`WIFICFG` — and the last-good pair is
+now **informational**, erased alongside the stored pair at all four clear sites
+(`WIFICFG;RESET`, `ROUTERS;USE 4WDCar_Wifi`, `ROUTERS;DEL` active, `ROUTERS;CLEAR`).
+`storedSsid_` cannot resurrect a deleted network: DEL/CLEAR/RESET wipe it, the last-good pair
+dies with it, and a fresh flash starts empty.
+
+**D3 — "STUCK ON AN OUTSIDE ROUTER, NO OWN WEBPAGE."** The stale-router boot in D2 pulled the
+car onto a router the phone was not on. The softAP's channel tracks the STA's in AP_STA, so a
+phone could not find `4WDCar_Wifi` at the expected channel and had no reachable address for the
+page. The fix is D1+D2: a clean car boots onto its own AP, and a stored router that is
+unreachable ends in the give-up path, which restores the own hotspot. The channel-follow
+limitation itself is unchanged and remains documented.
+
+**BUDGET — THE OLD SHORT BOOT WINDOW IS GONE.** `BOOT_STA_TIMEOUT_MS` / `BOOT_STA_MAX_RETRIES`
+(6 s / 1) are removed; the boot auto-join now uses the FULL explicit-switch budget
+(`WIFI_STA_TIMEOUT_MS` / `STA_MAX_RETRIES`). This reverses R-16/T-64's short-window concession a
+second time, and it is safe for the reason the beacon work (U-87 / FIN-40) established: the own
+hotspot beacon stays UP for the WHOLE retry — parking only runs while the car is CONNECTED and
+in use — so a long attempt can never strand the owner, and an unreachable router still ends by
+restoring the hotspot. `lastTransport` no longer gates the boot hop: the last-SWITCH is about
+the router the owner chose, not the last transport; it is now a boot log line only.
+
+**Gates (source-level only).** syntax **10 / 10** · `check-webpage-js.mjs` **PASS** ·
+`check-relay-contract.mjs` **PASS** · `mutate-gates.mjs` **67 / 67** byte-exact (run alone; the
+tree was stashed clean first and the work restored after — F-61: none of this is device
+evidence).
+
 ## UNRELEASED — the AP power policy, the `[1/2]` badge, and the build `c0e4ce6` broke
 
 `c0e4ce6` (2026-10-10) did not compile and left half of U-98 behind. Both fixed; `FW_VERSION`
