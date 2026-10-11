@@ -230,8 +230,8 @@ frame. A new `inbound-fit` gate rule + mutant **M65** pin the boundary.
 ## U-96i — firmware-app version handshake (2026-10-11)
 
 **THESE TWO FORMS THE SAME ITEM — a car's version is now a fact on the wire, and the app reads it.**
-The name U-96i came from the app TODO (the app's half, recorded first). The car half is commits
-`3168cac` + `3a8cf6c`; the app half is commit `25e72a9` (`genumsolutions-app`).
+The name U-96i came from the app TODO (the app's half, recorded first). The car half is commit
+`3168cac` (Genum_4WD4M_CAR, 2026-10-11); the app half is commit `25e72a9` (genumsolutions-app, same day).
 
 **Car (2026-10-11).** The firmware's WORST known-class problem had been exactly this shape for
 sixteen days and the ledger called it "cosmetic" — the app had NO way to know what firmware a car
