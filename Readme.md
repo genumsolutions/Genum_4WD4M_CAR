@@ -90,7 +90,10 @@ gitignored, never committed; the sketch compiles without it).
   car restarted with the old router"*. The last-good pair is informational and is erased with the
   stored pair at all four clear sites. (c) `BOOT_STA_TIMEOUT_MS`/`BOOT_STA_MAX_RETRIES` removed:
   the boot join uses the full explicit-switch budget, safe because the own hotspot beacon stays up
-  the whole retry. Still UNFLASHED.
+  the whole retry. (d) **The OLED extra row is "pronto"**: `updateExtraInfo()` and
+  `broadcastStatus()` no longer share one 1 s tick — the extra row polls every 500 ms while the WS
+  broadcast stays at 1 Hz (`EXTRA_INTERVAL`/`STATUS_INTERVAL`; gate rule `extra-status-decoupled`).
+  Still UNFLASHED.
 - **1.2.3 (2026-10-07, U-95 Phase 3)** — **the car's own page**. (3a) `MODECYCLE`/`MODEPREV`/
   `MODENEXT` tokens on the one shared `cycleMode()` walk (previously GPIO-only), wrap both ways.
   (3b) Scan rows carry `channel`/`own`/`saved`/`current` computed ONCE car-side (three app modules

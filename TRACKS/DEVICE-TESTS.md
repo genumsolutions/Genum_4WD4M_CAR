@@ -38,6 +38,11 @@
 - [ ] **U-98-7 — WIFICFG;RESET and ROUTERS;CLEAR wipe the last-good pair too.** With a router set, send
       `WIFICFG;?;RESET` (or `ROUTERS;CLEAR`), then power-cycle: the car stays on its own hotspot;
       nothing re-joins.
+- [ ] **U-98-8 — the OLED network row is "pronto" (P2).** With the car on a router, watch the OLED's
+      network row as the signal changes (walk away/back): the RSSI %/IP line refreshes within about
+      half a second, and it still snaps immediately when the network actually switches (U-72). In the
+      page's DevTools, the WebSocket status frame must still arrive about **once** a second — the
+      extra-row cadence is 500 ms but the broadcast stays 1 Hz.
 
 ## U-95 round — evidence gathering + the reset loop itself (2026-10-06/07, firmware 1.2.3 — DEVICE VERIFY PENDING)
 

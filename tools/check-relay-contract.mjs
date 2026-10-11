@@ -923,6 +923,56 @@ if (!wdt) {
   pass("ws-budget", `the watchdog is ${wdt} ms - ${wdt - 8000} ms above the library's worst operation (read 5000, write ~8000), each fed immediately before it runs`);
 }
 
+// ---- 10b. the OLED extra row ticks apart from the WS broadcast (U-98 P2) -
+// The OLED's network/extra row and the WebSocket status JSON used to share ONE
+// `if (now - lastExtraMs >= EXTRA_INTERVAL)` block, so the OLED refresh rate
+// could not move without changing how often every client is broadcast to. The
+// owner asked for the OLED to be "pronto" (U-98); the honest fix is to raise
+// the extra row's OWN cadence and leave the broadcast alone - NOT to double the
+// status JSON to every socket. This rule pins the two ticks APART and ordered:
+// each call sits under its own interval constant (a shared constant is the
+// re-coupling back, dressed differently), and the extra row refreshes strictly
+// FASTER than the broadcast (a slower OLED tick is the same defect in reverse).
+{
+  const guards = [];
+  const gre = /(?:now|millis\s*\(\s*\))\s*-\s*(last\w*Ms)\s*>=\s*(\w+)/g;
+  let gm;
+  while ((gm = gre.exec(handleBody)) !== null) guards.push({ at: gm.index, interval: gm[2] });
+
+  const intervals = {};
+  const ire = /const\s+unsigned\s+long\s+(\w+)\s*=\s*(\d+)\s*;/g;
+  let im;
+  while ((im = ire.exec(handleBody)) !== null) intervals[im[1]] = Number(im[2]);
+
+  // Map each call to the LAST tick guard that precedes it (the calls appear
+  // several times elsewhere in handle(), each under its own event branch, so an
+  // indexOf would grab the wrong one - the last guard wins). The tick block is
+  // the last timer in handle(), so this lands on the right pair.
+  const guardFor = (callRe) => {
+    let hit = null;
+    for (let i = 0; i < guards.length; i++) {
+      const start = guards[i].at;
+      const end = i + 1 < guards.length ? guards[i + 1].at : handleBody.length;
+      if (callRe.test(handleBody.slice(start, end))) hit = guards[i];
+    }
+    return hit;
+  };
+  const eg = guardFor(/updateExtraInfo\s*\(/);
+  const bg = guardFor(/broadcastStatus\s*\(/);
+
+  if (!eg || !bg) {
+    fail("extra-status-decoupled", "could not map updateExtraInfo()/broadcastStatus() to a `now - last…Ms >= …` tick in handle() - check this rule still matches the code");
+  } else if (eg.interval === bg.interval) {
+    fail("extra-status-decoupled", `updateExtraInfo() and broadcastStatus() share the tick ${eg.interval} - the OLED cadence is bolted to the client broadcast again (U-98 Phase 2)`);
+  } else if (!(eg.interval in intervals) || !(bg.interval in intervals)) {
+    fail("extra-status-decoupled", `one of the tick constants (${eg.interval}, ${bg.interval}) has no literal value - the rule cannot compare the two cadences`);
+  } else if (!(intervals[eg.interval] < intervals[bg.interval])) {
+    fail("extra-status-decoupled", `the extra row (${eg.interval}=${intervals[eg.interval]} ms) is not faster than the broadcast (${bg.interval}=${intervals[bg.interval]} ms) - the "pronto" refresh is not actually sooner`);
+  } else {
+    pass("extra-status-decoupled", `OLED extra row refreshes every ${intervals[eg.interval]} ms (${eg.interval}); the WS broadcast stays at ${intervals[bg.interval]} ms (${bg.interval})`);
+  }
+}
+
 // ---- 11. a router switch must be a real teardown (U-95 Phase 2) ---------
 // U-90 shipped the claim this rule enforces as a COMMENT: the MODE step's
 // prose said "WiFi.mode(WIFI_AP_STA) restarts the WiFi driver, the stale STA

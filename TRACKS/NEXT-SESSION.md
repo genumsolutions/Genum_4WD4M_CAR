@@ -1,12 +1,12 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11, third round: U-98 — fresh-flash router wipe + boot returns to the last-switched router; UNCOMMITTED + UNFLASHED, source-only)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11, third round: U-98 — fresh-flash router wipe + boot returns to the last-switched router + OLED pronto tick; committed + UNFLASHED, source-only)
 
 ## READ THIS FIRST — WHICH REPO IS THE CAR
 
 There are TWO car repositories and they are easy to confuse:
 
 - **`Genum_4WD4M_CAR` (THIS repo) — the LIVE one.** Every car fix since 2026-09-28 lands here.
-  `main` carries the tip `2a92009` (2026-10-11, U-96i ledger); CI green. **U-98 (1.3.0) is
-  uncommitted on top of it** — see the session block below.
+  `main` carries `b59236a` (2026-10-11, U-98 D1–D3) plus the P2 tip on top; CI green. U-98
+  (1.3.0) is **committed but UNFLASHED** — see the session block below.
 - **`Genum_WIRELESS_CAR` — the OLD one, frozen.** `main` = `d0bf8c0` (1.8.4, 2026-09-26).
   It has no recent commits because nothing is developed there any more; 4WD4M was bootstrapped
   from it as a "fresh baseline" (see the repo description). If a repo page shows
@@ -19,8 +19,8 @@ unpushed commits. The report was the stale old repo, not lost work.
 
 ## This session (2026-10-11, third round) — U-98: a flash starts clean, and a boot returns to the last-switched router
 
-Working tree is **UNCOMMITTED** and **UNFLASHED** (F-61). `FW_VERSION` → `1.3.0`. Four owner
-reports, one root-caused cluster:
+Committed and **UNFLASHED** (F-61): D1–D3 at `b59236a`, P2 on top. `FW_VERSION` → `1.3.0`.
+Four owner reports, one root-caused cluster:
 
 - *"clear all the other saved router datas and only have its own data each time i flash the car …
   the car is clean and fresh always"* · *"the car should always go to the last switched router
@@ -47,10 +47,16 @@ reports, one root-caused cluster:
   uses the full explicit-switch budget (`WIFI_STA_TIMEOUT_MS`/`STA_MAX_RETRIES`); the own hotspot
   beacon stays up the whole retry, so it can never strand the owner. `lastTransport` no longer
   gates the hop (boot log line only).
+- **P2 — the OLED extra row ticks apart from the WS broadcast.** `updateExtraInfo()` (the OLED
+  network/extra row) and `broadcastStatus()` used to share one `EXTRA_INTERVAL` 1 s tick, so the
+  OLED could not refresh faster without doubling the status JSON to every client. Split:
+  `EXTRA_INTERVAL` **1000 → 500 ms** for the extra row, broadcast keeps its own
+  `STATUS_INTERVAL = 1000 ms`. New gate rule `extra-status-decoupled` + mutants M68/M69.
 - **Gates after this session:** syntax **10/10** · `check-webpage-js.mjs` PASS ·
-  `check-relay-contract.mjs` PASS · `mutate-gates.mjs` **67/67** byte-exact. All source-level —
-  **nothing flashed; F-61 stands.** Files: `Config.h`, `WebServerComm.h/.cpp`,
-  `Genum_4WD4M_CAR.ino` (uncommitted).
+  `check-relay-contract.mjs` PASS (incl. `extra-status-decoupled`) · `mutate-gates.mjs` **69/69**
+  byte-exact. All source-level — **nothing flashed; F-61 stands.** Files: `Config.h`,
+  `WebServerComm.h/.cpp`, `Genum_4WD4M_CAR.ino`, `tools/check-relay-contract.mjs`,
+  `tools/mutate-gates.mjs`.
 
 ## This session (2026-10-11, second round) — U-96i done: the car tells the app its version
 

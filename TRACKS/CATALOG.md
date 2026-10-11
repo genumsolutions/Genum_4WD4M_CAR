@@ -26,6 +26,10 @@
 > pair, the last-good `last_ok_*`, `last_transport`) so a re-flash starts clean. `last_ok_ssid/
 > pass` are now **informational** — boot auto-join reads the last-SWITCHED `wifi_ssid`, not the
 > last-good pair. `last_transport` no longer gates the boot router hop.
+>
+> **(P2, same release.)** The OLED extra row and the WS bit both used `EXTRA_INTERVAL`; they are now
+> two ticks — `EXTRA_INTERVAL` (extra row) 500 ms and `STATUS_INTERVAL` (broadcast) 1000 ms — so the
+> OLED refreshes pronto without doubling the status JSON to every client.
 
 ## Modes (current registry — 7 tokens)
 

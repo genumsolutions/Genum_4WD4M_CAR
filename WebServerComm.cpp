@@ -1937,12 +1937,25 @@ void WebServerComm::handle() {
     }
   }
 
+  // U-98 Phase 2 (OLED "pronto"): the OLED's network/extra row refreshes on its
+  // OWN tick, decoupled from the WebSocket broadcast. They used to share the one
+  // 1 s tick here, so the only way to make the OLED pronto was to double the
+  // status JSON to every client too - the wrong trade, and it still left the row
+  // up to a full second stale after a network changed. Now the extra row polls
+  // twice a second while the broadcast stays at 1 Hz. Gate rule:
+  // `extra-status-decoupled`.
   static unsigned long lastExtraMs = 0;
-  const unsigned long EXTRA_INTERVAL = 1000;
+  const unsigned long EXTRA_INTERVAL = 500;
   unsigned long now = millis();
   if (now - lastExtraMs >= EXTRA_INTERVAL) {
     lastExtraMs = now;
     updateExtraInfo();
+  }
+
+  static unsigned long lastStatusMs = 0;
+  const unsigned long STATUS_INTERVAL = 1000;
+  if (now - lastStatusMs >= STATUS_INTERVAL) {
+    lastStatusMs = now;
     broadcastStatus();
     FW_LOG_VERBOSE("Free heap: %d\n", static_cast<int>(ESP.getFreeHeap()));
   }

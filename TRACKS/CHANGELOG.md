@@ -12,7 +12,7 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 
 ## UNRELEASED — 1.3.0 (U-98, 2026-10-11): a fresh flash starts clean, and a boot returns to the LAST-SWITCHED router
 
-**UNCOMMITTED + UNFLASHED (F-61).** Owner report, verbatim: *"clear all the other saved router
+**UNFLASHED (F-61).** Owner report, verbatim: *"clear all the other saved router
 datas and only have its own data each time i flash the car so that i can always test from the
 start and the car is clean and fresh always"* · *"the car should always go to the last switched
 router network always; if it is not available it should show its own router for the user to
@@ -57,8 +57,18 @@ in use — so a long attempt can never strand the owner, and an unreachable rout
 restoring the hotspot. `lastTransport` no longer gates the boot hop: the last-SWITCH is about
 the router the owner chose, not the last transport; it is now a boot log line only.
 
+**P2 — THE OLED EXTRA ROW NO LONGER SHARES THE BROADCAST'S TICK.** `updateExtraInfo()` (the
+OLED's network/extra row) and `broadcastStatus()` (the WebSocket status JSON) ran in ONE
+`if (now - lastExtraMs >= EXTRA_INTERVAL)` block, so the OLED's refresh rate could not be
+raised without also doubling the status JSON to every client — the wrong trade, and it still
+left the row up to a full second stale after a network changed. Split into two ticks:
+`EXTRA_INTERVAL` **1000 → 500 ms** for the extra row, while the broadcast keeps its own
+`STATUS_INTERVAL = 1000 ms`. The event-driven "pronto" path (U-72: `setExtraInfo` /
+`pushLinkInfo` repaint on any real change) is unchanged; this only halves the worst-case
+staleness of the RSSI/IP row. New gate rule `extra-status-decoupled`, mutants M68/M69.
+
 **Gates (source-level only).** syntax **10 / 10** · `check-webpage-js.mjs` **PASS** ·
-`check-relay-contract.mjs` **PASS** · `mutate-gates.mjs` **67 / 67** byte-exact (run alone; the
+`check-relay-contract.mjs` **PASS** · `mutate-gates.mjs` **69 / 69** byte-exact (run alone; the
 tree was stashed clean first and the work restored after — F-61: none of this is device
 evidence).
 

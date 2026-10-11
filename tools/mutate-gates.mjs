@@ -550,6 +550,16 @@ const mutants = [
     find: "        wsDelay = 0;\n        initWebSocket();\n      });",
     repl: "      });",
     why: "the visibilitychange handler is registered but does nothing — returning to a hidden tab leaves the page 'Disconnected' until the next timer fires" },
+
+  { id: "M68", rule: "extra-status-decoupled", file: WSC,
+    find: "  if (now - lastStatusMs >= STATUS_INTERVAL) {",
+    repl: "  if (now - lastExtraMs >= EXTRA_INTERVAL) {",
+    why: "the status broadcast is wired back onto the extra row's tick — the two cadences are one again, so tuning the OLED also retunes every client's JSON (U-98 Phase 2 re-coupled)" },
+
+  { id: "M69", rule: "extra-status-decoupled", file: WSC,
+    find: "const unsigned long EXTRA_INTERVAL = 500;",
+    repl: "const unsigned long EXTRA_INTERVAL = 2000;",
+    why: "the extra row refreshes SLOWER than the 1 s broadcast — the ticks are split but the OLED is now the staler of the two, the same defect the other way around" },
 ];
 
 // ---- runner -------------------------------------------------------------
