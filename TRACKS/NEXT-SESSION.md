@@ -1,4 +1,26 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, U-R3: restart record on the Bluetooth STATE line + relay byte budget 448→512; committed + UNFLASHED)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, U-R3 connectivity rebuild: ap_psave/allow_parallel in STATE + /status, OLED blink + restart record; 1.3.2 UNFLASHED)
+
+## U-R3 2026-10-12 — connectivity rebuild + restart record (1.3.2, UNFLASHED)
+
+Owner directive: car restart/freeze truth over Bluetooth, stop relay dropping long STATE, plus connectivity rebuild — ap_psave/allow_parallel reported on STATE and /status, OLED blinks last two rows.
+
+**Connectivity rebuild (car half for U-R3):**
+1. **`ModeManager.cpp` `sendStateOn()`** appends `;APSAVE=ON|OFF` and `;PARALLEL=ON|OFF` to every STATE line (via `WebServerComm::apPowerSave()` / `allowParallel()` getters). Mirrors the /status JSON fields so a Bluetooth-only remote reads the car's stored config without WS round-trip.
+2. **`WebServerComm.cpp` `buildStatusJson()`** adds `"ap_psave"` and `"allow_parallel"` boolean fields to `/status` JSON.
+3. **`WebServerComm.h`** adds `bool apPowerSave() const` getter (parallels existing `allowParallel()`).
+4. **`Oled_1_3.cpp` `redrawNow()`** blinks the last two body rows (network method + IP) at ~1 Hz (`BLINK_INTERVAL_MS = 500`). `blinkState` toggles in `redrawNow`; rows 3/4 drawn only when `blinkState` true.
+5. **Restart record on STATE** (from prior U-R3): `;RST=...;BC=...;CC=...;PH=...;LH=...` appended to every STATE line via `crashLogInfo()`.
+6. **Relay byte budget 448→512** (from prior U-R3): `Config.h::RELAY_MAX_OUT_BYTES`, `RelayComm.h::kOutLineLen`, static_asserts, `check-relay-contract.mjs` pin `512`, website relay `maxBytesCarToController`.
+
+**Gates green:** syntax 10/10 · relay-contract PASS (cap 512) · webpage-js PASS.
+**Owner action:** flash **1.3.2** (USB, 115200, `huge_app`) — along with owed **1.3.1**. Then connect over Bluetooth and confirm:
+- Diagnostics restart row shows reason+phase
+- `device_crash_reports` syncs over Bluetooth
+- STATE line carries `APSAVE`/`PARALLEL` (check via app/remote)
+- `/status` JSON includes `ap_psave`/`allow_parallel`
+- OLED last two rows blink
+
+**UNFLASHED (F-61):** bench car on 1.0.5; 1.3.1 and 1.3.2 both need flash.
 
 ## U-R3 2026-10-12 — the restart record over Bluetooth (1.3.2, UNFLASHED)
 

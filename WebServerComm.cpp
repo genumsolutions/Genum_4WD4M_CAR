@@ -2768,7 +2768,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // the next person to add a phase from a runtime string will get this wrong,
   // and "it was only ever internal literals" is not a property any tool checks.
   const CrashInfo& ci = crashLogInfo();
-  snprintf(buf, bufLen,
+snprintf(buf, bufLen,
      "{"
        "\"status\":\"%s\","
        "\"mode\":\"%s\","
@@ -2801,7 +2801,9 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
        "\"id\":\"%s\","
        "\"fw\":\"%s\","
        "\"networks\":[%s],"
-       "\"scan\":%s"
+       "\"scan\":%s,"
+       "\"ap_psave\":%s,"
+       "\"allow_parallel\":%s"
      "}",
      statusWord,
      modeToken,
@@ -2815,7 +2817,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
       bcastIp,
       subnetMask,
       rssi,
-     pct,
+      pct,
       uptime,
       static_cast<unsigned int>(free_heap),
       ci.label,
@@ -2824,15 +2826,18 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
       ci.phase,
       static_cast<unsigned long>(ci.heapAtBoot),
       crashLogLivePhase(),
-     speed,
-     static_cast<int>(modeManager ? modeManager->getTrim() : 0),
-     static_cast<int>(MIN_SPEED),
-     static_cast<int>(MAX_SPEED),
-     ssidOut,
-     wantOut,
-     apOut,      boardId,
+      speed,
+      static_cast<int>(modeManager ? modeManager->getTrim() : 0),
+      static_cast<int>(MIN_SPEED),
+      static_cast<int>(MAX_SPEED),
+      ssidOut,
+      wantOut,
+      apOut,
+      boardId,
       FW_VERSION,
       networks,
-      scanJson
+      scanJson,
+      apPowerSave_ ? "true" : "false",
+      allowParallel_ ? "true" : "false"
   );
 }

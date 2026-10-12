@@ -108,12 +108,22 @@ void Oled_1_3::setLinkContext(const char* method, const char* type, bool connect
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
 
+  // U-R3 (2026-10-12): blink the last two status rows (network + IP) to
+  // indicate live connectivity state. Toggles every BLINK_INTERVAL_MS.
+  uint32_t nowMs = millis();
+  if (nowMs - lastBlinkMs >= BLINK_INTERVAL_MS) {
+    blinkState = !blinkState;
+    lastBlinkMs = nowMs;
+  }
+
   // `isBluetooth` was removed here: it was computed and never read (one
   // definition, zero uses repo-wide), costing two strcmp()s per OLED frame.
   // `isWebServer` is always false — no registry token is "ESP_SER" any more —
   // so its block below is dead. Kept, not deleted, because removing the layout
   // is an owner call, not a cleanup.
   const bool isWebServer = (strcmp(modeTokenBuf, "ESP_SER") == 0);
+
+  // Fleet-standard computed layout (2026-09-15): matches the SELF-BALANCE /
 
   // Fleet-standard computed layout (2026-09-15): matches the SELF-BALANCE /
   // 2WD1M dashboards — TOP_MARGIN/BOTTOM_MARGIN here equal the SB OledDisplay.h.
@@ -418,8 +428,12 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
         row[strlen(row) - 1] = '\0';
       }
     }
-    u8g2->drawStr(leftX, lineBaseline[2], line3);
-    u8g2->drawStr(leftX, lineBaseline[3], line4);
+    // U-R3 (2026-10-12): blink the last two status rows (network + IP)
+    // to indicate live connectivity. They alternate visibility at ~1 Hz.
+    if (blinkState) {
+      u8g2->drawStr(leftX, lineBaseline[2], line3);
+      u8g2->drawStr(leftX, lineBaseline[3], line4);
+    }
   }
 
   u8g2->sendBuffer();

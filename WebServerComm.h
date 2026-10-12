@@ -196,6 +196,9 @@ public:
   // a transport that is still down is brought back), OFF keeps the old
   // arbitration. NVS `botcfg/allow_parallel`, set via `WIFICFG;PARALLEL;ON|OFF`.
   bool allowParallel() const { return allowParallel_; }
+  // U-R3 (2026-10-12): own-hotspot power-save state for STATE line + /status.
+  // NVS `botcfg/ap_psave`, set via `WIFICFG;APSAVE;ON|OFF`.
+  bool apPowerSave() const { return apPowerSave_; }
   // T-48 (round-5): saved-router registry commands — ROUTERS;LIST /
   // ROUTERS;ADD;<ssid>;<pass> / ROUTERS;USE;<ssid> / ROUTERS;DEL;<ssid>.
   // True when the line was a ROUTERS command (consumed). USE stores the pair

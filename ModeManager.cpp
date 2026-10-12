@@ -604,6 +604,18 @@ void ModeManager::sendStateOn(CommInterface& comm) {
     if (ci.phase[0]) snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";PH=%s", ci.phase);
     snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";LH=%lu",
              static_cast<unsigned long>(ci.heapAtBoot));
+    // U-R3 (1.3.2): own-hotspot power-save + parallel links state on every STATE
+    // so a Bluetooth-only remote/app can read the car's stored config without
+    // needing a WS JSON round-trip. Mirrors the /status JSON fields.
+    {
+      WebServerComm* ws = WebServerComm::instance();
+      if (ws) {
+        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";APSAVE=%s",
+                 ws->apPowerSave() ? "ON" : "OFF");
+        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";PARALLEL=%s",
+                 ws->allowParallel() ? "ON" : "OFF");
+      }
+    }
     strncat(wifiKeys, tKeys, sizeof(wifiKeys) - strlen(wifiKeys) - 1);
   }
   // v1.4.0: a queued provisioning reply (WIFICFG;STORED;… etc.) rides the
