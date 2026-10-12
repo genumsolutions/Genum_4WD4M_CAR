@@ -80,11 +80,11 @@ private:
   uint32_t minDrawIntervalMs = 100;
   bool isSleeping = false;
 
-  // U-R3 (2026-10-12): blink the last two status rows (network + IP) to
-  // indicate live connectivity state. Toggles every BLINK_INTERVAL_MS.
-  static constexpr uint32_t BLINK_INTERVAL_MS = 500;
-  uint32_t lastBlinkMs = 0;
-  bool blinkState = false;
+  // Rotation for idle state (both BT + WiFi AP advertising) — 1.5s per phase.
+  static constexpr uint32_t ROTATE_INTERVAL_MS = 1500;
+  uint32_t lastRotateMs = 0;
+  bool rotatePhase = false;     // false = BT info, true = WiFi AP info
+  bool wasIdle = false;         // track idle state transitions
 
   void safeCopy(char* dst, size_t dstLen, const char* src);
   void redrawNow(int speed, bool connected);

@@ -108,20 +108,14 @@ void Oled_1_3::setLinkContext(const char* method, const char* type, bool connect
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
 
-  // U-R3 (2026-10-12): blink the last two status rows (network + IP) to
-  // indicate live connectivity state. Toggles every BLINK_INTERVAL_MS.
-  uint32_t nowMs = millis();
-  if (nowMs - lastBlinkMs >= BLINK_INTERVAL_MS) {
-    blinkState = !blinkState;
-    lastBlinkMs = nowMs;
-  }
-
   // `isBluetooth` was removed here: it was computed and never read (one
   // definition, zero uses repo-wide), costing two strcmp()s per OLED frame.
   // `isWebServer` is always false — no registry token is "ESP_SER" any more —
   // so its block below is dead. Kept, not deleted, because removing the layout
   // is an owner call, not a cleanup.
-  const bool isWebServer = (strcmp(modeTokenBuf, "ESP_SER") == 0);
+
+  // Rotation timer for idle state (both BT + WiFi AP advertising)
+  uint32_t nowMs = millis();
 
   // Fleet-standard computed layout (2026-09-15): matches the SELF-BALANCE /
 
@@ -249,34 +243,28 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   int leftX = LEFT_MARGIN;
   u8g2->setFont(fontBody);
 
-  // T-45 (round-4): webserver mode renders its own 3-row body (WiFi/Speed/IP)
-  // below, starting at base0 == lineBaseline[0] — so the generic Status and
-  // Speed lines MUST NOT draw first, or they merge with the webserver rows
-  // (owner report: status text overlapped the WiFi line).
-  if (!isWebServer) {
-    // Status line (grammar fixed)
-    if (statusBuf[0] == '\0' || strcmp(statusBuf, "Idle") == 0)
-      safeCopy(statusBuf, STATUS_BUF_LEN, " !!! Ready !!! ");
-    char line[80];
-    snprintf(line, sizeof(line), "Status : %s", statusBuf);
-    u8g2->drawStr(leftX, lineBaseline[0], line);
+  // Status line (grammar fixed)
+  if (statusBuf[0] == '\0' || strcmp(statusBuf, "Idle") == 0)
+    safeCopy(statusBuf, STATUS_BUF_LEN, " !!! Ready !!! ");
+  char line[80];
+  snprintf(line, sizeof(line), "Status : %s", statusBuf);
+  u8g2->drawStr(leftX, lineBaseline[0], line);
 
-    snprintf(line, sizeof(line), "Speed : %d", speed);
-    u8g2->drawStr(leftX, lineBaseline[1], line);
-    // v1.2.3: the link bars moved HERE from the network rows (they used to
-    // steal the right end of row 4, forcing the Bcast line to shave 26 px).
-    // Filled whenever a controller is actually linked (SPP or WS); the Speed
-    // text (≤ 50 px at 5x8) never reaches the bar zone (x ≥ 102).
-    if (linkConnected) {
-      const int maxBars = 4, barW = 4, spacing = 2;
-      const int rightMargin = SCREEN_W - RIGHT_MARGIN;
-      for (int i = 0; i < maxBars; ++i) {
-        int barH = (i + 1) * 3;
-        int x = rightMargin - (maxBars - i) * (barW + spacing);
-        int y = lineBaseline[1] - barH;
-        u8g2->drawFrame(x, y, barW, barH);
-        u8g2->drawBox(x, y, barW, barH);
-      }
+  snprintf(line, sizeof(line), "Speed : %d", speed);
+  u8g2->drawStr(leftX, lineBaseline[1], line);
+  // v1.2.3: the link bars moved HERE from the network rows (they used to
+  // steal the right end of row 4, forcing the Bcast line to shave 26 px).
+  // Filled whenever a controller is actually linked (SPP or WS); the Speed
+  // text (≤ 50 px at 5x8) never reaches the bar zone (x ≥ 102).
+  if (linkConnected) {
+    const int maxBars = 4, barW = 4, spacing = 2;
+    const int rightMargin = SCREEN_W - RIGHT_MARGIN;
+    for (int i = 0; i < maxBars; ++i) {
+      int barH = (i + 1) * 3;
+      int x = rightMargin - (maxBars - i) * (barW + spacing);
+      int y = lineBaseline[1] - barH;
+      u8g2->drawFrame(x, y, barW, barH);
+      u8g2->drawBox(x, y, barW, barH);
     }
   }
 
@@ -324,117 +312,67 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   { char* nPipe = strchr(netBuf, '|'); if (nPipe) *nPipe = '\0'; }
   { char* iPipe = strchr(ipBuf, '|');  if (iPipe) *iPipe = '\0'; }
 
-  // T-39 (round-3): webserver mode gets its own 3-row body — WiFi, Speed, IP —
-  // so nothing touches the border or the right-edge zone. T-50 (round-5): the
-  // speed-level bar moves off the Speed row to the right end of the LAST (IP)
-  // row, and the WiFi + Speed rows widen to usableW-6 (the bar no longer shares
-  // their line — owner report: SSID/name collided with the right-edge bars).
-  if (isWebServer) {
-    // R-18: this 3-row layout never overflowed (last baseline ~57 < usableBottom)
-    // and was tuned in T-39/T-50 — keep its tight 1 px rhythm (gap was the old
-    // shared variable; scoped locally now).
-    const int gap3 = 1;
-    const int base0 = bodyTop + gap3 + bodyH;       // ~39
-    const int base1 = base0 + bodyH + gap3;         // ~48
-    const int base2 = base1 + bodyH + gap3;         // ~57 (safe < usableBottom 62)
-    const int textWide = usableW - 6;               // full body (rows w/o bars)
-    const int textMax = usableW - 26;               // IP row shares right zone w/ bar
-    char wline[48];
-    if (isApFallback) {
-      snprintf(wline, sizeof(wline), "AP : %s", netBuf);
-    } else {
-      snprintf(wline, sizeof(wline), "WiFi : %s", netBuf);
-    }
-    u8g2->setFont(fontBody);
-    while (u8g2->getStrWidth(wline) > textWide && strlen(wline) > 8) {
-      wline[strlen(wline) - 1] = '\0';
-    }
-    u8g2->drawStr(leftX, base0, wline);
+  // Determine if truly idle (no active link — no WS, no relay, no BT client)
+  // "AP ready" means hotspot is up but no client connected — treat as idle for rotation.
+  bool isIdle = (!linkConnected) &&
+                (strcmp(linkMethodBuf, "None") == 0);
 
-    snprintf(wline, sizeof(wline), "Speed : %d", speed);
-    u8g2->drawStr(leftX, base1, wline);
-
-    snprintf(wline, sizeof(wline), "IP : %s", (ipBuf[0] != '\0') ? ipBuf : "--");
-    while (u8g2->getStrWidth(wline) > textMax && strlen(wline) > 5) {
-      wline[strlen(wline) - 1] = '\0';
+  // Rotation timer for idle state (both BT + WiFi AP advertising)
+  if (isIdle) {
+    if (!wasIdle) { lastRotateMs = nowMs; rotatePhase = false; }
+    wasIdle = true;
+    if (nowMs - lastRotateMs >= ROTATE_INTERVAL_MS) {
+      rotatePhase = !rotatePhase;
+      lastRotateMs = nowMs;
     }
-    u8g2->drawStr(leftX, base2, wline);
-    {
-      const int maxBars = 4, barW = 4, spacing = 2;
-      int rightMargin = SCREEN_W - RIGHT_MARGIN;
-      int bars = map(speed, static_cast<int>(MIN_SPEED), static_cast<int>(MAX_SPEED), 0, maxBars);
-      for (int i = 0; i < maxBars; ++i) {
-        int barH = (i + 1) * 3;
-        int x = rightMargin - (maxBars - i) * (barW + spacing);
-        int y = base2 - barH;
-        u8g2->drawFrame(x, y, barW, barH);
-        if (i < bars) u8g2->drawBox(x, y, barW, barH);
-      }
-    }
-
-    u8g2->sendBuffer();
-    return;
+  } else {
+    wasIdle = false;
   }
 
-  // v1.2.3/v1.2.4 (owner directives 2026-10-09): the last two lines are the
-  // NETWORK truth — Row 3 = the current method + network ("Wifi: <ssid>", or
-  // "Bluetooth: <transport status>" over SPP), Row 4 = the car's CURRENT IP,
-  // the same number the app shows (WiFi · <ip>) — not the network's directed
-  // broadcast. The old 2.5s turn-by-turn blink is gone (it hid the info the
-  // owner wants on screen every second) and the rows own the full body width —
-  // the link bars moved up to the Speed row (above).
-  {
-    const char* method = linkMethodBuf;
-    const char* type = (linkTypeBuf[0] != '\0') ? linkTypeBuf : "--";
-
-    // Row 3 = the NETWORK of the current method; Row 4 = the car's CURRENT IP.
-    // netBuf/ipBuf were parsed from extraInfo above, so everything here is the
-    // network the car is REALLY on -- never a placeholder.
-    char line3[40] = "";
-    char line4[40] = "";
+  // Build row 3 (network method + name)
+  char line3[40] = "";
+  if (isIdle) {
+    if (!rotatePhase) {
+      snprintf(line3, sizeof(line3), "Bluetooth : 4WD CAR");
+    } else {
+      const char* apName = (netBuf[0] != '\0') ? netBuf : "GenumCar";
+      snprintf(line3, sizeof(line3), "Wifi : %s", apName);
+    }
+  } else if (strcmp(linkMethodBuf, "Bluetooth") == 0 || strcmp(linkMethodBuf, "BT") == 0) {
+    snprintf(line3, sizeof(line3), "Bluetooth : %s",
+             (strcmp(linkTypeBuf, "--") != 0) ? linkTypeBuf : "SPP");
+  } else if (strcmp(linkMethodBuf, "Internet") == 0) {
+    snprintf(line3, sizeof(line3), "Internet : %s", linkTypeBuf);
+  } else {
     const char* netName = (netBuf[0] != '\0') ? netBuf : "--";
-    const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "--";
+    snprintf(line3, sizeof(line3), "Wifi : %s", netName);
+  }
 
-    if (strcmp(method, "Bluetooth") == 0 || strcmp(method, "BT") == 0) {
-      // Bluetooth method: the "status" is the transport itself (SPP when a
-      // controller is linked). The controller's friendly name is shown by the
-      // APP banner (owner ruling 2026-09-30, Q2=B) -- no peer-name channel here.
-      // The IP line below still shows the Wi-Fi network the car is on, so a
-      // BT link never loses the "where is this thing on the LAN" answer.
-      snprintf(line3, sizeof(line3), "Bluetooth : %s",
-               (strcmp(type, "--") != 0) ? type : "Off");
-    } else if (strcmp(method, "WiFi") == 0 || strcmp(method, "Wi-Fi") == 0) {
-      // WiFi method: joined SSID, else the own-hotspot broadcast id in AP mode.
-      snprintf(line3, sizeof(line3), "Wifi : %s", netName);
-    } else if (isApFallback) {
-      // Own hotspot broadcasting, no controller linked yet (AP ready) — the
-      // Wi-Fi network of the moment IS the car's own hotspot.
-      snprintf(line3, sizeof(line3), "Wifi : %s", netName);
+  // Build row 4 (IP address)
+  char line4[40] = "";
+  if (isIdle) {
+    if (!rotatePhase) {
+      snprintf(line4, sizeof(line4), "BT : SPP");
     } else {
-      snprintf(line3, sizeof(line3), "Link : %s",
-               (strcmp(method, "None") != 0) ? method : "--");
+      const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "192.168.4.1";
+      snprintf(line4, sizeof(line4), "IP : %s", ipText);
     }
-    // LAST line (owner 2026-10-09, revised): the car's CURRENT IP — what the
-    // app shows ("WiFi · <ip>") — via ipBuf (STA lease, else the softAP IP).
+  } else {
+    const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "--";
     snprintf(line4, sizeof(line4), "IP : %s", ipText);
+  }
 
-    u8g2->setFont(fontBody);
-    // Full body width (the bars vacated row 4 for these two lines); only a
-    // genuinely over-long SSID tail gets trimmed, the IP row is short.
-    const int linkTextWide = usableW;
-    for (int i = 0; i < 2; ++i) {
-      char* row = (i == 0) ? line3 : line4;
-      while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
-        row[strlen(row) - 1] = '\0';
-      }
-    }
-    // U-R3 (2026-10-12): blink the last two status rows (network + IP)
-    // to indicate live connectivity. They alternate visibility at ~1 Hz.
-    if (blinkState) {
-      u8g2->drawStr(leftX, lineBaseline[2], line3);
-      u8g2->drawStr(leftX, lineBaseline[3], line4);
+  // Always draw both lines (no blinking)
+  u8g2->setFont(fontBody);
+  const int linkTextWide = usableW;
+  for (int i = 0; i < 2; ++i) {
+    char* row = (i == 0) ? line3 : line4;
+    while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
+      row[strlen(row) - 1] = '\0';
     }
   }
+  u8g2->drawStr(leftX, lineBaseline[2], line3);
+  u8g2->drawStr(leftX, lineBaseline[3], line4);
 
   u8g2->sendBuffer();
 }
