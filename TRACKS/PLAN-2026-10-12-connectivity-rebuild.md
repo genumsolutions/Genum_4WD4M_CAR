@@ -29,16 +29,18 @@ Owner answers to the 4 decisions:
       (NVS `botcfg/ap_psave`, default OFF) so `4WDCar_Wifi` is always reachable; command
       `WIFICFG;APSAVE;ON|OFF`; two new gate rules in `tools/check-webpage-js.mjs` section 8.
       See "Phase 1" below.
-- [ ] **Phase 4 — parallel transports** (`Genum_4WD4M_CAR.ino` U-79 loop + `allow_parallel`
-      NVS key + a command to set it). See "Phase 4" below.
+- [x] **Phase 4 — parallel transports** (DONE, U-100 Phase 4). `Genum_4WD4M_CAR.ino` U-79 loop gained
+      a parallel branch; NVS `botcfg/allow_parallel` read in `loadStoredWifi()` + `allowParallel()`
+      getter; command `WIFICFG;PARALLEL;ON|OFF`. See "Phase 4" below.
 - [ ] **Phase 5 — final sweep** (`FW_VERSION` bump, ledgers, `RESUME-ME.md`).
 
 ## RESUME HERE
-> **Phase 1 car half DONE** (U-100). Firmware + gate green; committed/pushed. The app half of
-> Phase 1 (auto-discovery) already existed (U-80b); its new UI — the Remote-settings toggle that
-> sends `WIFICFG;APSAVE;ON|OFF` — is folded into **Phase 2** (the Remote "Connectivity" rebuild),
-> where the connection settings live. Next action: **Phase 2 car-side work is none** (Phase 2 is
-> app-side); if starting on the car, go to Phase 4. `FW_VERSION` bump waits for Phase 5.
+> **Phase 4 car half DONE** (U-100 Phase 4). Firmware: NVS `botcfg/allow_parallel` (default OFF, read
+> in `loadStoredWifi()`), `WebServerComm::allowParallel()`, command `WIFICFG;PARALLEL;ON|OFF` (rides
+> the single system-command hook, persisted, answered over BT/web), and a parallel branch in the U-79
+> loop that skips both teardown branches and re-raises any transport that is down. Two new
+> `check-webpage-js.mjs` section-8 rules (switch defaults OFF; getter exists). New `bench_u90_u92.py`
+> rows P4-1..P4-3 + a DEVICE-TESTS round. Gates green. Next: **Phase 5** (FW_VERSION bump, ledgers).
 
 ---
 

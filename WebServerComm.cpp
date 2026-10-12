@@ -82,6 +82,8 @@ WebServerComm::WebServerComm()
 //                              the web layer is always-on regardless.
 //   WIFICFG?                   reply WIFICFG;SSID;<stored ssid> (never the password)
 //   WIFICFG;RESET              erase stored credentials → compile-time fallback
+//   WIFICFG;APSAVE;ON|OFF      own-hotspot power-save switch (U-100); bare / `?` reports
+//   WIFICFG;PARALLEL;ON|OFF    parallel BT+WiFi switch (U-100 Phase 4); bare / `?` reports
 bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
   if (!cmd) return false;
   if (strncasecmp(cmd, "WIFICFG", 7) != 0) return false;
@@ -132,6 +134,31 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
                      apPowerSave_ ? "ON" : "OFF");
       snprintf(reply, sizeof(reply), "WIFICFG;APSAVE;%s",
                apPowerSave_ ? "ON" : "OFF");
+    } else {
+      snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
+    }
+  } else if (strncasecmp(rest, ";PARALLEL", 9) == 0) {
+    // U-100 Phase 4 (owner 2026-10-12): "parallel Bluetooth + WiFi with a
+    // power-saving toggle (default OFF)". When the switch is ON, the U-79 loop
+    // never tears ONE transport down because a client is on the OTHER - a phone
+    // can hold Bluetooth and the WiFi/AP link at the same time. OFF (default)
+    // keeps the old power arbitration unchanged. Bare / `?` reports the current
+    // setting; ON/OFF persists to NVS `botcfg/allow_parallel`. The actual
+    // policy change runs on the loop; this only flips the switch and answers.
+    const char* arg = rest + 9;  // "" | ";ON" | ";OFF" | ";?"
+    if (arg[0] == '\0' || (arg[0] == ';' && (arg[1] == '?' || arg[1] == '\0'))) {
+      snprintf(reply, sizeof(reply), "WIFICFG;PARALLEL;%s",
+               allowParallel_ ? "ON" : "OFF");
+    } else if (strcasecmp(arg, ";ON") == 0 || strcasecmp(arg, ";OFF") == 0) {
+      allowParallel_ = (strcasecmp(arg, ";ON") == 0);
+      Preferences prefs;
+      prefs.begin("botcfg", false);
+      prefs.putBool("allow_parallel", allowParallel_);
+      prefs.end();
+      FW_LOG_VERBOSE("[WIFICFG] parallel transports %s\n",
+                     allowParallel_ ? "ON" : "OFF");
+      snprintf(reply, sizeof(reply), "WIFICFG;PARALLEL;%s",
+               allowParallel_ ? "ON" : "OFF");
     } else {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
     }
@@ -200,6 +227,11 @@ void WebServerComm::loadStoredWifi() {
   // U-100: the own-hotspot power-save switch. Absent on a virgin board -> false,
   // so the own hotspot is ALWAYS reachable out of the box (owner 2026-10-12).
   apPowerSave_ = prefs.getBool("ap_psave", false);
+  // U-100 Phase 4: parallel BT+WiFi. Absent on a virgin board -> false (default
+  // OFF): a client on ONE transport still powers the OTHER down (U-79). ON keeps
+  // both transports up and skipping the teardown branches (set via
+  // `WIFICFG;PARALLEL;ON`, persisted as `botcfg/allow_parallel`).
+  allowParallel_ = prefs.getBool("allow_parallel", false);
   prefs.end();
   lastGoodSsid_[ROUTER_SSID_LEN - 1] = '\0';
   lastGoodPass_[ROUTER_PASS_LEN - 1] = '\0';

@@ -306,6 +306,48 @@ async def switch_rows(ip: str, current: str) -> None:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Phase 4 (U-100) — the parallel BT+WiFi switch. Does NOT move the radio: it
+# flips a persisted policy flag and RESTORES the default (OFF) at the end, so
+# the car is left as it was found. Safe to run unattended.
+# --------------------------------------------------------------------------- #
+async def parallel_rows(ip: str) -> None:
+    url = f"ws://{ip}:81{WS_PATH}"
+
+    # Bare query -> the switch's current value. The WIFICFG reply rides the next
+    # STATE as REPLY=... (ModeManager system-command fan-out), so look for the
+    # substring, not a frame prefix.
+    async with Car(url) as car:
+        await car.send("WIFICFG;PARALLEL")
+        got = await car.collect(4.5)
+        rep = [f for f in got if "WIFICFG;PARALLEL;" in f]
+        record(
+            "P4-1  WIFICFG;PARALLEL reports the switch (bare query, one answer)",
+            len(rep) == 1,
+            f"answers={rep}",
+        )
+
+    async with Car(url) as car:
+        await car.send("WIFICFG;PARALLEL;ON")
+        got = await car.collect(4.5)
+        rep = [f for f in got if "WIFICFG;PARALLEL;ON" in f]
+        record(
+            "P4-2  WIFICFG;PARALLEL;ON is accepted and answered ON",
+            len(rep) == 1,
+            f"answers={rep}",
+        )
+
+    async with Car(url) as car:
+        await car.send("WIFICFG;PARALLEL;OFF")
+        got = await car.collect(4.5)
+        rep = [f for f in got if "WIFICFG;PARALLEL;OFF" in f]
+        record(
+            "P4-3  WIFICFG;PARALLEL;OFF restores the default and answers OFF",
+            len(rep) == 1,
+            f"answers={rep}",
+        )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("ip")
@@ -317,6 +359,7 @@ def main() -> int:
           f"ip={st.get('ip')} fw-caps={st.get('caps')}\n")
 
     asyncio.run(safe_rows(args.ip))
+    asyncio.run(parallel_rows(args.ip))
     if args.switch:
         asyncio.run(switch_rows(args.ip, st.get("ssid", "")))
 

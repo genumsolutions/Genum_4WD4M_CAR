@@ -397,6 +397,11 @@ void loop() {
   // never be yanked out from under the user.
   // CRITICAL: Use portMUX ONLY for atomic state reads/writes, NOT for
   // transport operations which can block for hundreds of milliseconds.
+  // U-100 Phase 4: with `WIFICFG;PARALLEL;ON` (NVS `allow_parallel`) the
+  // teardown branches are skipped entirely - a client on one transport never
+  // powers the OTHER down, and a transport that is still down is brought back
+  // with the same idempotent starts the idle path uses. Both transports stay
+  // up, so Bluetooth and WiFi are connected at the same time.
   bool btClient, webClient, relayClient, wiredClient;
   {
     TRANSPORT_POWER_ENTER_CRITICAL();
@@ -407,7 +412,26 @@ void loop() {
     TRANSPORT_POWER_EXIT_CRITICAL();
   }
 
-  if (btClient && !wiredClient) {
+  if (webServerComm.allowParallel()) {
+    bool shouldStartBt = false, shouldStartWeb = false;
+    {
+      TRANSPORT_POWER_ENTER_CRITICAL();
+      shouldStartBt = !btUp;
+      shouldStartWeb = !webUp;
+      if (shouldStartBt) btUp = true;
+      if (shouldStartWeb) webUp = true;
+      TRANSPORT_POWER_EXIT_CRITICAL();
+    }
+    if (shouldStartBt) {
+      btComm.begin();  // idempotent; true = advertising again
+      Serial.println("[POWER] Bluetooth advertising (parallel)");
+    }
+    if (shouldStartWeb) {
+      webServerComm.beginAlwaysOn();
+      webServerComm.armBootAutoJoin();  // own hotspot stays up
+      Serial.println("[POWER] Wi-Fi up (parallel)");
+    }
+  } else if (btClient && !wiredClient) {
     bool shouldStopWeb = false;
     {
       TRANSPORT_POWER_ENTER_CRITICAL();

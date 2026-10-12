@@ -10,6 +10,40 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.0 (U-100 Phase 4, 2026-10-12): parallel Bluetooth + WiFi, power-saving toggle (default OFF)
+
+**UNFLASHED (F-61).** Part of the multi-repo "connectivity rebuild" (phased; plan
+`TRACKS/PLAN-2026-10-12-connectivity-rebuild.md`). Owner request #6: parallel Bluetooth + WiFi with a
+power-saving toggle, **default OFF**.
+
+**Behaviour.** The U-79 loop ran a one-radio power policy: a client on one transport powered the
+OTHER down (a phone over Bluetooth dropped the WiFi/AP link, and vice versa) to save power. With the
+new switch ON, the two teardown branches are skipped entirely — a Bluetooth client no longer stops
+the web layer and a wired client no longer stops Bluetooth, so **both links stay connected at the
+same time**; a transport that is still down is brought back with the same idempotent starts the idle
+path already uses (`btComm.begin()` / `beginAlwaysOn()` + `armBootAutoJoin()`). OFF (default) is the
+old arbitration, byte-for-byte unchanged.
+
+**SWITCH — `WIFICFG;PARALLEL;ON|OFF` (bare / `?` reports).** Handled in
+`handleWifiConfigCommand()`, persisted to NVS `botcfg/allow_parallel`, answered as
+`WIFICFG;PARALLEL;ON|OFF` over the existing WIFICFG reply channel (BT or web) — it rides the SAME
+single system-command hook as ROUTERS/WIFICFG/APSAVE/RELAYCFG. Read at boot in `loadStoredWifi()`
+next to `ap_psave`. The U-79 loop reads it every pass through `WebServerComm::allowParallel()`.
+
+**NVS / fresh install.** `botcfg/allow_parallel`, absent on a virgin board → `false`. Like
+mode/speed prefs it is a user connection preference, so — unlike the router surface — it is
+deliberately NOT in `wipeRoutersOnFreshFirmware()`'s erase set.
+
+**Gates.** `tools/check-webpage-js.mjs` section 8 gained two rules (the switch must default OFF in
+`loadStoredWifi()`, and `allowParallel()` must exist in `WebServerComm.h`). The U-79 loop shape
+itself is not asserted by any gate (nothing reads the `.ino` loop), so no `mutate-gates.mjs` mutant
+was added — same as the U-100 `ap_psave` rules. New bench rows P4-1..P4-3 in
+`tools/bench_u90_u92.py` (reversible; restore the default) and the DEVICE-TESTS round
+"own hotspot always reachable + parallel BT+WiFi".
+
+**VERIFY — source only.** `tools/check-firmware-syntax.ps1` 10/10 · `check-relay-contract.mjs` PASS
+· `check-webpage-js.mjs` PASS · `mutate-gates.mjs` PASS. Nothing flashed; F-61 stands.
+
 ## UNRELEASED — 1.3.0 (U-100, 2026-10-12): the own hotspot is ALWAYS reachable — parking is now opt-in (default OFF)
 
 **UNFLASHED (F-61).** Owner report, verbatim: *"the car now goes into one of the other router and

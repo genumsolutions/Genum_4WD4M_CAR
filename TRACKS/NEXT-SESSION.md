@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-11, third round: U-98 — fresh-flash router wipe + boot returns to the last-switched router + OLED pronto tick; committed + UNFLASHED, source-only)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, connectivity rebuild: U-100 always-reachable hotspot + U-100 Phase 4 parallel BT+WiFi; committed + UNFLASHED, source-only)
 
 ## READ THIS FIRST — WHICH REPO IS THE CAR
 
@@ -16,6 +16,22 @@ Owner report (2026-10-10): *"the car repo says no recent commits but which is no
 via the GitHub API: `Genum_4WD4M_CAR` HEAD on `main` == local HEAD == `c5b8b9d`, all eight
 repos under `genumsolutions` are in sync with their remotes, and no clone in the workspace has
 unpushed commits. The report was the stale old repo, not lost work.
+
+## This session (2026-10-12, third round) — U-100 Phase 4: parallel Bluetooth + WiFi (power-saving toggle, default OFF)
+
+Part of the multi-repo "connectivity rebuild" (phased; see
+`TRACKS/PLAN-2026-10-12-connectivity-rebuild.md`). Source-only, **UNFLASHED (F-61)**.
+
+- **Owner request #6.** Parallel Bluetooth + WiFi with a power-saving toggle, default OFF.
+- **Fix.** The U-79 loop's two teardown branches (a BT client stops WiFi; a wired client stops BT)
+  are now skipped when the switch is ON — both links stay up at once, and a transport that is still
+  down is re-raised with the idle path's idempotent starts. OFF (default) is unchanged.
+- **Switch.** `WIFICFG;PARALLEL;ON|OFF` (bare/`?` reports), NVS `botcfg/allow_parallel`, read in
+  `loadStoredWifi()`; exposed to the loop via `WebServerComm::allowParallel()`. Rides the single
+  system-command hook (BT or web). Not in the fresh-install wipe (a user preference, not router data).
+- **Gates.** syntax 10/10 · relay-contract PASS · webpage-js PASS (two new section-8 rules) ·
+  mutate-gates PASS. New `bench_u90_u92.py` rows P4-1..P4-3 + a DEVICE-TESTS round.
+- **Next.** Phase 5 (FW_VERSION bump, ledgers).
 
 ## This session (2026-10-12, second round) — U-100: the own hotspot is ALWAYS reachable (parking is opt-in, default OFF)
 

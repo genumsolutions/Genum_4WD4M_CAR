@@ -3,6 +3,37 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## Connectivity-rebuild round — own hotspot always reachable + parallel BT+WiFi (2026-10-12, firmware 1.3.0 — DEVICE VERIFY PENDING)
+
+> App half of this round (the Remote "Connectivity" panel, the OLED-mirror removal, the two
+> toggles) is the `genumsolutions-app` rebuild; these are the CAR-side rows. Flash 1.3.0 first.
+> The `WIFICFG;APSAVE` / `WIFICFG;PARALLEL` rows can also be driven unattended:
+> `python tools/bench_u90_u92.py <car-ip>` runs P4-1..P4-3 (default) plus P4-4 with `--switch`.
+
+- [ ] **U-100-1 — the own hotspot is ALWAYS reachable (parking is opt-in).** Put the car on a
+      router (drive it from there). From a phone that is NOT on the router, scan: `4WDCar_Wifi` is
+      present and joinable, and `http://192.168.245.1/` loads. Pre-fix the beacon parked ~20 s after
+      the router-side client connected. Confirm serial has no `[POWER]` park line while the switch is
+      OFF. This is the owner's *"keep the car's own hotspot always reachable"* property.
+- [ ] **U-100-2 — `WIFICFG;APSAVE;ON` restores the U-86 power-save.** Send `WIFICFG;APSAVE;ON`
+      (app toggle or raw). The reply is `WIFICFG;APSAVE;ON`. With a router-side client connected,
+      ~20 s later the beacon parks (`WiFi.softAPdisconnect`); when that client leaves, the beacon
+      comes straight back. `WIFICFG;APSAVE;OFF` returns to row 1. Power-cycle: the setting persists.
+- [ ] **P4-1 — default OFF keeps the U-79 power arbitration.** With both switches at default
+      (parallel OFF), connect over **Bluetooth**: the WiFi/AP link powers down (`[POWER] Wi-Fi off -
+      Bluetooth client active`). Disconnect; after the grace period both come back. This is the
+      pre-Phase-4 behaviour, unchanged.
+- [ ] **P4-2 — `WIFICFG;PARALLEL;ON` keeps BOTH links up.** Send `WIFICFG;PARALLEL;ON` (reply
+      `WIFICFG;PARALLEL;ON`). Connect over Bluetooth **and** open the WS page at the same time: both
+      stay live — no `[POWER] ... off` line, STATE frames keep arriving on both, and a drive command
+      from either link moves the car. Pre-fix one link would drop the other.
+- [ ] **P4-3 — the parallel flag persists across a power cycle.** With parallel ON, power-cycle
+      (no re-flash). Serial shows `[WIFICFG] parallel transports ON`; a bare `WIFICFG;PARALLEL`
+      reports `ON`. `WIFICFG;PARALLEL;OFF` reports OFF and returns to row P4-1 behaviour.
+- [ ] **P4-4 — the switch survives a drive session.** Toggle parallel ON mid-session while driving
+      over WiFi; the car does not drop the Wi-Fi link when a Bluetooth client then attaches. Toggle
+      OFF: the next Bluetooth client powers Wi-Fi down as before.
+
 ## U-98 round — a flash starts clean, a boot returns to the last-switched router (2026-10-11, firmware 1.3.0 — DEVICE VERIFY PENDING)
 
 > Owner: *"clear all the other saved router datas and only have its own data each time i flash the

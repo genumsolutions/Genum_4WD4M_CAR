@@ -826,6 +826,26 @@ if (!/getBool\(\s*"ap_psave"\s*,\s*false\s*\)/.test(fw)) {
   );
   bad++;
 }
+// U-100 Phase 4: parallel Bluetooth + WiFi must ALSO ship OFF by default, and
+// the switch must reach the loop through allowParallel() — the U-79
+// arbitration reads it every pass, so a missing getter would silently make
+// `WIFICFG;PARALLEL;ON` a no-op (a toggle that answers but does nothing).
+if (!/getBool\(\s*"allow_parallel"\s*,\s*false\s*\)/.test(fw)) {
+  console.error(
+    "FAIL: the parallel-transports switch does not default to OFF in " +
+      "loadStoredWifi() — a fresh car would run both transports at once with " +
+      "no way to turn it back off (U-100 Phase 4)",
+  );
+  bad++;
+}
+if (!/\bbool\s+allowParallel\s*\(\s*\)\s*const/.test(hdr)) {
+  console.error(
+    "FAIL: allowParallel() is missing from WebServerComm.h — the U-79 loop " +
+      "cannot read the parallel switch, so `WIFICFG;PARALLEL;ON` answers but " +
+      "never changes the transport policy (U-100 Phase 4)",
+  );
+  bad++;
+}
 if (!bad) {
   console.log(
     "PASS: the beacon can only be parked while the car is reachable on a " +

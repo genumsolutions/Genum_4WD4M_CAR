@@ -191,6 +191,11 @@ public:
   // the .cpp, which says so 55 lines below this header). ESP_SER was removed
   // from the mode registry entirely in U-79; there is no mode to switch to.
   bool handleWifiConfigCommand(const char* cmd);
+  // U-100 Phase 4: parallel Bluetooth + WiFi. The U-79 loop reads this every
+  // pass: ON means a client on one transport never powers the OTHER down (and
+  // a transport that is still down is brought back), OFF keeps the old
+  // arbitration. NVS `botcfg/allow_parallel`, set via `WIFICFG;PARALLEL;ON|OFF`.
+  bool allowParallel() const { return allowParallel_; }
   // T-48 (round-5): saved-router registry commands — ROUTERS;LIST /
   // ROUTERS;ADD;<ssid>;<pass> / ROUTERS;USE;<ssid> / ROUTERS;DEL;<ssid>.
   // True when the line was a ROUTERS command (consumed). USE stores the pair
@@ -346,6 +351,12 @@ public:
   // parking (beacon dropped AP_PARK_GRACE_MS after a router-side client connects).
   // Live-settable via `WIFICFG;APSAVE;ON|OFF`, persisted in NVS `botcfg/ap_psave`.
   bool apPowerSave_;
+  // U-100 Phase 4 (owner 2026-10-12): parallel transports. Default OFF - the
+  // U-79 power arbitration stands (one client on one transport powers the other
+  // down). ON (via `WIFICFG;PARALLEL;ON`, NVS `botcfg/allow_parallel`) keeps BOTH
+  // transports up and skips the teardown branches, so Bluetooth and WiFi stay
+  // connected at the same time. Read every loop by Genum_4WD4M_CAR.ino.
+  bool allowParallel_;
   uint32_t lastHttpAtMs_ = 0;   // last HTTP handler that ran (0 = never)
 void advanceRejoinStep();
   uint8_t rejoinStep_;
