@@ -341,12 +341,12 @@ if (outsiders.length) fail("token-secret", `relay_token is reachable from: ${out
 else pass("token-secret", "relay_token is confined to RelayComm");
 
 // ---- 6. the caps and the ids must agree across the wire ---------------
-// 128 in, 448 out - the numbers the relay uses. If either side's notion of them
+// 128 in, 512 out - the numbers the relay uses. If either side's notion of them
 // changes, this gate is where it should be noticed.
 const outCap = cfg.match(/RELAY_MAX_OUT_BYTES\s*=\s*(\d+)/);
 if (!outCap) fail("caps", "Config.h does not define RELAY_MAX_OUT_BYTES");
-else if (outCap[1] !== "448") fail("caps", `RELAY_MAX_OUT_BYTES is ${outCap[1]}, the relay admits 448`);
-else pass("caps", "outbound cap 448 = the car's STATE buffer");
+else if (outCap[1] !== "512") fail("caps", `RELAY_MAX_OUT_BYTES is ${outCap[1]}, the relay admits 512`);
+else pass("caps", "outbound cap 512 = the car's STATE buffer");
 
 const cmdBuf = raw("WebServerComm.h").match(/#define\s+CMD_BUF_LEN\s+(\d+)/);
 const kLine = relayH.match(/kLineLen\s*=\s*(\d+)/);

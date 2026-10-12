@@ -20,7 +20,7 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.1"  // see TRACKS/CHANGELOG.md
+#define FW_VERSION "1.3.2"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 
 // U-79: Transport power arbitration mutex - declared extern so it can be
@@ -119,12 +119,15 @@ constexpr uint32_t STATE_INTERVAL_MS = 1500u;
 #define RELAY_PORT 443
 #define RELAY_PATH "/functions/v1/car-relay"
 
-// The relay's cap on what the CAR may send (maxBytesCarToController). It is 448
-// because that is the size of the car's own STATE buffer; the phone direction is
-// capped at 128 because that is handleCommand's buffer. The two directions are
-// NOT the same number, and treating them as one number is what made every STATE
-// line get dropped as "oversized" in U-94 Phase 1.
-constexpr uint16_t RELAY_MAX_OUT_BYTES = 448;
+// The relay's cap on what the CAR may send (maxBytesCarToController). It is 512
+// because that is the size of the car's own STATE buffer (the capacity the car
+// builds a worst-case STATE+REPLY into, 1.3.2+ — see ModeManager::sendStateOn);
+// the phone direction is capped at 128 because that is handleCommand's buffer.
+// The two directions are NOT the same number, and treating them as one number
+// is what made every STATE line get dropped as "oversized" in U-94 Phase 1.
+// U-R3 (1.3.2): grew 448 -> 512 when the STATE line added the restart record
+// keys (RST/BC/CC/PH/LH) — a >448-char STATE was being dropped whole by the relay.
+constexpr uint16_t RELAY_MAX_OUT_BYTES = 512;
 
 // ===== Switch pin and debounce =====
 constexpr int SWITCH_PIN = 33;

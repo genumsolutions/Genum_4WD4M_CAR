@@ -7,6 +7,7 @@
 #include "ModeManager.h"
 #include "WebServerComm.h"
 #include "ParamsStore.h"
+#include "CrashLog.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <string.h>
@@ -528,6 +529,9 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // U-102: grew again (448 -> 512) for the new telemetry keys (UP/HEAP/SIG/RSSI,
   // see the append below) — the previous worst case (~438 B) plus ~30 B would
   // have truncated the STATUS/wifi tail on a full REPLY.
+  // U-R3 (1.3.2): + the restart record (RST/BC/CC/PH/LH below, up to ~56 B) so a
+  // Bluetooth-only controller finally sees WHY the car reset — the same fields
+  // /status has carried since U-95. wifiKeys grew 224 -> 288 to hold it.
   char buf[512];
   // R-12: in webserver mode, STATE also carries the configured SSID (never
   // the password) and the AP fallback broadcast id so the hand-held remote's
@@ -537,7 +541,7 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // the app deck show where to point a browser / WS even over pure WiFi.
   // Connections-Hub: plus the stable board id (`;ID=`), the fw:<id> profile
   // key source for WiFi-only cars (STATE:000000..FFFFFF hex).
-  char wifiKeys[224] = "";
+  char wifiKeys[288] = "";
   // v2: WiFi truth (SSID / AP id / reachable IP) rides EVERY STATE line in
   // EVERY mode — the web layer is always-on and no longer SERVER-scoped.
   // (instanceForWs may be null pre-setup(); guarded.)
@@ -572,8 +576,16 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // line. UP=/HEAP= are always present and meaningful; SIG=/RSSI= are STA truth
   // only (mirror of buildStatusJson: on the car's own AP there is no client
   // signal, so the app keeps those rows dashed). App half: carProtocol.ts.
+  // U-R3 (1.3.2): + the persisted restart record — ;RST=<reason>;BC=<boots>;
+  // CC=<crashes>;PH=<phase at that boot>;LH=<heap at that boot>. Same fields,
+  // same meaning as the JSON's reset_reason/boot_count/crash_count/
+  // last_crash_phase/last_crash_heap, so a car VIA BLUETOOTH reports WHY it
+  // reset without this phone ever seeing the WS page. The phase strings are
+  // firmware string LITERALS (crashLogPhase() call sites), never anything a
+  // phone sent — mirrors the JSON escaping note in buildStatusJson.
   {
-    char tKeys[96] = "";
+    const CrashInfo& ci = crashLogInfo();
+    char tKeys[176] = "";
     snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";UP=%lu",
              static_cast<unsigned long>(millis()));
     snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";HEAP=%u",
@@ -584,6 +596,14 @@ void ModeManager::sendStateOn(CommInterface& comm) {
       snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";SIG=%d", pct);
       snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";RSSI=%d", rssi);
     }
+    snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";RST=%s", ci.label);
+    snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";BC=%lu",
+             static_cast<unsigned long>(ci.bootCount));
+    snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";CC=%lu",
+             static_cast<unsigned long>(ci.crashCount));
+    if (ci.phase[0]) snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";PH=%s", ci.phase);
+    snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";LH=%lu",
+             static_cast<unsigned long>(ci.heapAtBoot));
     strncat(wifiKeys, tKeys, sizeof(wifiKeys) - strlen(wifiKeys) - 1);
   }
   // v1.4.0: a queued provisioning reply (WIFICFG;STORED;… etc.) rides the

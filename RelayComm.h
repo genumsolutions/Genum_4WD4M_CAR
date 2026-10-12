@@ -71,11 +71,11 @@ public:
   static constexpr size_t kLineLen = 128;
 
   // The outbound queue holds WHOLE frames, and a frame can be a full STATE
-  // line, which the relay admits up to RELAY_MAX_OUT_BYTES (448). The .cpp
-  // static_asserts this equals RELAY_MAX_OUT_BYTES rather than trusting the
-  // number here, so the two cannot drift.
+  // line, which the relay admits up to RELAY_MAX_OUT_BYTES (512, 1.3.2+). The
+  // .cpp static_asserts this equals RELAY_MAX_OUT_BYTES rather than trusting
+  // the number here, so the two cannot drift.
   static constexpr size_t kOutQueueLen = 8;
-  static constexpr size_t kOutLineLen = 448;
+  static constexpr size_t kOutLineLen = 512;
 
   /** The relay's control plane: NUL + "relay". A NUL byte cannot start a car
    *  line (handleCommand reads a C string), so a control frame and a car line

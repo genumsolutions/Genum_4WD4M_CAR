@@ -10,6 +10,30 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.2 (U-R3, 2026-10-12): the restart record rides the Bluetooth STATE line
+
+**UNFLASHED (F-61).** Since U-95 only `/status` carried WHY the car reset
+(`reset_reason` / `boot_count` / `crash_count` / `last_crash_phase` /
+`last_crash_heap`) — a Bluetooth-only link never saw it, so the app's crash-report
+sync and the Diagnostics restart row stayed empty over SPP. The STATE line now
+carries the same record on **every** broadcast, both links:
+
+- `;RST=<reason>` — the persisted reset-reason label (`ci.label`, e.g. `TASK_WDT`).
+- `;BC=<boot count>` and `;CC=<crash count>` — the persisted counters.
+- `;PH=<phase>` (only when set) and `;LH=<heap at boot>` — the recorded boot phase
+  and boot-time heap, matching the JSON `last_crash_phase` / `last_crash_heap`.
+- Phase strings are firmware string LITERALS (`crashLogPhase()` call sites), never
+  anything a phone sent — same rule as `buildStatusJson`.
+- STATE builder `wifiKeys` grew 224 → 288 (`tKeys` 96 → 176) to hold the record.
+- **Relay byte budget grew 448 → 512** to match: a STATE carrying the record plus a
+  full `REPLY=` exceeded 448, and the relay drops anything over its cap — the exact
+  silent-drop class U-94 Phase 1 shipped with. `RELAY_MAX_OUT_BYTES` / `kOutLineLen`
+  / the static_asserts / `check-relay-contract.mjs` / the website relay's
+  `maxBytesCarToController` changed together.
+- App half: `carProtocol.ts` STATE parsing (RST/BC/CC/PH/LH) + crash-report sync now
+  fires over Bluetooth; `AdminScreen` gained a "System Logs" tab reading both
+  `device_crash_reports` and the new `app_logs` table.
+
 ## UNRELEASED — 1.3.1 (U-102, 2026-10-12): live uptime/heap/signal telemetry on the Bluetooth STATE line
 
 **UNFLASHED (F-61).** The Remote's top status line reads `uptime_ms` / `free_heap` /

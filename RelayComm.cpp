@@ -102,8 +102,9 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 // If the firmware's STATE buffer ever shrinks below this, the relay will
 // happily forward frames the car then truncates mid-field - the exact class of
 // bug U-94 Phase 1 shipped with. Asserted against CMD_BUF_LEN by the gate.
-static_assert(RELAY_MAX_OUT_BYTES >= 448,
-              "relay admits 448 bytes from the car; STATE is built into 448");
+// U-R3 (1.3.2): 448 -> 512 to match the grown STATE line (restart record keys).
+static_assert(RELAY_MAX_OUT_BYTES >= 512,
+              "relay admits 512 bytes from the car; STATE is built into 512");
 
 // The two numbers that must agree across the wire, asserted here so they cannot
 // drift in this repo: the relay admits 128 bytes controller->car, and
@@ -115,7 +116,7 @@ static_assert(RelayComm::kLineLen == CMD_BUF_LEN,
               "relay's inbound cap (128) is CMD_BUF_LEN; if this changes, change the relay too");
 
 // The outbound queue holds whole frames, and a whole frame is exactly what the
-// relay admits from the car. One number, asserted, rather than two 448s that
+// relay admits from the car. One number, asserted, rather than two 512s that
 // can drift (the same reasoning as the static_assert above).
 static_assert(RelayComm::kOutLineLen == RELAY_MAX_OUT_BYTES,
               "the outbound queue's line size must equal the relay's car->controller cap");
