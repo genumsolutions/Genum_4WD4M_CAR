@@ -1,4 +1,19 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, connectivity rebuild: U-100 always-reachable hotspot + U-100 Phase 4 parallel BT+WiFi; committed + UNFLASHED, source-only)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, connectivity rebuild COMPLETE: U-100 always-reachable hotspot + Phase 4 parallel BT+WiFi; all phases done, committed + UNFLASHED, source-only — ready for the owner's 1.3.0 flash + device test run)
+
+## Connectivity-rebuild 2026-10-12 — ALL PHASES DONE (car half); one 1.3.0 flash owed
+
+The multi-repo "connectivity rebuild" (`TRACKS/PLAN-2026-10-12-connectivity-rebuild.md`) is finished
+on the car side. Phases 1+4 ship as ONE **1.3.0** batch (never flashed — the bench car is on 1.0.5):
+
+- **Phase 1 (U-100)** — the own hotspot is **always reachable**; parking is opt-in via NVS
+  `botcfg/ap_psave` (default OFF) + `WIFICFG;APSAVE;ON|OFF`.
+- **Phase 4 (U-100 Phase 4)** — **parallel Bluetooth + WiFi**; NVS `botcfg/allow_parallel` (default
+  OFF) + `WIFICFG;PARALLEL;ON|OFF`; the U-79 loop keeps both links up when ON.
+
+`FW_VERSION` stays **1.3.0** (bumped in Phase 1; a second bump would name a binary never built).
+Gates green: syntax 10/10 · relay-contract PASS · webpage-js PASS · mutate-gates PASS.
+**Owner action:** flash `main` **1.3.0** (USB, 115200, `huge_app`) → `tools/bench_u90_u92.py <ip>`
+(U-92/U-90 rows + P4-1..3) → `TRACKS/DEVICE-TESTS.md`. **F-61**: nothing here is device-verified yet.
 
 ## READ THIS FIRST — WHICH REPO IS THE CAR
 
@@ -31,7 +46,7 @@ Part of the multi-repo "connectivity rebuild" (phased; see
   system-command hook (BT or web). Not in the fresh-install wipe (a user preference, not router data).
 - **Gates.** syntax 10/10 · relay-contract PASS · webpage-js PASS (two new section-8 rules) ·
   mutate-gates PASS. New `bench_u90_u92.py` rows P4-1..P4-3 + a DEVICE-TESTS round.
-- **Next.** Phase 5 (FW_VERSION bump, ledgers).
+- **Next.** Phase 5 (ledgers + root `RESUME-ME.md`) — **DONE**; see the top block.
 
 ## This session (2026-10-12, second round) — U-100: the own hotspot is ALWAYS reachable (parking is opt-in, default OFF)
 

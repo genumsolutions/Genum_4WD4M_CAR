@@ -32,15 +32,20 @@ Owner answers to the 4 decisions:
 - [x] **Phase 4 — parallel transports** (DONE, U-100 Phase 4). `Genum_4WD4M_CAR.ino` U-79 loop gained
       a parallel branch; NVS `botcfg/allow_parallel` read in `loadStoredWifi()` + `allowParallel()`
       getter; command `WIFICFG;PARALLEL;ON|OFF`. See "Phase 4" below.
-- [ ] **Phase 5 — final sweep** (`FW_VERSION` bump, ledgers, `RESUME-ME.md`).
+- [x] **Phase 5 — final sweep** (DONE). `FW_VERSION` stays **1.3.0**: it was bumped in Phase 1 and
+      Phases 1+4 are one unflashed batch (the car CHANGELOG documents Phase 4 under 1.3.0), so a
+      second bump would advertise a binary that was never built. Ledgers (`CHANGELOG.md`,
+      `NEXT-SESSION.md`) + `DEVICE-TESTS.md` finalised; root `RESUME-ME.md` points the owner at the
+      one flash + test run.
 
 ## RESUME HERE
-> **Phase 4 car half DONE** (U-100 Phase 4). Firmware: NVS `botcfg/allow_parallel` (default OFF, read
-> in `loadStoredWifi()`), `WebServerComm::allowParallel()`, command `WIFICFG;PARALLEL;ON|OFF` (rides
-> the single system-command hook, persisted, answered over BT/web), and a parallel branch in the U-79
-> loop that skips both teardown branches and re-raises any transport that is down. Two new
-> `check-webpage-js.mjs` section-8 rules (switch defaults OFF; getter exists). New `bench_u90_u92.py`
-> rows P4-1..P4-3 + a DEVICE-TESTS round. Gates green. Next: **Phase 5** (FW_VERSION bump, ledgers).
+> **ALL PHASES DONE (car half).** Source-only, **UNFLASHED (F-61)**. Phases 1+4 are one **1.3.0**
+> batch: U-100 always-reachable own hotspot (`ap_psave`, parking opt-in default OFF,
+> `WIFICFG;APSAVE;ON|OFF`) + U-100 Phase 4 parallel transports (`botcfg/allow_parallel` default OFF,
+> `WIFICFG;PARALLEL;ON|OFF`, U-79 loop parallel branch, `WebServerComm::allowParallel()`). Gates green:
+> syntax 10/10 · relay-contract PASS · webpage-js PASS · mutate-gates PASS. **Owner action:** flash
+> `main` **1.3.0** (USB, 115200, `huge_app`) → `tools/bench_u90_u92.py <ip>` (U-92/U-90 rows + P4-1..3)
+> → run `TRACKS/DEVICE-TESTS.md`. Nothing is device-verified until then.
 
 ---
 
