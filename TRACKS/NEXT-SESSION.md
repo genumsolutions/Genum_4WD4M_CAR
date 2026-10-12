@@ -1,4 +1,24 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, connectivity rebuild COMPLETE: U-100 always-reachable hotspot + Phase 4 parallel BT+WiFi; all phases done, committed + UNFLASHED, source-only — ready for the owner's 1.3.0 flash + device test run)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, U-R3: restart record on the Bluetooth STATE line + relay byte budget 448→512; committed + UNFLASHED)
+
+## U-R3 2026-10-12 — the restart record over Bluetooth (1.3.2, UNFLASHED)
+
+Owner directive (car restarts/freezes + no readable error/log medium): make the car's restart truth
+reachable over **Bluetooth** as well as Wi-Fi, and stop the relay silently dropping the longest STATE.
+
+- **`ModeManager.cpp` `sendStateOn()`** now appends the persisted restart record to **every** STATE
+  line (both links): `;RST=<reason>;BC=<boot count>;CC=<crash count>;PH=<phase-at-boot>;LH=<heap-at-boot>`
+  from `crashLogInfo()` (`#include "CrashLog.h"` added). `wifiKeys` 224→288, `tKeys` 96→176.
+  Phase strings are firmware literals (same rule as `buildStatusJson`).
+- **Relay byte budget 448→512** — a STATE with the record + a full `REPLY=` exceeds 448, and the relay
+  drops anything over its cap (the U-94 Phase 1 silent-drop class). Changed together:
+  `Config.h::RELAY_MAX_OUT_BYTES`, `RelayComm.h::kOutLineLen`, both `RelayComm.cpp` static_asserts,
+  `tools/check-relay-contract.mjs` (pin `512`), and the website relay's `maxBytesCarToController`.
+- `FW_VERSION` 1.3.1→1.3.2; `TRACKS/CHANGELOG.md` entry added.
+- **Gates green:** syntax 10/10 · relay-contract PASS (`outbound cap 512`) · webpage-js PASS.
+- **Owner action:** flash **1.3.2** (USB, 115200, `huge_app`) — along with the owed **1.3.1**. Then
+  connect over Bluetooth and confirm the Diagnostics restart row + `device_crash_reports` sync.
+- App half: `carProtocol.ts` STATE parsing (`RST`/`BC`/`CC`/`PH`/`LH`) + the Admin "System Logs" tab
+  reading `device_crash_reports` + the new `app_logs` table.
 
 ## Connectivity-rebuild 2026-10-12 — ALL PHASES DONE (car half); one 1.3.0 flash owed
 
