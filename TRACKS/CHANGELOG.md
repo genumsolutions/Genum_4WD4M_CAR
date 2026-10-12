@@ -10,6 +10,20 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.1 (U-102, 2026-10-12): live uptime/heap/signal telemetry on the Bluetooth STATE line
+
+**UNFLASHED (F-61).** The Remote's top status line reads `uptime_ms` / `free_heap` /
+`rssi` / `signal` from the WS JSON — but a Bluetooth-only link never sees that
+JSON, so over SPP those rows were structurally `—` (the app had no wire to read).
+The STATE line now carries the same truth:
+
+- `;UP=<millis>` and `;HEAP=<free heap bytes>` on **every** STATE line (both links).
+- `;SIG=<0..100>` and `;RSSI=<dBm>` **only while the car is a WiFi station**
+  (`WiFi.status() == WL_CONNECTED`, mirroring `buildStatusJson`'s pct/rssi) — on the
+  car's own AP there is no client signal, so those rows stay dashed honestly.
+- STATE builder buffer grew 448 → 512 (the old worst case was already ~438 B with a
+  full `REPLY=`); app half is `carProtocol.ts` STATE parsing (UP/UPTIME/HEAP/SIG/SIGNAL/RSSI).
+
 ## UNRELEASED — 1.3.0 (U-100 Phase 4, 2026-10-12): parallel Bluetooth + WiFi, power-saving toggle (default OFF)
 
 **UNFLASHED (F-61).** Part of the multi-repo "connectivity rebuild" (phased; plan
