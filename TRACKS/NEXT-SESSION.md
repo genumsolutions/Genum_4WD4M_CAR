@@ -18,6 +18,22 @@ at once on the app AND the car. The U-79 loop already keeps both transports up u
 **App counterpart:** the parallel display round is app `08f0351` (connection strip, inventories,
 `BT · name + WiFi · ip` labels) in the genumsolutions-app repo — same owner ask, one round.
 
+## M3-fix 2026-10-13 — version label made coherent (`FW_VERSION` 1.3.2 → 1.3.3) + CI re-run
+
+Owner reported an error on the M3 commits. Two findings, both resolved:
+
+1. **CI red was a flake, not code.** Run `38357096202` (docs commit `51c229b`) failed at
+   `arduino/compile-sketches` while DOWNLOADING the arduino-cli
+   (`urllib... RemoteDisconnected`), before compiling anything — the identical source had
+   compiled green on `d1e33bc` minutes earlier. Re-ran the failed job: compile `4m25s` PASS,
+   page-js PASS, relay-contract PASS. No code change.
+2. **`FW_VERSION` never bumped.** `d1e33bc`/`51c229b` labelled this round **1.3.3** and the
+   owner's flash target is 1.3.3, but `Config.h` still reported `"1.3.2"` and there was no
+   1.3.3 changelog entry — the binary the owner flashes would have named itself 1.3.2 on
+   STATE, `/status` and `device_crash_reports.fw_version`, undoing U-R4 crash-phase
+   disambiguation. Fixed: `Config.h` `FW_VERSION` → `"1.3.3"`; `TRACKS/CHANGELOG.md` 1.3.3
+   entry; `Readme.md` + `CATALOG.md` version rows updated.
+
 ## U-R3 2026-10-12 — connectivity rebuild + restart record (1.3.2, UNFLASHED)
 
 Owner directive: car restart/freeze truth over Bluetooth, stop relay dropping long STATE, plus connectivity rebuild — ap_psave/allow_parallel reported on STATE and /status, OLED blinks last two rows.

@@ -20,7 +20,7 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.2"  // see TRACKS/CHANGELOG.md
+#define FW_VERSION "1.3.3"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 
 // U-79: Transport power arbitration mutex - declared extern so it can be

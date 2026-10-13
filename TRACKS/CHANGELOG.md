@@ -10,6 +10,22 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.3 (M3, 2026-10-13): `currentLink()` + OLED name BOTH live links under parallel
+
+**UNFLASHED (F-61).** With `WIFICFG;PARALLEL;ON` the U-79 loop keeps BT+WiFi up
+at once, but `currentLink()` still named only ONE transport (the web client
+outranked the Bluetooth pair) and the OLED line 3 collapsed into the generic
+`Wifi : <ssid>` row — the same "panel lies when a second transport is live"
+defect the owner re-reported on the second connectivity review.
+
+- `ModeManager::currentLink()` — NEW **first** branch: `allowParallel() &&
+  wsClients && btUp` returns `{Parallel, BT+WiFi, true}`, outranking the
+  single-transport returns because under parallel *both* are really the live link.
+- `Oled_1_3::redrawNow()` — line 3 gains the matching `Parallel : BT+WiFi` row
+  instead of falling into the `Wifi` else-branch.
+- `FW_VERSION` `1.3.2 → 1.3.3` (the target for the owner's U-R4 flash; the app
+  half of this round ships as same-version 3.2.7 OTA).
+
 ## UNRELEASED — 1.3.2 (U-R3, 2026-10-12): the restart record rides the Bluetooth STATE line
 
 **UNFLASHED (F-61).** Since U-95 only `/status` carried WHY the car reset
