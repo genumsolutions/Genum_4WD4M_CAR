@@ -2156,6 +2156,16 @@ int WebServerComm::peek() {
 // before its buffer can grow. That is the whole reason U-77 added it.
 size_t WebServerComm::write(const char* buf, size_t len) {
   if (!buf || len == 0) return 0;
+  // U-104 (2026-10-13): sendStateOn() delivers STATE/CAPS/NETW/SCAN through
+  // THIS function — up to four ws.broadcastTXT() calls per transport per 1.5 s
+  // tick — and it was the one WS-write path with NO watchdog feed of its own
+  // (broadcastStatus feeds before its build+write, and handle() feeds before
+  // ws.loop(), but neither covers a write that starts HERE). To a client that
+  // stopped draining TCP this call can block for up to 5 s with each inner
+  // tcp->write() waiting up to 3 s (the U-77 measurement). Fed here, the write
+  // gets its own fresh LOOP_TASK_WDT_TIMEOUT_MS window; the heartbeat (U-77)
+  // still owns the long-lived staller. Gate rule: `ws-broadcast-feed`.
+  esp_task_wdt_reset();
   ws.broadcastTXT(buf, len);
   return len;
 }

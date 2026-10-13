@@ -10,6 +10,34 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.4 (U-104, 2026-10-13): watchdog feed covers the sendState() WS fan-out
+
+**UNFLASHED (F-61).** Hardening from the post-1.3.3 field review (owner's restart/
+freeze/wifi-flap loop — see `RESUME-HERE.md`). App half of the round is the F-65
+same-version 3.2.7 OTA; the dominant restart evidence on `device_crash_reports`
+(board `1FB608`, 929 boots / 746 crashes) is BROWNOUT — a hardware-supply repair,
+not firmware — and this round's firmware change is the one provably-safe margin
+gain left on the WDT side.
+
+- `WebServerComm::write()` — NEW watchdog feed immediately before each
+  `ws.broadcastTXT()`. `ModeManager::sendStateOn()` delivers STATE / CAPS / NETW /
+  SCAN through this one function (up to four WS broadcasts per transport per
+  1.5 s ticker), and it was the ONLY WS-write path with no feed of its own
+  (`broadcastStatus` and `ws.loop()` have theirs). A WS client that stops
+  draining TCP can hold a broadcast for up to 5 s (the U-77 measurement); the
+  feed gives the write a full `LOOP_TASK_WDT_TIMEOUT_MS` window. Gate rule:
+  `ws-broadcast-feed`.
+- `FW_VERSION` `1.3.3 → 1.3.4`, so the binary that carries this change names
+  itself 1.3.4 on STATE, `/status` and `device_crash_reports.fw_version`.
+
+**Not changed (reviewed, documented):** the U-79 spinlock reads
+(`btComm.connected()` / `hasWsClients()` / `relayComm.connected()` under
+`portENTER_CRITICAL`) are plain flag reads by design (RelayComm publishes
+`socketUp_`/`enrolled_` from its task); the `WiFi.begin()` boot auto-join
+beacon-blank window is the documented FIN-40/D2 trade-off with retries already
+capped; the PANIC rows in the crash DB stay un-named until a serial/`last_crash_phase`
+capture exists (no serial available to this round).
+
 ## UNRELEASED — 1.3.3 (M3, 2026-10-13): `currentLink()` + OLED name BOTH live links under parallel
 
 **UNFLASHED (F-61).** With `WIFICFG;PARALLEL;ON` the U-79 loop keeps BT+WiFi up
