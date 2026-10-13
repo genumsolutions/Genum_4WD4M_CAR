@@ -15,12 +15,22 @@ WIFICFG/ROUTERS/RELAYCFG (`Genum_4WD4M_CAR.ino` → `WebServerComm::handleFactor
 - **`botcfg/config_epoch`** stamped on every configured write (WIFICFG store/reset + the three
   toggles + ROUTERS ADD/USE/DEL/CLEAR). Boot-state (`mode`/`spd`) intentionally unstamped.
 
+**App half DONE (U-108 Phase 7b):** `resetCarData()` in `useControlHub.ts` sends `FACTORY;RESET`
+over every live transport, wipes ALL car-related AsyncStorage keys, resets hub state. Remote
+screen gets a red "Reset car data" button with destructive confirmation (`testID:
+reset-car-data`). Gates: `tsc` 0 · vitest **688/688** · prettier clean. JS-only OTA (3.2.7/60).
+
+**DB migration PENDING (U-108 Phase 7c):** additive SQL
+`genumsolutions-website/supabase/migrations/20261013120000_phase7c_fresh_start_cleanup.sql`
+(delete this car `1FB608` + owner's car-related rows + retention functions). Owner runs in
+Supabase SQL Editor after replacing the `owner_user_id` placeholder.
+
 Files: `WebServerComm.h/.cpp` (command + epoch + `stampConfigWrite`), `CrashLog.h/.cpp`
 (`crashLogResetCounters`), `Genum_4WD4M_CAR.ino` (hook), `TRACKS/RECORDS-INVENTORY.md` §5.
 
 Gates: node `check-webpage-js` + `check-relay-contract`, `check-firmware-syntax.ps1` (10/10),
 `arduino-cli compile` PASS (flash 1823610 B / 57%, RAM 85404 B / 26%). Device verify pending
-(Phase 9 adds U-108 rows). App half (Reset car data + `updatedAt`) and the DB migration are separate.
+(Phase 9 adds U-108 rows).
 
 ## U-107 2026-10-13 — OLED last-two-lines rule (1.3.6, UNFLASHED — owner flash target)
 

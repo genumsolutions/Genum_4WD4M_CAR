@@ -103,6 +103,12 @@ retention policy ship as a new additive migration (no table dropped/renamed) in 
       `TIME?` reports `TIME;<now>;<configEpoch>`. **Boot-state (`mode`/`spd`) is deliberately not
       stamped** — it changes on every drive action and the app/DB timestamps cover it. UNFLASHED
       (F-61) until the owner applies the 1.3.6 batch.
-- [ ] **App — Phase 7b.** Reset car data + `updatedAt`.
-- [ ] **DB — Phase 7c.** Additive migration (delete this car + owner rows; retention).
+- [x] **App — Phase 7b DONE.** `resetCarData()` in `useControlHub.ts` sends `FACTORY;RESET`
+      over every live transport, wipes ALL car-related AsyncStorage keys, resets hub state.
+      Remote screen gets a red "Reset car data" button with destructive confirmation.
+      Gates: `tsc` 0 · vitest **688/688** · prettier clean. JS-only OTA (3.2.7/60).
+- [ ] **DB — Phase 7c PENDING.** Additive migration
+      `20261013120000_phase7c_fresh_start_cleanup.sql` (delete this car `1FB608` +
+      owner's car-related rows + retention functions). Owner runs in Supabase SQL Editor
+      after replacing the `owner_user_id` placeholder.
 
