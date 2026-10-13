@@ -1,4 +1,22 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-12, U-R3 connectivity rebuild: ap_psave/allow_parallel in STATE + /status, OLED blink + restart record; 1.3.2 UNFLASHED)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, M3: currentLink() parallel branch + OLED 'Parallel : BT+WiFi' — 1.3.3 UNFLASHED, F-61)
+
+## M3 2026-10-13 — `currentLink()` names BOTH live links under parallel (`d1e33bc`, PUSHED, 1.3.3, UNFLASHED)
+
+Owner directive (second connectivity review): parallel BT+WiFi must connect AND display both links
+at once on the app AND the car. The U-79 loop already keeps both transports up under
+`WIFICFG;PARALLEL;ON`; the OLED panel still lied by naming only one link.
+
+1. **`ModeManager.cpp` `currentLink()`** — new FIRST branch before the single-transport returns:
+   `if (ws && ws->allowParallel() && wsClients && btUp) return {"Parallel", "BT+WiFi", true};`
+   (the previous session's RESUME-HERE claimed this line existed; it did NOT until this commit).
+2. **`Oled_1_3.cpp`** — row 3 gains `Parallel : BT+WiFi` (was falling into the generic `Wifi` else branch).
+3. Not touched: U-79 teardown, `updateApPowerPolicy()`, `isConnectedNow()`, STATE/JSON parallel+apsave fields, blink fix.
+
+**Gates:** `node tools\check-webpage-js.mjs` PASS · `node tools\check-relay-contract.mjs` all PASS
+(source-level only — device verify stays owner-side; bench car still 1.0.5, F-61).
+
+**App counterpart:** the parallel display round is app `08f0351` (connection strip, inventories,
+`BT · name + WiFi · ip` labels) in the genumsolutions-app repo — same owner ask, one round.
 
 ## U-R3 2026-10-12 — connectivity rebuild + restart record (1.3.2, UNFLASHED)
 
