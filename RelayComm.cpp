@@ -185,6 +185,7 @@ void RelayComm::configureClient() {
 }
 
 void RelayComm::taskLoop() {
+  crashRtcMark("relay-task");
   for (;;) {
     if (!enabled_) {
       // Idle: the owner asked for no link (stop(), or RELAYCFG;RESET). Keep the
@@ -344,6 +345,7 @@ void RelayComm::restart() {
 }
 
 void RelayComm::handle() {
+  crashRtcMark("relay");
   // The relay task pumps the client now; this is the SUPERVISOR. The task
   // publishes taskTickMs_ every pass. While it is inside client_.loop() it
   // cannot be preempted — a stalled TLS handshake holds it for up to 120000 ms

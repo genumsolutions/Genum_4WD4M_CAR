@@ -7,6 +7,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_system.h>
+#include <esp_attr.h>          // U-106: RTC_NOINIT_ATTR crash breadcrumb
+#include <freertos/FreeRTOS.h> // U-106: FreeRTOS.h before task.h
+#include <freertos/task.h>     // U-106: pcTaskGetName()
 #include <string.h>
 
 static const char *PREF_NS = "botcfg";
@@ -15,6 +18,37 @@ static const char *KEY_CRASH  = "ccount";  // unexpected boots only
 static const char *KEY_REASON = "lreason"; // last unexpected reset reason
 static const char *KEY_HEAP   = "lheap";   // free heap at that boot
 static const char *KEY_PHASE  = "lphase";  // phase during that boot
+// U-106 (2026-10-13): crash-TIME evidence mirrored from the RTC breadcrumb.
+static const char *KEY_HEAPC = "lheapc";  // free heap at the last breadcrumb
+static const char *KEY_MINH  = "lminh";   // low-water heap over the dying boot
+static const char *KEY_MILLI = "lmsec";   // millis() at the last breadcrumb
+static const char *KEY_TASK  = "ltask";   // task that wrote the last breadcrumb
+
+// U-106. A breadcrumb written to RTC SLOW RAM on every phase change and every
+// loop pass. RTC_NOINIT survives a PANIC / WDT / software reset (it is the same
+// memory the bootloader's RTC data uses); it does NOT survive a power cycle, so
+// the magic guards against reading uninitialised RAM on a cold boot. Nothing
+// here writes flash, so it is cheap enough for the BT/WS/Wi-Fi hot paths and the
+// main loop - which is the whole point, since the flash-backed phase above is
+// written on transitions only and was empty in every PANIC row in the field.
+#define CRASH_RTC_MAGIC 0x43344D52u   // 'C4MR'
+struct CrashRtc {
+  uint32_t magic;
+  uint32_t seq;        // breadcrumbs written this boot
+  uint32_t millis;     // millis() at the last write
+  uint32_t heap;       // free heap at the last write
+  uint32_t minHeap;    // low-water free heap this boot
+  char phase[24];
+  char task[16];
+};
+RTC_NOINIT_ATTR static CrashRtc s_rtc;
+// The breadcrumb left by the boot that just ended, captured once at boot before
+// anything re-arms s_rtc.
+static bool s_rtcPrevValid = false;
+static CrashRtc s_rtcPrev;
+// RAM low-water for the CURRENT boot (survives nothing; reported live).
+static uint32_t s_bootMinHeap = 0;
+
 
 static CrashInfo s_info;
 // What the car is doing RIGHT NOW. RAM only, so reading it every loop costs
@@ -63,8 +97,44 @@ static const char *resetLabel(esp_reset_reason_t r) {
   }
 }
 
+// U-106: the current FreeRTOS task name (loopTask on core 1, the Wi-Fi/BT
+// event task on core 0, ...). Tells us WHICH task died, not just where.
+static void crashRtcTaskName(char *dst, size_t n) {
+  const char *tn = pcTaskGetName(nullptr);
+  if (tn == nullptr) tn = "";
+  strncpy(dst, tn, n - 1);
+  dst[n - 1] = '\0';
+}
+
+void crashRtcMark(const char *phase) {
+  const uint32_t h = ESP.getFreeHeap();
+  if (s_bootMinHeap == 0 || h < s_bootMinHeap) s_bootMinHeap = h;
+  if (phase != nullptr) {
+    strncpy(s_rtc.phase, phase, sizeof(s_rtc.phase) - 1);
+    s_rtc.phase[sizeof(s_rtc.phase) - 1] = '\0';
+  }
+  s_rtc.seq++;
+  s_rtc.millis = millis();
+  s_rtc.heap = h;
+  if (s_rtc.minHeap == 0 || h < s_rtc.minHeap) s_rtc.minHeap = h;
+  crashRtcTaskName(s_rtc.task, sizeof(s_rtc.task));
+}
+
+void crashRtcHeartbeat() {
+  const uint32_t h = ESP.getFreeHeap();
+  if (s_bootMinHeap == 0 || h < s_bootMinHeap) s_bootMinHeap = h;
+  s_rtc.millis = millis();
+  s_rtc.heap = h;
+  if (s_rtc.minHeap == 0 || h < s_rtc.minHeap) s_rtc.minHeap = h;
+}
+
 void crashLogBegin() {
   const esp_reset_reason_t reason = esp_reset_reason();
+
+  // U-106: capture the RTC breadcrumb from the boot that just ended FIRST, before
+  // anything re-arms s_rtc. The magic guards a cold boot (uninitialised RTC RAM).
+  s_rtcPrevValid = (s_rtc.magic == CRASH_RTC_MAGIC);
+  if (s_rtcPrevValid) s_rtcPrev = s_rtc;   // struct copy - RTC RAM, not flash
 
   Preferences prefs;
   // Read-write even on the first ever boot: Preferences::begin(ns, true)
@@ -97,9 +167,28 @@ void crashLogBegin() {
     s_info.heapAtBoot = heap;
     prefs.getBytes(KEY_PHASE, s_info.phase, sizeof(s_info.phase));
     s_info.phase[sizeof(s_info.phase) - 1] = '\0';
+    // U-106: the RTC breadcrumb is FRESHER than the rate-limited NVS phase, so it
+    // wins when it has a non-empty name. This is the fix for `lastphase=''`.
+    if (s_rtcPrevValid) {
+      if (s_rtcPrev.phase[0]) {
+        strncpy(s_info.phase, s_rtcPrev.phase, sizeof(s_info.phase) - 1);
+        s_info.phase[sizeof(s_info.phase) - 1] = '\0';
+      }
+      s_info.rtcValid = true;
+      s_info.heapAtCrash = s_rtcPrev.heap;
+      s_info.minHeap = s_rtcPrev.minHeap;
+      s_info.millisAtCrash = s_rtcPrev.millis;
+      s_info.marks = s_rtcPrev.seq;
+      strncpy(s_info.task, s_rtcPrev.task, sizeof(s_info.task) - 1);
+      s_info.task[sizeof(s_info.task) - 1] = '\0';
+    }
     prefs.putUInt(KEY_REASON, s_info.reason);
     prefs.putUInt(KEY_HEAP, heap);
     prefs.putBytes(KEY_PHASE, s_info.phase, sizeof(s_info.phase));
+    prefs.putUInt(KEY_HEAPC, s_info.heapAtCrash);
+    prefs.putUInt(KEY_MINH, s_info.minHeap);
+    prefs.putUInt(KEY_MILLI, s_info.millisAtCrash);
+    prefs.putBytes(KEY_TASK, s_info.task, sizeof(s_info.task));
   } else {
     // A clean boot does NOT clear the previous crash record. See CrashLog.h:
     // the record has to outlive the power cycle that follows a crash, because
@@ -112,6 +201,15 @@ void crashLogBegin() {
       s_info.heapAtBoot = prefs.getUInt(KEY_HEAP, 0);
       prefs.getBytes(KEY_PHASE, s_info.phase, sizeof(s_info.phase));
       s_info.phase[sizeof(s_info.phase) - 1] = '\0';
+      // U-106: restore the crash-time extras persisted by the fault above, so
+      // /status keeps reporting them through clean boots until the next fault.
+      s_info.heapAtCrash = prefs.getUInt(KEY_HEAPC, 0);
+      s_info.minHeap = prefs.getUInt(KEY_MINH, 0);
+      s_info.millisAtCrash = prefs.getUInt(KEY_MILLI, 0);
+      prefs.getBytes(KEY_TASK, s_info.task, sizeof(s_info.task));
+      s_info.task[sizeof(s_info.task) - 1] = '\0';
+      s_info.rtcValid = (s_info.heapAtCrash != 0 || s_info.task[0] != '\0');
+      s_info.marks = 0;
     } else {
       s_info.reason = (uint8_t)reason;
       s_info.label = resetLabel(reason);
@@ -132,10 +230,34 @@ void crashLogBegin() {
   Serial.printf("[CRASH] boot=%u crash=%u reason=%s heap=%u lastphase='%s'\n",
                 (unsigned)s_info.bootCount, (unsigned)s_info.crashCount,
                 s_info.label, (unsigned)heap, s_info.phase);
+  if (s_info.rtcValid) {
+    // U-106: the RTC breadcrumb is the answer an empty lastphase never was -
+    // WHICH operation and WHICH task, with the heap at that instant.
+    Serial.printf("[CRASH] rtc: marks=%u phase='%s' task='%s' heap=%u minHeap=%u atMs=%u\n",
+                  (unsigned)s_info.marks, s_info.phase, s_info.task,
+                  (unsigned)s_info.heapAtCrash, (unsigned)s_info.minHeap,
+                  (unsigned)s_info.millisAtCrash);
+  }
+
+  // U-106: arm the breadcrumb for THIS boot so the next crash has fresh evidence.
+  // Magic is written LAST so a crash mid-init cannot be read as a valid crumb.
+  s_rtc.magic = 0;
+  s_rtc.seq = 0;
+  s_rtc.millis = 0;
+  s_rtc.heap = heap;
+  s_rtc.minHeap = heap;
+  strncpy(s_rtc.phase, "boot", sizeof(s_rtc.phase) - 1);
+  s_rtc.phase[sizeof(s_rtc.phase) - 1] = '\0';
+  crashRtcTaskName(s_rtc.task, sizeof(s_rtc.task));
+  s_bootMinHeap = heap;
+  s_rtc.magic = CRASH_RTC_MAGIC;
 }
 
 void crashLogPhase(const char *phase) {
   const char *src = (phase != nullptr) ? phase : "";
+  // U-106: keep the flash-free RTC breadcrumb in step with the (rate-limited) NVS
+  // phase so this call site also feeds crash-TIME evidence.
+  crashRtcMark(src);
   char next[sizeof(s_livePhase)];
   next[0] = '\0';
   strncpy(next, src, sizeof(next) - 1);
@@ -184,3 +306,4 @@ const CrashInfo &crashLogInfo() { return s_info; }
 const char *crashLogLivePhase() { return s_livePhase; }
 uint32_t crashLogBootCount() { return s_info.bootCount; }
 uint32_t crashLogCrashCount() { return s_info.crashCount; }
+uint32_t crashLogMinHeap() { return s_bootMinHeap; }

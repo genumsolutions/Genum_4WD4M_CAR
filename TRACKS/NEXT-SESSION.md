@@ -1,5 +1,31 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4wd4mCar_Wifi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
 
+## U-106 2026-10-13 — crash-TIME evidence survives a PANIC + phase coverage (`…`, 1.3.6, UNFLASHED — owner flash target)
+
+The field crash table (board `1FB608`) had ~754 unexpected boots, all `PANIC`, all
+`last_crash_phase = ''`; a live **COM7** capture on 2026-10-13 printed the same
+(`[CRASH] boot=980 crash=754 reason=PANIC heap=176400 lastphase=''`). Root cause of the
+EMPTY phase: the flash-backed phase record is written on TRANSITIONS only (rate-limited up
+to 30 s) and `crashLogPhase()` ran from just **three** places — none of them the
+BT/Wi-Fi/WS/motor paths the owner reported.
+
+1. **RTC breadcrumb** (`CrashLog.h/.cpp`): an `RTC_NOINIT_ATTR CrashRtc` written on every
+   phase change + a per-loop heartbeat. It names the operation, the FreeRTOS **task**, the
+   free heap **at that instant** and the low-water heap, and it **survives a
+   PANIC/WDT/software reset** (magic-guarded against a cold boot). No flash wear.
+2. **`crashLogBegin()`** captures it FIRST and prefers its fresh phase over the rate-limited
+   NVS copy — the `lastphase=''` fix — persists the extras (`botcfg/lheapc`,`lminh`,`lmsec`,
+   `ltask`) and prints `[CRASH] rtc: marks=… phase='…' task='…' heap=… minHeap=… atMs=…`.
+3. **Phase coverage** on the reported paths: main loop (`switch`/`cmd`/`web`/`relay`),
+   `WebServerComm` (`handle`/`wifi-rejoin`/`wifi-scan`/`ws-evt`/`wifi-ap`/`wifi-connect`/
+   `wifi-stop`), Bluetooth (`bt-begin`/`bt-read`/`bt-write`), motor (`motor`), OLED (`oled`),
+   relay (`relay`/`relay-task`), `state`.
+4. **`/status`** gains `last_crash_heap_at_crash`, `last_crash_heap_min`, `last_crash_task`,
+   `last_crash_millis`, `live_min_heap` (additive).
+5. `FW_VERSION` 1.3.5 → **1.3.6**. Gates green: node `check-webpage-js` + `check-relay-contract`,
+   `check-firmware-syntax.ps1` 10/10, `arduino-cli compile` PASS. **Device verify pending**
+   (`TRACKS/DEVICE-TESTS.md` U-106-1..5).
+
 ## PLAN 2026-10-13 (Phase 0) — field-fix + cleanup round, notes-first, phased
 
 Owner's new round: fix the reported fields (telemetry/status, BT-connect restart not surfaced in the

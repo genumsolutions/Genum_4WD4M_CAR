@@ -3,6 +3,31 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## U-106 round — crash-TIME evidence survives a PANIC (2026-10-13, firmware 1.3.6 — DEVICE VERIFY PENDING)
+
+> Flash **1.3.6** (supersedes 1.3.5 — never flashed). The bench car is TETHERED on **COM7**;
+> capture with `python tools/serial_capture.py COM7 20 <out.log>` (a reset shows the banner).
+> Goal: a PANIC reports the **operation + task + heap-at-crash** instead of `lastphase=''`.
+> This is the fix for the field crash table (board `1FB608`: ~754 `PANIC`, every phase empty).
+
+- [ ] **U-106-1 — the boot banner names the last crash's operation.** Power-on 1.3.6, capture 20 s:
+      the `[CRASH]` line still prints, and when the record carries RTC data a second line
+      `[CRASH] rtc: marks=… phase='…' task='…' heap=… minHeap=… atMs=…` follows it.
+- [ ] **U-106-2 — ⭐ reproduce the reset; the phase is no longer empty.** Drive over Bluetooth, then
+      connect a second phone over BT (the reported restart trigger). After the reset the banner's
+      `rtc:` line names a real phase (`bt-read` / `bt-begin` / `ws-evt`) and the task that died —
+      NOT `phase=''` — plus the heap at that instant.
+- [ ] **U-106-3 — the Wi-Fi connect path is named too.** Trigger the Wi-Fi freeze (switch/select a
+      saved router, open the page): the reset names `wifi-rejoin` / `wifi-connect` / `web` and the
+      crash heap.
+- [ ] **U-106-4 — `/status` carries the crash-TIME fields.** GET `http://192.168.245.1/status`:
+      `last_crash_phase` matches the serial `rtc:` phase, and `last_crash_heap_at_crash`,
+      `last_crash_heap_min`, `last_crash_task`, `last_crash_millis`, `live_min_heap` are present
+      (non-zero on a crashed car).
+- [ ] **U-106-5 — the heap low-water is believable.** On a car that has run a while,
+      `live_min_heap` / `last_crash_heap_min` fall well below the ~176 KB boot heap — the ~12 KB
+      the DB reported is the suspicion this round exists to confirm.
+
 ## U-105 round — transport toggles ride, beacon never parked, one own-hotspot name (2026-10-13, firmware 1.3.5 — DEVICE VERIFY PENDING)
 
 > App half of this round (the Remote "Connectivity" panel: Wi-Fi / Bluetooth / auto-join toggles)

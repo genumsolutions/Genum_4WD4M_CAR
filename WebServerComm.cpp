@@ -1012,6 +1012,7 @@ bool WebServerComm::showReservedEntry() const {
 }
 
 void WebServerComm::startOwnAP() {
+  crashRtcMark("wifi-ap");
   if (apRunning_) return;
   // U-76 (2026-10-02): THE ROOT CAUSE, from the owner's breadcrumbs.
   //
@@ -1260,6 +1261,7 @@ bool WebServerComm::beginStation() {
 }
 
 void WebServerComm::rejoinNetwork() {
+  crashRtcMark("wifi-connect");
   // U-71 (2026-10-02): THIS FUNCTION NOW DOES NO RADIO WORK AT ALL.
   //
   // It used to run mode(WIFI_AP_STA) -> softAP() -> WiFi.begin() synchronously,
@@ -1670,6 +1672,7 @@ void WebServerComm::armBootAutoJoin() {
 }
 
 void WebServerComm::stop() {
+  crashRtcMark("wifi-stop");
   FW_LOG_VERBOSE("DBG: stop() called, serverRunning=%d\n", serverRunning ? 1 : 0);
 
   // U-95 Phase 2: shutdown must not leave a deferred begin armed for a
@@ -1739,6 +1742,7 @@ String WebServerComm::joinedSsid() const {
 }
 
 void WebServerComm::handle() {
+  crashRtcMark("web");
   if (serverRunning) server.handleClient();
   // U-95 Phase 1b: a fresh window for the one call here nobody can tune.
   // ws.loop() can sit inside a partial-frame read for up to
@@ -1773,11 +1777,13 @@ void WebServerComm::handle() {
 
   // trip the 5 s task watchdog - and a WDT trip is a reboot (F-24).
 
+  crashRtcMark("wifi-rejoin");
   advanceRejoinStep();
 
   // D3 (U-68): drive the car-side scan from the loop, never from the command
   // path. runScanIfDue kicks a non-blocking pass once the settle delay has
   // passed; collectScanIfDone reads it when the radio finishes and broadcasts.
+  crashRtcMark("wifi-scan");
   runScanIfDue();
   collectScanIfDone();
 
@@ -2266,6 +2272,7 @@ void WebServerComm::setupWebSocket() {
 }
 
 void WebServerComm::handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  crashRtcMark("ws-evt");
   if (type == WStype_TEXT && payload && length > 0) {
     char msg[128];
     const size_t copyLen = (length < sizeof(msg) - 1) ? length : sizeof(msg) - 1;
@@ -2374,8 +2381,9 @@ void WebServerComm::broadcastStatus() {
   // its last request — there is nobody left to deliver it to.
   if (!hasWsClients()) return;
   // 1536: status JSON + ssid(32) + ap(21) + caps map(~90) + networks (6×33 ≈ 200)
-  // + scan (D3, 12 × ~48 ≈ 600) + the U-95 crash fields (~120). Grown for the
-  // scan field, then again for the crash record.
+  // + scan (D3, 12 × ~48 ≈ 600) + the U-95 crash fields (~120) + the U-106
+  // crash-TIME fields (heap-at-crash/min/task/millis + live min ≈ 110). Grown for
+  // the scan field, then for the crash record, then for the RTC breadcrumb.
   //
   // WHY THE NUMBER IS NOT OPTIMISED AGAIN: `buildStatusJson` bounds every
   // fragment it writes, so the failure mode of a buffer that is too small is
@@ -2735,6 +2743,11 @@ snprintf(buf, bufLen,
        "\"crash_count\":%lu,"
        "\"last_crash_phase\":\"%s\","
        "\"last_crash_heap\":%lu,"
+       "\"last_crash_heap_at_crash\":%lu,"
+       "\"last_crash_heap_min\":%lu,"
+       "\"last_crash_task\":\"%s\","
+       "\"last_crash_millis\":%lu,"
+       "\"live_min_heap\":%u,"
        "\"phase\":\"%s\","
        "\"speed\":%d,"
        "\"trim\":%d,"
@@ -2771,6 +2784,11 @@ snprintf(buf, bufLen,
       static_cast<unsigned long>(ci.crashCount),
       ci.phase,
       static_cast<unsigned long>(ci.heapAtBoot),
+      static_cast<unsigned long>(ci.heapAtCrash),
+      static_cast<unsigned long>(ci.minHeap),
+      ci.task,
+      static_cast<unsigned long>(ci.millisAtCrash),
+      static_cast<unsigned int>(crashLogMinHeap()),
       crashLogLivePhase(),
       speed,
       static_cast<int>(modeManager ? modeManager->getTrim() : 0),

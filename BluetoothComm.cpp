@@ -6,6 +6,7 @@
 // =====================================================================
 #include "BluetoothComm.h"
 #include "Config.h"
+#include "CrashLog.h"   // U-106: crash-TIME breadcrumbs on the BT hot paths
 
 bool BluetoothComm::begin() {
   // Advertised name matches the fleet docs/app test notes ("BT connect as
@@ -18,6 +19,7 @@ bool BluetoothComm::begin() {
   if (alreadyStarted) return true;
   
   // SerialBT.begin() can take time - do it outside critical section
+  crashRtcMark("bt-begin");
   bool success = SerialBT.begin("4WD CAR");
   
   TRANSPORT_POWER_ENTER_CRITICAL();
@@ -105,6 +107,7 @@ size_t BluetoothComm::available() {
 }
 
 int BluetoothComm::read() {
+  crashRtcMark("bt-read");
   int c = SerialBT.read();
   if (c >= 0) lastActivityMs = millis();
   return c;
@@ -112,6 +115,7 @@ int BluetoothComm::read() {
 
 size_t BluetoothComm::readBytes(char* buf, size_t len, unsigned long timeoutMs) {
   if (!buf || len == 0) return 0;
+  crashRtcMark("bt-read");
   size_t n = SerialBT.readBytes(buf, len);
   if (n > 0) {
     lastActivityMs = millis();
@@ -125,6 +129,7 @@ int BluetoothComm::peek() {
 }
 
 size_t BluetoothComm::write(const char* buf, size_t len) {
+  crashRtcMark("bt-write");
   size_t n = SerialBT.write((const uint8_t*)buf, len);
   if (n > 0) lastActivityMs = millis();
   return n;

@@ -521,6 +521,7 @@ void ModeManager::sendState() {
 }
 
 void ModeManager::sendStateOn(CommInterface& comm) {
+  crashRtcMark("state");
   char word[24];
   getStatusWord(word, sizeof(word));
   // T-19 (W-10): stub truth is announced on BOTH channels from the SAME

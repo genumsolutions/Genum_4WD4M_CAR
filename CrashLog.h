@@ -60,6 +60,20 @@ struct CrashInfo {
   uint32_t bootCount;    // boots since the counters were first initialised
   uint32_t crashCount;   // unexpected boots only
   char phase[24];        // what the car was doing when it died ("" = idle)
+
+  // U-106 (2026-10-13): crash-TIME evidence captured in RTC RAM, which survives
+  // a PANIC/WDT/software reset (but not a power cycle). The NVS phase above is
+  // rate-limited (up to 30 s stale) and is written on TRANSITIONS only, so a
+  // crash between transitions recorded an empty phase. The breadcrumb below is
+  // written on every mark with no flash cost, so it names the operation that was
+  // actually running when the chip died - and the heap at that instant, not the
+  // (healthy) heap at the boot that followed.
+  bool rtcValid;          // an RTC breadcrumb survived from the dying boot
+  uint32_t heapAtCrash;   // free heap at the last breadcrumb (0 = unknown)
+  uint32_t minHeap;       // low-water free heap over the dying boot
+  uint32_t millisAtCrash; // millis() at the last breadcrumb
+  uint32_t marks;         // breadcrumbs written in the dying boot
+  char task[16];          // FreeRTOS task that wrote the last breadcrumb
 };
 
 // Floor on how often a non-empty phase may reach flash. See crashLogPhase().
@@ -94,6 +108,19 @@ void crashLogBegin();
 // Pass a short stable string literal. It is copied into NVS, truncated to fit.
 void crashLogPhase(const char* phase);
 
+// U-106 (2026-10-13). Crash breadcrumb in RTC RAM. NEVER touches flash, so it
+// is safe to call on hot paths (BT/WS/Wi-Fi callbacks, every loop). It survives
+// a PANIC - exactly the reset the NVS phase above could not describe - and is
+// read back by crashLogBegin() on the next boot. `phase` names the operation
+// ("" keeps the previous name; pass nullptr to refresh only). The current task
+// name and free heap are recorded alongside it.
+void crashRtcMark(const char* phase);
+
+// Cheap per-loop refresh of millis/heap/low-water WITHOUT changing the phase or
+// the mark counter. Call once per loop() pass so a stall/crash still has a
+// recent heap and timestamp.
+void crashRtcHeartbeat();
+
 // The record captured at boot. Valid for the whole uptime.
 const CrashInfo& crashLogInfo();
 
@@ -104,3 +131,6 @@ const char* crashLogLivePhase();
 // Convenience for the status JSON and the OLED banner.
 uint32_t crashLogBootCount();
 uint32_t crashLogCrashCount();
+
+// U-106: low-water free heap for the CURRENT boot (RAM only, never flash).
+uint32_t crashLogMinHeap();

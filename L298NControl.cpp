@@ -7,6 +7,7 @@
 #include <Arduino.h>
 #include "driver/ledc.h"
 #include <stdint.h>
+#include "CrashLog.h"   // U-106: crash-TIME breadcrumbs on the motor path
 
 #if MOTOR_DRIVER == L298N
 
@@ -78,6 +79,7 @@ bool L298NControl::begin() {
 }
 
 void L298NControl::drive(Action action, uint16_t speed) {
+  crashRtcMark("motor");
   uint32_t duty = mapSpeedToDuty(speed);
 
   switch (action) {

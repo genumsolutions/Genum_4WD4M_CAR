@@ -1,4 +1,4 @@
-Version 1.3.5
+Version 1.3.6
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -20,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
 | Wi-Fi AP SSID | **`4wd4mCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` (1.3.5: the ONE own-hotspot name fleet-wide; the donor `WirelessCar_Wifi` and the older `4WDCar_Wifi` are fully removed) |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.5` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.6` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -79,6 +79,20 @@ STATE) · `BluetoothComm` (SPP transport) · `WebServerComm` (AP/STA + HTTP/WS +
 gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
+
+- **1.3.6 (2026-10-13, U-106)** — **crash-TIME evidence that survives a PANIC, plus phase
+  coverage on the reported paths.** The field crash table (`device_crash_reports`, board
+  `1FB608`) had ~754 unexpected boots, all `PANIC`, all `last_crash_phase = ''` — the
+  flash-backed phase record is written on transitions only and `crashLogPhase()` ran from
+  just three places, none of them the BT/Wi-Fi/WS/motor paths the owner reported. This adds
+  an `RTC_NOINIT_ATTR` breadcrumb (no flash wear) written on every phase change and a
+  per-loop heartbeat: it names the operation, the FreeRTOS **task**, the free heap **at that
+  instant** and the low-water heap, and it **survives a PANIC/WDT reset**. `crashLogBegin()`
+  now prefers that fresh phase over the rate-limited NVS copy (the fix for `lastphase=''`),
+  persists the extras (`botcfg/lheapc`,`lminh`,`lmsec`,`ltask`) and prints
+  `[CRASH] rtc: …` on serial. `/status` gains `last_crash_heap_at_crash`,
+  `last_crash_heap_min`, `last_crash_task`, `last_crash_millis`, `live_min_heap`. Full
+  detail: `TRACKS/CHANGELOG.md`; plan: `TRACKS/PLAN-2026-10-13-cleanup-rebuild.md`.
 
 - **1.3.5 (2026-10-13, U-105)** — **the transport toggles ride, the beacon is never parked, the
   own-hotspot name is fleet-single.** (a) The whole parallel-links + power-save pair

@@ -10,6 +10,59 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.6 (U-106, 2026-10-13): crash-TIME evidence that survives a PANIC + phase coverage
+
+**UNFLASHED (F-61).** This batch supersedes 1.3.5 (never flashed) and is the first
+half of the owner's 2026-10-13 field-fix + cleanup round (full plan:
+`TRACKS/PLAN-2026-10-13-cleanup-rebuild.md`).
+
+### Why
+
+The field `device_crash_reports` board `1FB608` showed **~754 unexpected boots, every
+one `reset_reason = PANIC`, every one `last_crash_phase = ''`** — and a live COM7
+capture on 2026-10-13 printed the same: `[CRASH] boot=980 crash=754 reason=PANIC
+heap=176400 lastphase=''`. The phase was empty because the flash-backed phase record
+is written on TRANSITIONS only (rate-limited up to 30 s) and `crashLogPhase()` was
+called from just **three** places, none of them the BT/Wi-Fi/WS/motor paths the owner
+reported. A PANIC between transitions therefore recorded an empty phase, and the heap
+it recorded was the healthy heap of the boot that *followed* the crash, not the heap
+at the crash.
+
+### Added — RTC crash breadcrumb (`CrashLog.h/.cpp`)
+
+- An `RTC_NOINIT_ATTR` breadcrumb (`CrashRtc`) written on every phase change and via
+  a per-loop heartbeat: it names the operation, the **FreeRTOS task** that wrote it,
+  the **free heap at that instant** and the **low-water heap**, and it **survives a
+  PANIC / WDT / software reset** (it does not survive a power cycle — a magic guards a
+  cold-boot read). No flash wear, so it is safe on hot paths.
+- `crashLogBegin()` captures the dying boot's breadcrumb FIRST and, on a fault,
+  prefers its (fresh, non-empty) phase over the rate-limited NVS copy — the fix for
+  `lastphase=''` — then persists the extra fields to new NVS keys
+  (`botcfg/lheapc`, `lminh`, `lmsec`, `ltask`) so `/status` keeps reporting them
+  through clean boots until the next fault.
+- New `crashRtcMark(phase)` / `crashRtcHeartbeat()` / `crashLogMinHeap()` API.
+- The serial banner gains `[CRASH] rtc: marks=… phase='…' task='…' heap=… minHeap=…
+  atMs=…` so a tethered capture names the crash immediately.
+
+### Added — phase coverage on the reported paths
+
+`crashRtcMark()` (flash-free) is called from the paths the owner's reports point at:
+the main loop (`switch`/`cmd`/`web`/`relay`), `WebServerComm::handle()` +
+`advanceRejoinStep()` + `runScanIfDue()` + WS events + `startOwnAP()` +
+`rejoinNetwork()` + `stop()`, the BT paths (`bt-begin`/`bt-read`/`bt-write`),
+`L298NControl::drive()` (`motor`), `Oled_1_3::draw()` (`oled`), `RelayComm`
+(`relay`/`relay-task`) and `ModeManager::sendStateOn()` (`state`).
+
+### Added — `/status` crash-TIME fields
+
+`last_crash_heap_at_crash`, `last_crash_heap_min`, `last_crash_task`,
+`last_crash_millis`, `live_min_heap` (fed from the breadcrumb; additive, the existing
+`last_crash_*` keys are unchanged).
+
+### Changed
+
+- `FW_VERSION` `1.3.5 → 1.3.6`.
+
 ## UNRELEASED — 1.3.5 (U-105, 2026-10-13): transport toggles ride, beacon never parked, one own-hotspot name
 
 **UNFLASHED (F-61).** Per the owner's device-report failures and redesign mandate

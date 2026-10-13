@@ -383,6 +383,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
 }
 
 void Oled_1_3::draw(const char* status, int speed, bool connected, const char* mode, const char* extraInfo) {
+  crashRtcMark("oled");
   if (!u8g2 || isSleeping) return;
 
   // W-9/T-18: compute content change BEFORE the throttle. A changed frame must

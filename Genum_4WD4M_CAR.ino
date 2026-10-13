@@ -113,6 +113,10 @@ void setup() {
     }
   }
 
+  // U-106: the boot breadcrumb is armed by crashLogBegin() ("boot"); name the
+  // bring-up.  Every subsystem adds its own mark as it runs.
+  crashRtcMark("setup");
+
   // F-24: esp32 core 3.x task watchdog - reconfigure FIRST (the core
   // pre-initializes the TWDT), loopTask ONLY (idle_core_mask = 0; subscribing
   // idle tasks caused a ~19s reboot loop). A genuine loop hang still aborts
@@ -337,14 +341,19 @@ static void maybeCheckSupplyAndBTWatchdog() {
 void loop() {
   // F-24: feed the loopTask watchdog every iteration.
   esp_task_wdt_reset();
+  // U-106: refresh the flash-free crash breadcrumb (free-heap low-water + millis)
+  // every pass so a crash always has a recent heap figure and timestamp.
+  crashRtcHeartbeat();
 
   if (checkSwitchPressed()) {
+    crashRtcMark("switch");
     modeManager.cycleMode();
   }
 
   // T-1 single command path: ALL commands (BT via auxComm_, primary via
   // comm_) are read line-by-line in ModeManager::run() and dispatched through
   // handleCommand() — mode tokens, REQ_STATE/STATE, SPD/SPD0, F/B/L/R/S.
+  crashRtcMark("cmd");
   modeManager.run();
 
   ModeManager::Mode current = modeManager.getMode();
@@ -358,12 +367,14 @@ void loop() {
   // v2: the web layer is ALWAYS-ON — handle() runs unconditionally every
   // loop (HTTP + WS + STA/AP resolution + 1 s JSON broadcast). The donor's
   // `if (webServerComm.isRunning())` mode-gate is retired.
+  crashRtcMark("web");
   webServerComm.handle();
 
   // U-94 Phase 2: pump the relay client. Like the web layer this is
   // unconditional every loop and a no-op when the transport is not started -
   // the WebSockets library does its socket I/O and its reconnection from
   // loop(), so skipping this is the same as not having a relay at all.
+  crashRtcMark("relay");
   relayComm.handle();
 
   // ===== U-79 / U-105: transport availability enforcement =============

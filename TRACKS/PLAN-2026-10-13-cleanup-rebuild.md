@@ -70,11 +70,12 @@ and `lastphase` is empty because nothing survives the panic — which is exactly
 
 ## Phases (car-side; app detail lives in the app plan)
 
-- [ ] **Phase 1 — crash capture + PANIC fix (BLOCKER).** Persist a crash breadcrumb in RTC memory
-      (`RTC_NOINIT_ATTR`) + a panic/shutdown hook so reset cause / phase / heap / PC survive a PANIC;
-      set phase markers at every major step so `lastphase` is never empty; extend the NVS crash record
-      and ship it through the existing `RST/BC/CC/PH/LH` STATE keys + `/status` → `device_crash_reports`.
-      Then fix the actual reset (BT-SPP + AP_STA coexistence, WS/HTTP join path, ~12 KB free heap).
+- [x] **Phase 1 — crash capture + PANIC fix (BLOCKER).** *Firmware capture DONE in 1.3.6*
+      (`RTC_NOINIT_ATTR` breadcrumb + per-loop heartbeat + broad phase marks; `crashLogBegin()`
+      prefers the fresh phase over the rate-limited NVS copy; `/status` crash-TIME fields; node +
+      syntax gates green; `arduino-cli` compile PASS). *The reset itself is still OPEN* — it needs
+      the on-car repro once the owner flashes 1.3.6; the breadcrumb now names the operation/task/
+      heap-at-crash so the next COM7 capture identifies it.
 - [ ] **Phase 2 — OLED last-two-lines rule.** `wifiEnabled()/btEnabled()` plumbed to `Oled_1_3.cpp`:
       both ON → alternate BT frame ⇄ Wi-Fi frame ~1 s; single ON → that one always; Wi-Fi row's last
       line alternates **network name ⇄ IP**; real BT name (not hard-coded `4WD CAR`).
@@ -101,6 +102,8 @@ this round produces (likely **1.3.6**); confirm at the Phase 1 bump.
 - **F-61**: green gates are NOT device evidence. Nothing is device-verified until the owner flashes.
 
 ## RESUME HERE
-> Phase 0 (notes) is committed/pushed. Next: Phase 1 — implement RTC crash breadcrumb + phase markers
-> in `CrashLog.cpp` / `Genum_4WD4M_CAR.ino`, drive the on-car repro with `tools/serial_capture.py`
-> COM7, compile with the bundled `arduino-cli` (see toolchain above), gate, push.
+> Phase 0 (notes) + Phase 1 (firmware **1.3.6** crash capture) committed/pushed. Next: **Phase 2** —
+> the OLED last-two-lines rule (plumb `wifiEnabled()/btEnabled()` into `Oled_1_3.cpp`: both ON →
+> alternate BT ⇄ Wi-Fi ~1 s; single ON → that one always; Wi-Fi row alternates name ⇄ IP; real BT
+> name). Firmware phases 1/2/5/8 are pushed individually but **owner-flashed once at the end**; the
+> PANIC itself is confirmed by the next tethered COM7 capture after that flash.
