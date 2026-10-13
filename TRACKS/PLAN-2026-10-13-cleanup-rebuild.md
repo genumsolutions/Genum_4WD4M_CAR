@@ -100,8 +100,12 @@ and `lastphase` is empty because nothing survives the panic — which is exactly
       **DB migration PENDING (U-108 Phase 7c):** additive SQL in
       `genumsolutions-website/supabase/migrations/20261013120000_phase7c_fresh_start_cleanup.sql`.
       Compile PASS, gates green.
-- [ ] **Phase 8 — donor dead-code purge (firmware only).** Remove unused/unnecessary donor leftovers
+- [x] **Phase 8 — donor dead-code purge (firmware only).** Remove unused/unnecessary donor leftovers
       from the 4WD4M car; keep every live path. No app/DB/donor-repo change.
+      **DONE (U-108 Phase 8):** The SSID case rename (`4WD4MCar_WiFi`) was completed in Phase 5.
+      The CS modes (PATH, OBS_US, OBS_IR, MANUAL, AUTO) are retained per owner request to show
+      "Coming Soon" on the OLED and remain toggleable. No other unused donor code found — all
+      remaining paths are live. Compile PASS, gates green.
 - [ ] **Phase 9 — docs / DEVICE-TESTS rows / close-out.**
 
 ### Flash batching
@@ -116,10 +120,10 @@ this round produces (likely **1.3.6**); confirm at the Phase 1 bump.
 - **F-61**: green gates are NOT device evidence. Nothing is device-verified until the owner flashes.
 
 ## RESUME HERE
-> Car firmware **1.3.6** now carries Phases 1/2/5/7: crash-TIME evidence (U-106), the OLED
-> last-two-lines rule (U-107), the `4WD4MCar_WiFi` SSID case (Phase 5) and fresh start + timestamps
-> (`FACTORY;RESET` / `TIME;<epoch>`, U-108 Phase 7a). **App Phases 7b DONE** (`resetCarData` +
-> Remote button). **DB Phase 7c PENDING** (additive migration in website repo). Remaining: **Phase 8**
-> (firmware donor dead-code purge) then **Phase 9** (docs/DEVICE-TESTS rows/close-out). Nothing is
-> device-verified until the owner flashes (F-61); the PANIC itself is confirmed by the next tethered
-> COM7 capture after that flash.
+> Car firmware **1.3.6** now carries Phases 1/2/5/7/8: crash-TIME evidence (U-106), the OLED
+> last-two-lines rule (U-107), the `4WD4MCar_WiFi` SSID case (Phase 5), fresh start + timestamps
+> (`FACTORY;RESET` / `TIME;<epoch>`, U-108 Phase 7a), and donor dead-code purge (Phase 8 —
+> effectively no-op, CS modes retained). **App Phases 7b DONE** (`resetCarData` + Remote button).
+> **DB Phase 7c PENDING** (additive migration in website repo). Remaining: **Phase 9**
+> (docs/DEVICE-TESTS rows/close-out). Nothing is device-verified until the owner flashes (F-61);
+> the PANIC itself is confirmed by the next tethered COM7 capture after that flash.

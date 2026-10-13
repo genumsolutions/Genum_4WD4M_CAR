@@ -32,6 +32,15 @@ Gates: node `check-webpage-js` + `check-relay-contract`, `check-firmware-syntax.
 `arduino-cli compile` PASS (flash 1823610 B / 57%, RAM 85404 B / 26%). Device verify pending
 (Phase 9 adds U-108 rows).
 
+## U-108 2026-10-13 — donor dead-code purge (Phase 8, 1.3.6, UNFLASHED — owner flash target)
+
+**DONE — effectively no-op per owner request.** The SSID case rename (`4WD4MCar_WiFi`) was
+completed in Phase 5. The CS modes (PATH, OBS_US, OBS_IR, MANUAL, AUTO) are RETAINED per owner
+request to show "Coming Soon" on the OLED and remain toggleable via app/remote. No other unused
+donor code found — all remaining paths are live. No app/DB/donor-repo changes.
+
+Gates: all green (webpage-js, relay-contract, firmware-syntax 10/10, compile PASS).
+
 ## U-107 2026-10-13 — OLED last-two-lines rule (1.3.6, UNFLASHED — owner flash target)
 
 Owner request: the OLED's last two rows must alternate BT ⇄ Wi-Fi info when both transports
