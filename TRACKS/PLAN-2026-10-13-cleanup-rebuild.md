@@ -90,9 +90,13 @@ and `lastphase` is empty because nothing survives the panic — which is exactly
 - [x] **Phase 5 — SSID = `4WD4MCar_WiFi`.** DONE (car half): `Config.h` `WIFI_AP_NAME` →
       `4WD4MCar_WiFi`; the rest of the repo (comments/docs/tools) renamed too. App half DONE (registry
       + fixtures/docs; matching stays case-insensitive). Compile PASS, gates green.
-- [ ] **Phase 6 — (app) auto-join labels** — see the app plan.
+- [x] **Phase 6 — (app) auto-join labels** — DONE (app): both toggles kept; “Boot auto-join (car)”
+      vs “Auto-join saved router (app)” with distinct icons + captions. See the app plan.
 - [ ] **Phase 7 — fresh start + timestamps.** Car: a factory-reset that wipes every `botcfg` key +
       stamps records with the app-provided epoch. App + DB work mirrored in the app/website plan.
+      **Car half DONE (U-108 Phase 7):** `FACTORY;RESET` (whole-namespace wipe + RAM defaults +
+      counter reset) and `TIME;<epoch>` + `botcfg/config_epoch` stamping (see RECORDS-INVENTORY.md
+      §5). App half + DB migration still pending. Compile PASS, gates green.
 - [ ] **Phase 8 — donor dead-code purge (firmware only).** Remove unused/unnecessary donor leftovers
       from the 4WD4M car; keep every live path. No app/DB/donor-repo change.
 - [ ] **Phase 9 — docs / DEVICE-TESTS rows / close-out.**
@@ -109,8 +113,11 @@ this round produces (likely **1.3.6**); confirm at the Phase 1 bump.
 - **F-61**: green gates are NOT device evidence. Nothing is device-verified until the owner flashes.
 
 ## RESUME HERE
-> Phases 0/1/2 DONE (firmware **1.3.6** crash capture + OLED last-two-lines rule). Next: **Phase 3
-> (app)** — the Remote screen layout (status only right of Back; remove the duplicate top status
-> line + its disconnect space; separate Bluetooth/Wi-Fi disconnect buttons on the row below Back;
-> IP ⇄ name rotation). Car firmware phases 1/2/5/8 are pushed individually but **owner-flashed once
-> at the end**; the PANIC itself is confirmed by the next tethered COM7 capture after that flash.
+> Car firmware **1.3.6** now carries Phases 1/2/5/7: crash-TIME evidence (U-106), the OLED
+> last-two-lines rule (U-107), the `4WD4MCar_WiFi` SSID case (Phase 5) and fresh start + timestamps
+> (`FACTORY;RESET` / `TIME;<epoch>`, U-108 Phase 7). All committed/pushed individually but
+> **owner-flashed once** at the end. Remaining: **Phase 8** (firmware donor dead-code purge) then
+> **Phase 9** (docs/DEVICE-TESTS rows/close-out). App phases 3/4/5/6 are DONE in the app repo; app
+> Phase 7b (Reset car data) + the DB migration (Phase 7c) remain. Nothing is device-verified until
+> the owner flashes (F-61); the PANIC itself is confirmed by the next tethered COM7 capture after
+> that flash.

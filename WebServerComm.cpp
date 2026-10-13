@@ -60,6 +60,13 @@ WebServerComm::WebServerComm()
   hasStoredWifi_ = false;
   storedSsid_[0] = '\0';
   storedPass_[0] = '\0';
+  // U-108 Phase 7: the app-provided clock starts UNSYNCED — the first `TIME;`
+  // line from the app sets it. Until then nowEpoch() returns 0 and no record is
+  // stamped, which is honest rather than inventing a time.
+  epochSynced_ = false;
+  epochBase_ = 0;
+  epochSetMs_ = 0;
+  configEpoch_ = 0;
   // T-48: saved-router registry starts empty (loaded in setup() once NVS is
   // live — same timing rule as loadStoredWifi(), T-33).
   savedRouterCount_ = 0;
@@ -107,6 +114,7 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     // now, but a stale last-good would still be a trap on any later USE replay.
     prefs.remove("last_ok_ssid");
     prefs.remove("last_ok_pass");
+    stampConfigWrite(prefs);
     prefs.end();
     lastGoodSsid_[0] = '\0';
     lastGoodPass_[0] = '\0';
@@ -136,6 +144,7 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
         Preferences prefs;
         prefs.begin("botcfg", false);
         prefs.putBool("t_wifi", wifiEnabled_);
+        stampConfigWrite(prefs);
         prefs.end();
         FW_LOG_VERBOSE("[WIFICFG] Wi-Fi transport %s\n", wifiEnabled_ ? "ON" : "OFF");
         snprintf(reply, sizeof(reply), "WIFICFG;WIFI;%s", wifiEnabled_ ? "ON" : "OFF");
@@ -158,6 +167,7 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
         Preferences prefs;
         prefs.begin("botcfg", false);
         prefs.putBool("t_bt", btEnabled_);
+        stampConfigWrite(prefs);
         prefs.end();
         FW_LOG_VERBOSE("[WIFICFG] Bluetooth transport %s\n", btEnabled_ ? "ON" : "OFF");
         snprintf(reply, sizeof(reply), "WIFICFG;BT;%s", btEnabled_ ? "ON" : "OFF");
@@ -177,6 +187,7 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
       Preferences prefs;
       prefs.begin("botcfg", false);
       prefs.putBool("boot_autojoin", bootAutojoin_);
+      stampConfigWrite(prefs);
       prefs.end();
       FW_LOG_VERBOSE("[WIFICFG] boot auto-join %s\n", bootAutojoin_ ? "ON" : "OFF");
       snprintf(reply, sizeof(reply), "WIFICFG;AUTOJOIN;%s", bootAutojoin_ ? "ON" : "OFF");
@@ -210,6 +221,7 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
       prefs.begin("botcfg", false);
       prefs.putString("wifi_ssid", storedSsid_);
       prefs.putString("wifi_pass", storedPass_);
+      stampConfigWrite(prefs);
       prefs.end();
       hasStoredWifi_ = true;
       FW_LOG_VERBOSE("[WIFICFG] stored SSID=\"%s\"\n", storedSsid_);
@@ -227,6 +239,109 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
 
   lastWifiReply_ = reply;
   return true;
+}
+
+// ---- U-108 Phase 7 (owner 2026-10-13): fresh start + timestamps ----
+//
+//   TIME;<unixEpoch>   the APP's clock (the car has no RTC). Sent on every
+//                      connect; adopted so config writes can be stamped.
+//   TIME? / TIME       report `TIME;<now>;<configEpoch>`.
+//   FACTORY;RESET      wipe the WHOLE `botcfg` namespace + restore RAM defaults
+//                      + reset the boot/crash counters; reply `FACTORY;CLEARED`.
+//
+// The wire format mirrors WIFICFG/ROUTERS: consumed inside the single
+// system-command hook, answered as `REPLY=…` on STATE.
+bool WebServerComm::handleFactoryCommand(const char* cmd) {
+  if (!cmd) return false;
+  const bool isFactory = strncasecmp(cmd, "FACTORY", 7) == 0 &&
+                         (cmd[7] == '\0' || cmd[7] == '?' || cmd[7] == ';');
+  const bool isTime = strncasecmp(cmd, "TIME", 4) == 0 &&
+                      (cmd[4] == '\0' || cmd[4] == '?' || cmd[4] == ';');
+  if (!isFactory && !isTime) return false;
+
+  char reply[96];
+
+  if (isTime) {
+    const char* arg = cmd + 4;  // "" | "?" | ";" | ";<epoch>"
+    if (arg[0] == '\0' || arg[0] == '?' || (arg[0] == ';' && arg[1] == '\0')) {
+      snprintf(reply, sizeof(reply), "TIME;%lu;%lu",
+               (unsigned long)nowEpoch(), (unsigned long)configEpoch_);
+    } else if (arg[0] == ';') {
+      const char* num = arg + 1;
+      uint32_t v = 0;
+      bool ok = num[0] != '\0';
+      for (const char* c = num; *c; ++c) {
+        if (*c < '0' || *c > '9') { ok = false; break; }
+        v = v * 10u + static_cast<uint32_t>(*c - '0');
+      }
+      if (!ok) {
+        snprintf(reply, sizeof(reply), "TIME;ERROR;Syntax");
+      } else {
+        syncEpoch(v);
+        snprintf(reply, sizeof(reply), "TIME;%lu;%lu",
+                 (unsigned long)nowEpoch(), (unsigned long)configEpoch_);
+      }
+    } else {
+      snprintf(reply, sizeof(reply), "TIME;ERROR;Syntax");
+    }
+    lastWifiReply_ = reply;
+    return true;
+  }
+
+  // FACTORY
+  const char* arg = cmd + 7;  // "" | "?" | ";RESET"
+  if (strncasecmp(arg, ";RESET", 6) == 0) {
+    // 1) Clear the WHOLE namespace. `Preferences::clear()` removes every key in
+    //    "botcfg": routers, credentials, last-good, toggles, mode/speed, relay
+    //    token, fw_mark and the crash counters. Arduino flashing does NOT erase
+    //    NVS, so this is the only way to get a virgin board without a re-flash.
+    Preferences p;
+    if (p.begin("botcfg", false)) {
+      p.clear();
+      p.end();
+    }
+    // 2) RAM back to a virgin board's defaults (the running session reports
+    //    honestly instead of holding stale values until the next boot).
+    hasStoredWifi_ = false;
+    storedSsid_[0] = '\0';
+    storedPass_[0] = '\0';
+    lastGoodSsid_[0] = '\0';
+    lastGoodPass_[0] = '\0';
+    savedRouterCount_ = 0;
+    for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
+      savedRouterSsid_[i][0] = '\0';
+      savedRouterPass_[i][0] = '\0';
+    }
+    wifiEnabled_ = true;
+    btEnabled_ = true;
+    bootAutojoin_ = true;
+    configEpoch_ = 0;
+    crashLogResetCounters();
+    Serial.println("[FACTORY] botcfg namespace cleared - fresh start");
+    snprintf(reply, sizeof(reply), "FACTORY;CLEARED");
+  } else {
+    snprintf(reply, sizeof(reply), "FACTORY;ERROR;Syntax");
+  }
+  lastWifiReply_ = reply;
+  return true;
+}
+
+void WebServerComm::syncEpoch(uint32_t epochSeconds) {
+  epochBase_ = epochSeconds;
+  epochSetMs_ = millis();
+  epochSynced_ = (epochSeconds != 0);
+}
+
+uint32_t WebServerComm::nowEpoch() const {
+  if (!epochSynced_ || epochBase_ == 0) return 0;
+  return epochBase_ + static_cast<uint32_t>((millis() - epochSetMs_) / 1000ul);
+}
+
+void WebServerComm::stampConfigWrite(Preferences& p) {
+  const uint32_t e = nowEpoch();
+  if (e == 0) return;  // unsynced: never invent a time
+  p.putUInt("config_epoch", e);
+  configEpoch_ = e;
 }
 
 void WebServerComm::loadStoredWifi() {
@@ -503,6 +618,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
         static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
         prefs.putString(sKeys[slot], savedRouterSsid_[slot]);
         prefs.putString(pKeys[slot], savedRouterPass_[slot]);
+        stampConfigWrite(prefs);
         prefs.end();
         FW_LOG_VERBOSE("[ROUTERS] added SSID=\"%s\" (slot %d)\n", savedRouterSsid_[slot], slot);
         snprintf(reply, sizeof(reply), "ROUTERS;ADDED;%s", savedRouterSsid_[slot]);
@@ -537,6 +653,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
       prefs.remove("wifi_pass");
       prefs.remove("last_ok_ssid");
       prefs.remove("last_ok_pass");
+      stampConfigWrite(prefs);
       prefs.end();
       snprintf(reply, sizeof(reply), "ROUTERS;USED;%s", WIFI_AP_NAME);
       if (serverRunning) rejoinNetwork();
@@ -560,6 +677,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
         prefs.begin("botcfg", false);
         prefs.putString("wifi_ssid", storedSsid_);
         prefs.putString("wifi_pass", storedPass_);
+        stampConfigWrite(prefs);
         prefs.end();
         FW_LOG_VERBOSE("[ROUTERS] USE SSID=\"%s\" (saved router)\n", storedSsid_);
         snprintf(reply, sizeof(reply), "ROUTERS;USED;%s", storedSsid_);
@@ -596,6 +714,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
             static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
             prefs.putString(sKeys[newSlot], savedRouterSsid_[newSlot]);
             prefs.putString(pKeys[newSlot], savedRouterPass_[newSlot]);
+            stampConfigWrite(prefs);
             prefs.end();
             FW_LOG_VERBOSE("[ROUTERS] added SSID=\"%s\" (slot %d, on-the-fly)\n", savedRouterSsid_[newSlot], newSlot);
           }
@@ -657,6 +776,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
           prefs.remove(pKeys[i]);
         }
       }
+      stampConfigWrite(prefs);
       prefs.end();
       if (!removed) {
         snprintf(reply, sizeof(reply), "ROUTERS;ERROR;Not saved:%s", ssid);
@@ -710,6 +830,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     // re-joined from a stale boot target.
     prefs.remove("last_ok_ssid");
     prefs.remove("last_ok_pass");
+    stampConfigWrite(prefs);
     prefs.end();
     hasStoredWifi_ = false;
     storedSsid_[0] = '\0';

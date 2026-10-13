@@ -307,3 +307,41 @@ const char *crashLogLivePhase() { return s_livePhase; }
 uint32_t crashLogBootCount() { return s_info.bootCount; }
 uint32_t crashLogCrashCount() { return s_info.crashCount; }
 uint32_t crashLogMinHeap() { return s_bootMinHeap; }
+
+// U-108 Phase 7 (owner 2026-10-13): the `FACTORY;RESET` fresh start. This is the
+// ONLY writer that lowers the counters on purpose — normal operation only ever
+// increments them. RAM is reset so the running session reports honestly, and NVS
+// is cleared so the next boot reads a virgin tally (crashLogBegin() then yields
+// boot=1, crash=0). The recorded crash record is dropped too: after a factory
+// reset there is no "last unexpected boot" to attribute.
+void crashLogResetCounters() {
+  s_info.bootCount = 1;   // this boot is the first of the fresh start
+  s_info.crashCount = 0;
+  s_info.valid = false;
+  s_info.reason = 0;
+  s_info.label = resetLabel(ESP_RST_UNKNOWN);
+  s_info.heapAtBoot = 0;
+  s_info.phase[0] = '\0';
+  s_info.rtcValid = false;
+  s_info.heapAtCrash = 0;
+  s_info.minHeap = 0;
+  s_info.millisAtCrash = 0;
+  s_info.marks = 0;
+  s_info.task[0] = '\0';
+  s_flashedPhase[0] = '\0';
+
+  Preferences prefs;
+  if (prefs.begin(PREF_NS, false)) {
+    prefs.putUInt(KEY_BOOT, s_info.bootCount);
+    prefs.putUInt(KEY_CRASH, s_info.crashCount);
+    prefs.remove(KEY_REASON);
+    prefs.remove(KEY_HEAP);
+    prefs.remove(KEY_PHASE);
+    prefs.remove(KEY_HEAPC);
+    prefs.remove(KEY_MINH);
+    prefs.remove(KEY_MILLI);
+    prefs.remove(KEY_TASK);
+    prefs.end();
+  }
+  Serial.println("[CRASH] counters reset by FACTORY;RESET (boot=1 crash=0)");
+}

@@ -134,3 +134,10 @@ uint32_t crashLogCrashCount();
 
 // U-106: low-water free heap for the CURRENT boot (RAM only, never flash).
 uint32_t crashLogMinHeap();
+
+// U-108 Phase 7 (owner 2026-10-13). Fresh start: zero the boot/crash counters and
+// drop the recorded crash record, both in RAM and in NVS. Called by the car's
+// `FACTORY;RESET` after it clears the namespace, so the very next boot counts
+// from a clean slate (boot=1, crash=0) instead of continuing the old tally. The
+// serial line and the OLED reflect the reset immediately.
+void crashLogResetCounters();

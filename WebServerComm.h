@@ -441,6 +441,26 @@ void advanceRejoinStep();
   const String& lastWifiReply() const { return lastWifiReply_; }
   void clearLastWifiReply() { lastWifiReply_ = ""; }
 
+  // ---- U-108 Phase 7 (owner 2026-10-13): fresh start + timestamps ----------
+  // The car has no RTC/NTP of its own, so the APP is the clock: on every connect
+  // it sends `TIME;<unixEpoch>`, and the car derives the current epoch from that
+  // base + its own millis(). Every config write then stamps `botcfg/config_epoch`
+  // so a stale record is provable, and `FACTORY;RESET` wipes the whole `botcfg`
+  // namespace for a clean slate. See TRACKS/RECORDS-INVENTORY.md.
+  //
+  // `FACTORY;RESET` clears EVERY `botcfg` key (routers, credentials, toggles,
+  // mode/speed, relay token, crash counters), restores the RAM defaults and
+  // replies `FACTORY;CLEARED`. The next power cycle then boots a genuinely fresh
+  // car (there is deliberately NO mid-command reboot: the reply must reach the
+  // app first, and a reboot would drop the very link that carries it).
+  bool handleFactoryCommand(const char* cmd);
+  // Adopt the app-provided epoch (seconds). 0 = unsynced.
+  void syncEpoch(uint32_t epochSeconds);
+  // Current epoch (seconds), or 0 when the app has never synced this session.
+  uint32_t nowEpoch() const;
+  // The epoch stamped on the last config write (0 = never stamped).
+  uint32_t configEpoch() const { return configEpoch_; }
+
   bool isRunning() const;
   // v1.0.1 (owner OLED directive 2026-09-28): differentiated link truth for
   // the dashboard's Link/Type rows. hasWsClients() = a controller is linked
@@ -497,6 +517,12 @@ private:
   void handleStatus();
   void handleNotFound();
   void buildStatusJson(char* buf, size_t bufLen);
+
+  // U-108 Phase 7: stamp the app-provided epoch onto an ALREADY-OPEN writable
+  // "botcfg" handle. NVS shares one handle per namespace, so the stamp must ride
+  // the caller's open handle rather than opening a second one (U-77). No-op when
+  // the app has not synced (nowEpoch()==0) — an unsynced car stays unstamped.
+  void stampConfigWrite(Preferences& p);
 
   // U-77: bounded HTTP serving. armHttpGuard() caps every write of the
   // CURRENT request's socket (SO_SNDTIMEO); serveRootBounded() additionally
@@ -577,6 +603,16 @@ private:
   // Last WIFICFG reply, consumed by ModeManager's system-command hook so the
   // answer reaches the app over whichever comm is active.
   String lastWifiReply_;
+
+  // U-108 Phase 7: the app-provided clock. `epochBase_` is the last Unix epoch
+  // the app sent; `epochSetMs_` is millis() at that moment, so the live epoch is
+  // `epochBase_ + (millis() - epochSetMs_)/1000`. `epochSynced_` guards a 0
+  // epoch. `configEpoch_` mirrors the last value stamped into NVS so the app can
+  // read it back without touching flash.
+  bool epochSynced_;
+  uint32_t epochBase_;
+  unsigned long epochSetMs_;
+  uint32_t configEpoch_;
 
   // D3 (U-68): the nearby-network scan. One pass at a time, armed by the
   // command and driven by handle(); scanNetworks_ survives until the next scan

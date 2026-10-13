@@ -1,5 +1,27 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4WD4MCar_WiFi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
 
+## U-108 2026-10-13 — fresh start + timestamps (1.3.6, UNFLASHED — owner flash target)
+
+Owner round 4, Phase 7 (car half). Two new system commands ride the SAME hook as
+WIFICFG/ROUTERS/RELAYCFG (`Genum_4WD4M_CAR.ino` → `WebServerComm::handleFactoryCommand`):
+
+- **`FACTORY;RESET`** — `Preferences::clear()` on the whole `botcfg` namespace (routers,
+  credentials, last-good, toggles, mode/speed, relay token, `fw_mark`, crash counters), restores
+  RAM defaults (Wi-Fi ON, BT ON, boot auto-join ON, no stored pair, empty router list), calls
+  `crashLogResetCounters()` (boot→1, crash→0, record dropped) and replies `FACTORY;CLEARED`.
+  No mid-command reboot — the reply must reach the app first; the next power cycle is the virgin boot.
+- **`TIME;<unixEpoch>`** — the app is the car's clock (no RTC). Adopted into RAM; `TIME?` replies
+  `TIME;<now>;<configEpoch>`.
+- **`botcfg/config_epoch`** stamped on every configured write (WIFICFG store/reset + the three
+  toggles + ROUTERS ADD/USE/DEL/CLEAR). Boot-state (`mode`/`spd`) intentionally unstamped.
+
+Files: `WebServerComm.h/.cpp` (command + epoch + `stampConfigWrite`), `CrashLog.h/.cpp`
+(`crashLogResetCounters`), `Genum_4WD4M_CAR.ino` (hook), `TRACKS/RECORDS-INVENTORY.md` §5.
+
+Gates: node `check-webpage-js` + `check-relay-contract`, `check-firmware-syntax.ps1` (10/10),
+`arduino-cli compile` PASS (flash 1823610 B / 57%, RAM 85404 B / 26%). Device verify pending
+(Phase 9 adds U-108 rows). App half (Reset car data + `updatedAt`) and the DB migration are separate.
+
 ## U-107 2026-10-13 — OLED last-two-lines rule (1.3.6, UNFLASHED — owner flash target)
 
 Owner request: the OLED's last two rows must alternate BT ⇄ Wi-Fi info when both transports

@@ -92,3 +92,17 @@ retention policy ship as a new additive migration (no table dropped/renamed) in 
    writes `updatedAt` on the remaining car records.
 3. **DB:** an additive migration that (a) deletes this car + owner's car-related rows, and
    (b) adds retention for `device_crash_reports` + `app_logs` (e.g. older than N days).
+
+## 5. Implementation status (round 4, 2026-10-13)
+
+- [x] **Car — DONE (firmware 1.3.6, U-108 Phase 7).** `FACTORY;RESET` clears the whole `botcfg`
+      namespace via `Preferences::clear()`, restores RAM defaults, calls
+      `crashLogResetCounters()` (boot→1, crash→0, record dropped) and replies `FACTORY;CLEARED`;
+      `TIME;<epoch>` adopts the app's clock and `botcfg/config_epoch` is stamped on every
+      configured write (WIFICFG store/reset + the three toggles + ROUTERS ADD/USE/DEL/CLEAR).
+      `TIME?` reports `TIME;<now>;<configEpoch>`. **Boot-state (`mode`/`spd`) is deliberately not
+      stamped** — it changes on every drive action and the app/DB timestamps cover it. UNFLASHED
+      (F-61) until the owner applies the 1.3.6 batch.
+- [ ] **App — Phase 7b.** Reset car data + `updatedAt`.
+- [ ] **DB — Phase 7c.** Additive migration (delete this car + owner rows; retention).
+

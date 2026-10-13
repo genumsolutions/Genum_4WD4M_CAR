@@ -84,6 +84,25 @@ is unchanged. The app's own-AP matching stays **case-insensitive** (`isOwnApName
 folds to upper case), so an app that still shows the old casing — or a car still
 running the old firmware — keeps working across the flash.
 
+### Added — fresh start + timestamps (owner round-4 Phase 7)
+
+- **`FACTORY;RESET`** (and `FACTORY?` for the syntax reply) — wipes the WHOLE
+  `botcfg` NVS namespace (routers, credentials, last-good, toggles, mode/speed,
+  relay token, `fw_mark` and the crash counters), restores the RAM defaults
+  (both transports ON, boot auto-join ON, no stored Wi-Fi, empty router list),
+  resets the boot/crash counters via `crashLogResetCounters()` and replies
+  `FACTORY;CLEARED`. There is deliberately NO mid-command reboot: the reply must
+  reach the app first. The next power cycle boots a virgin car.
+- **`TIME;<unixEpoch>`** — the app is the car's clock (the ESP32 has no RTC).
+  Sent on every connect; the car derives the live epoch from that base + its own
+  `millis()`. `TIME?` replies `TIME;<now>;<configEpoch>`.
+- **`botcfg/config_epoch`** — stamped (from the app-provided epoch) on every
+  configured write: `WIFICFG;RESET`, the WIFI/BT/AUTOJOIN toggles, a stored pair,
+  and `ROUTERS;ADD/USE/DEL/CLEAR`. Surfaced as the second field of `TIME?`, so a
+  stale config record is provable. Boot-state (`mode`/`spd`, `ParamsStore`) is
+  intentionally NOT stamped — it changes on every drive action, and the app/DB
+  timestamps cover it.
+
 ### Changed
 
 - `FW_VERSION` `1.3.5 → 1.3.6`.

@@ -229,7 +229,11 @@ void setup() {
     // which is why it is deliberately reachable over Bluetooth AND the page -
     // the owner can always get at it without re-flashing.
     const bool isRelayCmd = relayComm.handleRelayConfigCommand(cmd);
-    if (!isRouterCmd && !isWifiCmd && !isRelayCmd) return false;
+    // U-108 Phase 7: FACTORY;RESET (fresh start) + TIME;<epoch> (the app's clock)
+    // ride the SAME single system-command entry point — they are not drive
+    // commands and must work in every mode over every transport.
+    const bool isFactoryCmd = webServerComm.handleFactoryCommand(cmd);
+    if (!isRouterCmd && !isWifiCmd && !isRelayCmd && !isFactoryCmd) return false;
     if (webServerComm.lastWifiReply().length() > 0) {
       modeManager.queueReply(webServerComm.lastWifiReply().c_str());
       // T-35/T-63: fan the reply out over EVERY connected transport (STATE
