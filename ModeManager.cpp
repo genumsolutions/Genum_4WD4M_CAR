@@ -144,12 +144,12 @@ ModeManager::LinkInfo ModeManager::currentLink() const {
   // something false. Under WS because a page on this network is a more local
   // truth than a cloud link, and both cannot be "the" link.
   const bool relayUp = relayComm_ && relayComm_->connected();
-  // M3 (owner 2026-10-13): parallel BT+Wi-Fi. With `WIFICFG;PARALLEL;ON` the
-  // U-79 loop keeps BOTH transports up, so the CURRENT live link is BOTH at
-  // once — reporting only the web client would be the old "panel lies when a
-  // second transport is live" all over again. This branch outranks the single
+  // M3 (owner 2026-10-13): with BOTH transport toggles enabled (U-105) the U-79
+  // loop keeps BOTH transports up, so the CURRENT live link is BOTH at once —
+  // reporting only the web client would be the old "panel lies when a second
+  // transport is live" all over again. This branch outranks the single
   // transport states precisely because both are really connected.
-  if (ws && ws->allowParallel() && wsClients && btUp) {
+  if (ws && ws->wifiEnabled() && ws->btEnabled() && wsClients && btUp) {
     return {"Parallel", "BT+WiFi", true};
   }
   if (wsClients) return {"WiFi", "WebServer", true};
@@ -612,16 +612,18 @@ void ModeManager::sendStateOn(CommInterface& comm) {
     if (ci.phase[0]) snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";PH=%s", ci.phase);
     snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";LH=%lu",
              static_cast<unsigned long>(ci.heapAtBoot));
-    // U-R3 (1.3.2): own-hotspot power-save + parallel links state on every STATE
-    // so a Bluetooth-only remote/app can read the car's stored config without
-    // needing a WS JSON round-trip. Mirrors the /status JSON fields.
+    // U-105 (1.3.5): transport toggles + boot auto-join on every STATE line so a
+    // Bluetooth-only remote/app can read the car's stored config without needing
+    // a WS JSON round-trip. Mirrors the /status JSON fields.
     {
       WebServerComm* ws = WebServerComm::instance();
       if (ws) {
-        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";APSAVE=%s",
-                 ws->apPowerSave() ? "ON" : "OFF");
-        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";PARALLEL=%s",
-                 ws->allowParallel() ? "ON" : "OFF");
+        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";WIFI=%s",
+                 ws->wifiEnabled() ? "ON" : "OFF");
+        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";BT=%s",
+                 ws->btEnabled() ? "ON" : "OFF");
+        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";AUTOJOIN=%s",
+                 ws->bootAutojoin() ? "ON" : "OFF");
       }
     }
     strncat(wifiKeys, tKeys, sizeof(wifiKeys) - strlen(wifiKeys) - 1);

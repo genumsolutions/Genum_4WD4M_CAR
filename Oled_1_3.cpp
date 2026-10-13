@@ -335,7 +335,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     if (!rotatePhase) {
       snprintf(line3, sizeof(line3), "Bluetooth : 4WD CAR");
     } else {
-      const char* apName = (netBuf[0] != '\0') ? netBuf : "GenumCar";
+      const char* apName = (netBuf[0] != '\0') ? netBuf : WIFI_AP_NAME;
       snprintf(line3, sizeof(line3), "Wifi : %s", apName);
     }
   } else if (strcmp(linkMethodBuf, "Parallel") == 0) {
@@ -359,7 +359,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     if (!rotatePhase) {
       snprintf(line4, sizeof(line4), "BT : SPP");
     } else {
-      const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "192.168.4.1";
+      const char* ipText = (ipBuf[0] != '\0') ? ipBuf : WIFI_AP_IP;
       snprintf(line4, sizeof(line4), "IP : %s", ipText);
     }
   } else {

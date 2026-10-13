@@ -6,7 +6,7 @@
 
 **Status (2026-09-28, later session — NO FIRMWARE CHANGE):** Phase 0 + Phase 1 DONE, CI GREEN. v2
 architecture LIVE in firmware:
-**Wi-Fi = always-on connection/setup channel (AP `4WDCar_Wifi` @ 192.168.245.1/24 + HTTP :80 +
+**Wi-Fi = always-on connection/setup channel (AP `4wd4mCar_Wifi` @ 192.168.245.1/24 + HTTP :80 +
 WS :81, up from boot, never stopped)** A→ **4WD4M is the single live drive mode over BOTH
 Bluetooth and Wi-Fi (no mode switch)** A→ `ESP_SER`/`ESP_CLI` retired → CS via CAPS A→ WIFICFG
 no longer switches modes A→ boot restore refuses retired modes A→ failsafe/link-loss safe-stop

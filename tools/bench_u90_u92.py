@@ -18,7 +18,7 @@ import urllib.request
 import websockets
 
 WS_PATH = "/"
-AP_NAME = "4WDCar_Wifi"
+AP_NAME = "4wd4mCar_Wifi"
 
 results: list[tuple[str, bool, str]] = []
 
@@ -307,42 +307,68 @@ async def switch_rows(ip: str, current: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Phase 4 (U-100) — the parallel BT+WiFi switch. Does NOT move the radio: it
-# flips a persisted policy flag and RESTORES the default (OFF) at the end, so
-# the car is left as it was found. Safe to run unattended.
+# Phase 4 (U-105) — the transport toggles (Wi-Fi / Bluetooth / boot auto-join).
+# The old parallel-links + power-save switches and their commands are gone.
+# These rows are SAFE unattended: they only read the three settings and flip
+# the Bluetooth toggle (which cannot disturb the WebSocket this bench rides).
+# Turning the Wi-Fi transport off WOULD kill the bench's own link (web layer
+# stops), so the destructive half of the toggles is tested on the device
+# checklist instead. The car is restored to BT ON at the end.
 # --------------------------------------------------------------------------- #
 async def parallel_rows(ip: str) -> None:
     url = f"ws://{ip}:81{WS_PATH}"
 
-    # Bare query -> the switch's current value. The WIFICFG reply rides the next
+    # Bare query -> the toggle's current value. The WIFICFG reply rides the next
     # STATE as REPLY=... (ModeManager system-command fan-out), so look for the
     # substring, not a frame prefix.
     async with Car(url) as car:
-        await car.send("WIFICFG;PARALLEL")
+        await car.send("WIFICFG;WIFI")
         got = await car.collect(4.5)
-        rep = [f for f in got if "WIFICFG;PARALLEL;" in f]
+        rep = [f for f in got if "WIFICFG;WIFI;" in f]
         record(
-            "P4-1  WIFICFG;PARALLEL reports the switch (bare query, one answer)",
+            "P4-1  WIFICFG;WIFI reports the Wi-Fi toggle (bare query, one answer)",
+            len(rep) == 1 and (rep[0].endswith(";ON") or rep[0].endswith(";OFF")),
+            f"answers={rep}",
+        )
+
+    async with Car(url) as car:
+        await car.send("WIFICFG;BT")
+        got = await car.collect(4.5)
+        rep = [f for f in got if "WIFICFG;BT;" in f]
+        record(
+            "P4-2  WIFICFG;BT reports the Bluetooth toggle (bare query, one answer)",
+            len(rep) == 1 and (rep[0].endswith(";ON") or rep[0].endswith(";OFF")),
+            f"answers={rep}",
+        )
+
+    async with Car(url) as car:
+        await car.send("WIFICFG;AUTOJOIN")
+        got = await car.collect(4.5)
+        rep = [f for f in got if "WIFICFG;AUTOJOIN;" in f]
+        record(
+            "P4-3  WIFICFG;AUTOJOIN reports the boot auto-join (bare query, one answer)",
+            len(rep) == 1 and (rep[0].endswith(";ON") or rep[0].endswith(";OFF")),
+            f"answers={rep}",
+        )
+
+    # BT toggle round trip — safe for the bench's web transport, restored at
+    # the end so the car is left exactly as it was found.
+    async with Car(url) as car:
+        await car.send("WIFICFG;BT;OFF")
+        got = await car.collect(4.5)
+        rep = [f for f in got if "WIFICFG;BT;OFF" in f]
+        record(
+            "P4-4  WIFICFG;BT;OFF is accepted and answered OFF",
             len(rep) == 1,
             f"answers={rep}",
         )
 
     async with Car(url) as car:
-        await car.send("WIFICFG;PARALLEL;ON")
+        await car.send("WIFICFG;BT;ON")
         got = await car.collect(4.5)
-        rep = [f for f in got if "WIFICFG;PARALLEL;ON" in f]
+        rep = [f for f in got if "WIFICFG;BT;ON" in f]
         record(
-            "P4-2  WIFICFG;PARALLEL;ON is accepted and answered ON",
-            len(rep) == 1,
-            f"answers={rep}",
-        )
-
-    async with Car(url) as car:
-        await car.send("WIFICFG;PARALLEL;OFF")
-        got = await car.collect(4.5)
-        rep = [f for f in got if "WIFICFG;PARALLEL;OFF" in f]
-        record(
-            "P4-3  WIFICFG;PARALLEL;OFF restores the default and answers OFF",
+            "P4-5  WIFICFG;BT;ON restores the toggle",
             len(rep) == 1,
             f"answers={rep}",
         )

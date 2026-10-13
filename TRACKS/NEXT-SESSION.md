@@ -1,4 +1,43 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-104: watchdog feed before the sendState() WS fan-out — 1.3.4 UNFLASHED, owner flash target)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4wd4mCar_Wifi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+
+## U-105 2026-10-13 — transport toggles ride, beacon never parked, one own-hotspot name (UNCOMMITTED → push pending, 1.3.5, UNFLASHED)
+
+Per the owner's device-report failures + redesign mandate (Q&A 2026-10-12/13): remove the
+parallel + power-save settings entirely, replace with Wi-Fi/BT/auto-join toggles, single
+own-hotspot name, beacon never parked, and fix "deleted network survives power cycle".
+Full round log: `RESUME-HERE.md` (R3 section). The app half is the same-version 3.2.7 JS-only
+OTA (F-65 stayed 3.2.7; this round is Phase B of that rebuild).
+
+1. **Toggles** — `WIFICFG;WIFI;ON|OFF` (NVS `botcfg/t_wifi`), `WIFICFG;BT;ON|OFF` (NVS
+   `botcfg/t_bt`), `WIFICFG;AUTOJOIN;ON|OFF` (NVS `botcfg/boot_autojoin`), all default ON,
+   clamped so they can never both be OFF (handler + `loadStoredWifi()` + U-79 loop). Both
+   transports stay up at once when enabled — the one-active-link teardown
+   (`saveLastTransport`/`loadLastTransport`/`LastTransport`/grace) is deleted. `/status`
+   JSON + STATE keys: `wifi_enabled`/`bt_enabled`/`boot_autojoin` (and `;WIFI=`/`;BT=`/
+   `;AUTOJOIN=`).
+2. **Parking deleted** — `updateApPowerPolicy()` rewritten to guarantee-only (bail on
+   `!wifiEnabled_`; restore beacon when STA down). `apParked_`, `AP_PARK_GRACE_MS`,
+   `AP_PARK_HTTP_MS`, `lastHttpAtMs_` stamp removed. `WIFICFG;PARALLEL`/`WIFICFG;APSAVE` and
+   `ap_psave`/`allow_parallel`/`last_transport` residue wiped on fresh install.
+3. **Identity** — `WIFI_AP_NAME = "4wd4mCar_Wifi"` (ONE name; `WirelessCar_Wifi` +
+   `4WDCar_Wifi` purged from app registry + firmware). `WIFI_AP_IP[] = "192.168.245.1"`;
+   OLED fallbacks now `WIFI_AP_NAME`/`WIFI_AP_IP`.
+4. **Deleted-network root cause** — `ROUTERS;DEL` registry-row + `wasActive` matching is now
+   case-INSENSITIVE (`strcasecmp`), so a different-case delete removes the row + active pair
+   and the router stays gone after a power cycle.
+5. **App companion (3.2.7, same version)** — registry/own-AP name mirror `4wd4mCar_Wifi`;
+   Remote settings show the three linked-gated toggles (Wi-Fi/BT/auto-join) that query on
+   link and persist to DevicePrefs + cloud; arbitration is both-live; deleted-network deep
+   fix via `wifi_enabled` cloud write-through.
+
+**Gates (car):** syntax 10/10 · `check-webpage-js.mjs` PASS (section 8 rewritten to the
+no-park + toggle contract) · `check-relay-contract.mjs` ALL PASS — source-level only; device
+verify stays owner-side. **Owner flash target is now 1.3.5** (re-flash is REQUIRED for the
+SSID rename — bench car still 1.0.5, F-61). After flashing, the app needs the **force-close
+×2** same-version OTA dance to pick up the new registry + toggles.
+
+**Pending:** commit + push (firmware + app) once app Phase B and its gates are green; device
+verify per the new U-105 rows in `DEVICE-TESTS.md`.
 
 ## U-104 2026-10-13 — watchdog feed before the sendState() WS fan-out (`02e1081`, PUSHED, 1.3.4, UNFLASHED)
 

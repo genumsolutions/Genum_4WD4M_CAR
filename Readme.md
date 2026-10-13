@@ -1,4 +1,4 @@
-Version 1.3.4
+Version 1.3.5
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -18,9 +18,9 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Item | Value |
 |---|---|
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
-| Wi-Fi AP SSID | **`4WDCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` |
+| Wi-Fi AP SSID | **`4wd4mCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` (1.3.5: the ONE own-hotspot name fleet-wide; the donor `WirelessCar_Wifi` and the older `4WDCar_Wifi` are fully removed) |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.4` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.5` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -80,6 +80,29 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.3.5 (2026-10-13, U-105)** — **the transport toggles ride, the beacon is never parked, the
+  own-hotspot name is fleet-single.** (a) The whole parallel-links + power-save pair
+  (`WIFICFG;PARALLEL` / `WIFICFG;APSAVE`, NVS `allow_parallel` / `ap_psave`, members `allowParallel_`
+  / `apPowerSave_`) is REMOVED per owner ruling and replaced by **`WIFICFG;WIFI;ON|OFF`** (NVS
+  `botcfg/t_wifi`), **`WIFICFG;BT;ON|OFF`** (NVS `botcfg/t_bt`), **`WIFICFG;AUTOJOIN;ON|OFF`** (NVS
+  `botcfg/boot_autojoin`). All three default ON; both transport toggles are clamped so they can never
+  both be OFF (handler, `loadStoredWifi()`, and the U-79 loop each enforce it). Both transports stay
+  up SIMULTANEOUSLY when enabled — the "one client powers the other down" teardown
+  (`saveLastTransport`/`LastTransport`/grace timer) is gone. (b) `updateApPowerPolicy()` was rewritten
+  to a **guarantee-beacon** policy: no parking branch, no `softAPdisconnect`, no `WiFi.mode()` on the
+  policy path; it bails when `wifiEnabled_` is false and otherwise only restores the beacon when the
+  STA is down. `apParked_`, `AP_PARK_GRACE_MS`, `AP_PARK_HTTP_MS`, and the `lastHttpAtMs_` stamp — all
+  parking-era residue — are deleted. (c) **`WIFI_AP_NAME` is now `4wd4mCar_Wifi`** — the ONE own-
+  hotspot name; the donor `WirelessCar_Wifi` and the earlier `4WDCar_Wifi` are purged from the app
+  registry and all firmware comments. `Config.h` gains `WIFI_AP_IP[] = "192.168.245.1"`; the OLED
+  fallback literals in `Oled_1_3.cpp` now use `WIFI_AP_NAME`/`WIFI_AP_IP` (was `"GenumCar"` and the
+  wrong-subnet `"192.168.4.1"`). (d) **Deleted networks stay deleted**: the registry-row + `wasActive`
+  delete in `ROUTERS;DEL` now matches case-insensitively (`strcasecmp`), so a different-case delete of
+  a saved router actually removes it instead of answering "Not saved" while the router survived the
+  power cycle. `/status` JSON + STATE keys rename to `wifi_enabled`/`bt_enabled`/`boot_autojoin`; the
+  boot auto-join is gated on `bootAutojoin_`. App 3.2.7 rides along (same-version JS-only OTA). Gates:
+  syntax 10/10 + the rewritten `check-webpage-js.mjs` transport-toggle contract + `check-relay-contract.mjs`.
+  UNFLASHED (car-side OTA pending owner).
 - **1.3.4 (2026-10-13, U-104)** — **watchdog feed before the `sendState()` WS fan-out.**
   `WebServerComm::write()` — the delivery path `ModeManager::sendStateOn()` uses for STATE / CAPS /
   NETW / SCAN (up to four WS broadcasts per transport per 1.5 s tick) — was the ONLY WS-write path

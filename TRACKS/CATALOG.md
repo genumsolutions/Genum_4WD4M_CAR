@@ -8,12 +8,12 @@
 | Item | Value | Source |
 |---|---|---|
 | FW_NAME | `4WD4M Car` | `Config.h:9` |
-| FW_VERSION | `1.3.4` | `Config.h` |
+| FW_VERSION | `1.3.5` | `Config.h` |
 | Bluetooth SPP | `4WD CAR` (server, PIN 1234) | `BluetoothComm.cpp:13` |
-| Wi-Fi AP | `4WDCar_Wifi`, open, channel 1, max 4 clients | `Config.h` `WIFI_AP_NAME` + `WebServerComm.cpp` |
+| Wi-Fi AP | `4wd4mCar_Wifi`, open, channel 1, max 4 clients | `Config.h` `WIFI_AP_NAME` + `WebServerComm.cpp` |
 | AP subnet | **192.168.245.1/24** (O-1 adopted) | `WebServerComm.cpp` `startOwnAP()` |
 | Partition | `huge_app` REQUIRED | CI + Readme §6 |
-| NVS | ns `botcfg` (wifi_ssid/wifi_pass, rnet0-5s/p, last_ok_ssid/pass, last_transport, fw_mark, mode, spd) | `ParamsStore` |
+| NVS | ns `botcfg` (wifi_ssid/wifi_pass, rnet0-5s/p, last_ok_ssid/pass, t_wifi, t_bt, boot_autojoin, fw_mark, mode, spd) | `ParamsStore` |
 
 > Two corrections (2026-10-06). The version said `1.0.0` and `Readme.md` said
 > `1.0.5` while `Config.h` said `1.2.0` — `Config.h` is the truth. And the NVS row
@@ -21,11 +21,13 @@
 > is the 2WD1M drive path, which is unreachable because that mode is `CS`. That
 > is also why `TRIM=` on the wire and `"trim"` in `/status` are always `0`.
 
-> **U-98 (2026-10-11, 1.3.0).** `fw_mark` = the `FW_VERSION` that last wrote the router surface;
+> **U-98/U-105 (2026-10-11/13, 1.3.0/1.3.5).** `fw_mark` = the `FW_VERSION` that last wrote the router surface;
 > a boot whose running firmware differs wipes every router key (saved `rnet<N>s/p`, the stored
-> pair, the last-good `last_ok_*`, `last_transport`) so a re-flash starts clean. `last_ok_ssid/
+> pair, the last-good `last_ok_*`) plus the transport toggles (`t_wifi`/`t_bt`) and `boot_autojoin`,
+> so a re-flash starts clean (BLUETOOTH/Wi-Fi both ON). `last_ok_ssid/
 > pass` are now **informational** — boot auto-join reads the last-SWITCHED `wifi_ssid`, not the
-> last-good pair. `last_transport` no longer gates the boot router hop.
+> last-good pair. U-105: `t_wifi`/`t_bt` (default ON, never both off) and `boot_autojoin` (default
+> ON) replaced the removed `ap_psave`/`allow_parallel`/`last_transport` keys.
 >
 > **(P2, same release.)** The OLED extra row and the WS bit both used `EXTRA_INTERVAL`; they are now
 > two ticks — `EXTRA_INTERVAL` (extra row) 500 ms and `STATUS_INTERVAL` (broadcast) 1000 ms — so the

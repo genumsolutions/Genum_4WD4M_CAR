@@ -596,14 +596,22 @@ if (bad) {
 }
 console.log("\nPASS: the page reports the car's answers honestly");
 
-// ---- 8. the AP power policy must never be able to strand the car ---------
+// ---- 8. the own hotspot must be GUARANTEED, never parked (U-105) -----------
 //
-// U-86: the car parks its setup beacon while it is healthy on a router, to save
-// power. The whole risk of that is a car that cannot be set up again, so the
-// order of operations is the contract. These checks read the firmware source
-// rather than the page, because that is where the radio work lives.
+// U-86/U-100 let the car PARK its setup beacon while healthy on a router, via
+// the power-save switch. The owner ruled the whole feature out (*"remove the
+// parallel thing from the setting entirely and power saving buttons and their
+// residues"*), so 1.3.5 has NO parking path: the beacon is broadcast whenever
+// the Wi-Fi transport is enabled. The transport toggles (WIFICFG;WIFI /
+// WIFICFG;BT) are the ONLY off switches, both default ON, never both off.
+// These checks read the firmware source because that is where the radio work
+// lives.
 const fw = fs.readFileSync(
   path.join(here, "..", "WebServerComm.cpp"),
+  "utf8",
+);
+const ino = fs.readFileSync(
+  path.join(here, "..", "Genum_4WD4M_CAR.ino"),
   "utf8",
 );
 const hdr = fs.readFileSync(path.join(here, "..", "WebServerComm.h"), "utf8");
@@ -617,239 +625,136 @@ if (!policy) {
 }
 const body = policy[0];
 
-// Park only once the STA is genuinely up. Matched on the assignment, not the
-// comparison, so this cannot be satisfied by a decoy elsewhere in the function.
-const staGuard = /const bool staUp\s*=\s*\(\s*WiFi\.status\(\)\s*==\s*WL_CONNECTED\s*\)/;
-if (!staGuard.test(body)) {
+// The policy must no-op the moment the Wi-Fi transport is OFF: stopping the
+// whole layer is the user's own switch (U-105), and a policy that restarts the
+// beacon under it would fight that switch.
+if (!/if\s*\(\s*!wifiEnabled_\s*\)\s*return;/.test(body)) {
   console.error(
-    "FAIL: the beacon could be parked without checking the STA is connected",
+    "FAIL: updateApPowerPolicy() does not bail out when the Wi-Fi transport is " +
+      "OFF — stopping the hotspot is the owner's own switch and the policy must " +
+      "never resurrect it (U-105)",
   );
   bad++;
 }
 
-// U-87 CORRECTION. The bench caught this: parking whenever the STA was up made
-// the car unreachable, because it had joined a router the user was not on. A
-// connected client is the only proof that the user can reach the car WITHOUT the
-// beacon, so it is now a required condition.
-//
-// 2026-10-10, owner: "the car is not connected through its own hotspot for the
-// phone after some period of time ... not allowing to connect and switch
-// cleanly". The WS half alone cannot see WHICH side a client arrived on: a
-// phone driving the car from 4WDCar_Wifi raises connectedClients() like any
-// other client, so it was counted as a reason to PARK 4WDCar_Wifi and the car
-// dropped its own link ~20 s after the page opened. Hence the SECOND required
-// half — `WiFi.softAPgetStationNum() == 0` — asserted on its own below, because
-// a rule that only ever checked the WS half passed straight over this bug.
-const inUseRe = /const bool inUse\s*=\s*([\s\S]*?);/;
-const inUseMatch = inUseRe.exec(body);
-if (!inUseMatch) {
-  console.error("FAIL: the power policy computes no `inUse` at all");
-  bad++;
-} else {
-  const inUseExpr = inUseMatch[1];
-  // Half 1 — U-87: a router-side client must be required.
-  if (!/ws\.connectedClients\(\)\s*>\s*0/.test(inUseExpr)) {
-    console.error(
-      "FAIL: the policy does not require a connected WebSocket client — the " +
-        "car can park its only way in while nobody can reach it",
-    );
-    bad++;
-  }
-  // Half 2 — 2026-10-10: nobody may be standing on the beacon being switched
-  // off. A client on the AP is the reason to KEEP it, not to drop it.
-  if (!/WiFi\.softAPgetStationNum\(\)\s*==\s*0/.test(inUseExpr)) {
-    console.error(
-      "FAIL: inUse does not require the car's own hotspot to be EMPTY — a phone " +
-        "connected through 4WDCar_Wifi counts as a reason to park 4WDCar_Wifi, " +
-        "so the car drops the link it is being driven over ~20 s after the page " +
-        "opens (the owner's own-hotspot report)",
-    );
-    bad++;
-  }
-  // Both must gate the SAME expression — one computed and discarded would pass
-  // either half while parking on the other.
-  if (!/ws\.connectedClients\(\)[\s\S]*softAPgetStationNum|softAPgetStationNum[\s\S]*ws\.connectedClients/.test(inUseExpr)) {
-    console.error(
-      "FAIL: the two halves of `inUse` are not part of one expression",
-    );
-    bad++;
-  }
-  // Half 3 — the HTTP branch must be FED, not merely read. `httpActive` is
-  // derived from `lastHttpAtMs_`, which only means something if a handler
-  // actually writes it; without the stamp the branch is permanently false and
-  // the page-load -> WebSocket window it exists to cover is silently uncovered
-  // while the comment above it claims otherwise (F-83: a rule that cannot
-  // reject is a comment with better manners — proven by deleting the stamp,
-  // which used to leave this gate green).
-  if (/httpActive/.test(inUseExpr)) {
-    // `httpActive` must MEASURE something: it is derived from a stamp, not a
-    // constant, or it is either always-false (window silently uncovered) or
-    // always-true (beacon held down forever).
-    const httpDecl = /const bool httpActive\s*=\s*([\s\S]*?);/.exec(body);
-    if (!httpDecl) {
-      console.error("FAIL: inUse reads httpActive but the policy never declares it");
-      bad++;
-    } else {
-      if (!/lastHttpAtMs_/.test(httpDecl[1])) {
-        console.error(
-          "FAIL: httpActive does not read lastHttpAtMs_ — it is not measuring " +
-            "anything",
-        );
-        bad++;
-      }
-      // And the window must be bounded, or one abandoned request pins the flag.
-      if (!/AP_PARK_HTTP_MS/.test(httpDecl[1])) {
-        console.error(
-          "FAIL: httpActive has no time bound — a stale HTTP stamp would hold " +
-            "the in-use flag (and the beacon) down indefinitely",
-        );
-        bad++;
-      }
-    }
-    // The stamp must actually be WRITTEN, or the whole branch is dead code.
-    const stamped = /void WebServerComm::armHttpGuard\(\)\s*\{[\s\S]*?\n\}/.exec(
-      fw,
-    );
-    if (!stamped || !/lastHttpAtMs_\s*=\s*millis\(\)/.test(stamped[0])) {
-      console.error(
-        "FAIL: armHttpGuard() never stamps lastHttpAtMs_ — the HTTP half of " +
-          "inUse is dead code, so a router-side client that has loaded the page " +
-          "but not yet attached its WebSocket is invisible to the policy",
-      );
-      bad++;
-    }
-    if (!/AP_PARK_HTTP_MS\s+\d+ul/.test(hdr)) {
-      console.error(
-        "FAIL: AP_PARK_HTTP_MS is not a compile-time constant — an unbounded " +
-          "HTTP window would hold the beacon down forever",
-      );
-      bad++;
-    }
-  }
-}
-// ...and parking must be gated on it, not merely computed.
-const parkBlock = /if\s*\(\s*apParked_\s*\)\s*\{([\s\S]*?)\n  \}/.exec(body);
-if (!parkBlock) {
-  console.error("FAIL: the parked branch is missing from the power policy");
-  bad++;
-} else if (!/inUse/.test(parkBlock[1])) {
-  console.error(
-    "FAIL: a parked beacon is not released when the last client leaves — the " +
-      "car would stay unreachable after use",
-  );
+// The beacon is the fallback when there is no router, so the policy still needs
+// the STA association state and must restore the beacon when the router is gone.
+if (!/const bool staUp\s*=/.test(body)) {
+  console.error("FAIL: the policy does not read the STA association state");
   bad++;
 }
-// Grace period, so a router that drops again straight away cannot flap it.
-if (!/AP_PARK_GRACE_MS/.test(body)) {
-  console.error(
-    "FAIL: the beacon is parked with no grace period — a flapping router " +
-      "would tear the beacon down and up repeatedly",
-  );
-  bad++;
-}
-// Park with softAPdisconnect ONLY. `WiFi.mode()` restarts the driver, which is
-// what caused the U-75 watchdog reboot; it must never appear on this path.
-if (/WiFi\.mode\s*\(/.test(body)) {
-  console.error(
-    "FAIL: the power policy calls WiFi.mode() — that is a full driver restart " +
-      "and is the documented cause of the task-watchdog reboot",
-  );
-  bad++;
-}
-// ...and the disconnect must not take the STA down with it. `wifioff` defaults
-// to false, so an omitted or falsy argument is the correct, safe form; only an
-// explicit `true` is dangerous.
-const dis = /WiFi\.softAPdisconnect\(([^;]*?)\);/.exec(body);
-if (!dis) {
-  console.error("FAIL: the policy never calls softAPdisconnect — nothing is parked");
-  bad++;
-} else if (/true/.test(dis[1])) {
-  console.error(
-    "FAIL: softAPdisconnect(true) would drop the router association too — " +
-      "parking the beacon must leave the STA up",
-  );
-  bad++;
-}
-// If the association goes, the beacon must come back. This is the single most
-// important property: it is what makes parking safe at all.
-// Scope the search to the !staUp branch itself, so a startOwnAP() further down
-// the function cannot stand in for the restore-on-disconnect.
-const staDown = /if\s*\(!staUp\)\s*\{([\s\S]*?)\n  \}/.exec(body);
+const staDown = /if\s*\(\s*!staUp\s*\)\s*\{([\s\S]*?)\n  \}/.exec(body);
 if (!staDown || !/startOwnAP\(\)/.test(staDown[1])) {
   console.error(
-    "FAIL: losing the router does not restore the beacon — a parked car could " +
-      "never be set up again",
+    "FAIL: losing the router does not restore the beacon — a car with no router " +
+      "and no hotspot could never be set up again",
   );
   bad++;
 }
-if (!/AP_PARK_GRACE_MS\s+\d+ul/.test(hdr)) {
-  console.error("FAIL: AP_PARK_GRACE_MS is not defined as a compile-time constant");
+
+// The lethal call is gone with the feature it served: parking detached the
+// beacon (softAPdisconnect) and the worst form dropped the STA too (wifioff
+// true). Neither may exist anywhere in the policy now — the beacon is never
+// parked in 1.3.5.
+if (/WiFi\.softAPdisconnect/.test(body)) {
+  console.error(
+    "FAIL: the power policy still calls WiFi.softAPdisconnect — parking was " +
+      "removed (U-105), the beacon must stay broadcast whenever the Wi-Fi " +
+      "transport is on",
+  );
   bad++;
 }
-// The give-up fallback must clear the parked flag, or the beacon would be
-// running while the code believed it was down.
-// Scope to the GIVEUP_AP case body so an unrelated apParked_/startOwnAP() pair
-// elsewhere in the file cannot satisfy this.
-const giveUp = /case GIVEUP_AP:([\s\S]*?)break;/.exec(fw);
-if (!giveUp) {
-  console.error("FAIL: the GIVEUP_AP fallback case is missing");
+// Same for the driver restart, which was the documented U-75 watchdog cause.
+if (/WiFi\.mode\s*\(/.test(body)) {
+  console.error(
+    "FAIL: the power policy calls WiFi.mode() — a full driver restart must " +
+      "never run from here (U-75 task-watchdog reboot)",
+  );
   bad++;
-} else if (
-  !/apParked_\s*=\s*false/.test(giveUp[1]) ||
-  !/startOwnAP\(\)/.test(giveUp[1])
+}
+
+// The transport toggles are the ONLY off switches and must DEFAULT ON, so a
+// first-flash car is open on both transports at once (owner ruling). Asserted
+// on the read, not the member name.
+if (!/getBool\(\s*"t_wifi"\s*,\s*true\s*\)/.test(fw)) {
+  console.error(
+    "FAIL: the Wi-Fi transport toggle does not default to ON in " +
+      "loadStoredWifi() — a virgin board would come up with no own hotspot " +
+      "(U-105)",
+  );
+  bad++;
+}
+if (!/getBool\(\s*"t_bt"\s*,\s*true\s*\)/.test(fw)) {
+  console.error(
+    "FAIL: the Bluetooth transport toggle does not default to ON in " +
+      "loadStoredWifi() (U-105)",
+  );
+  bad++;
+}
+if (!/getBool\(\s*"boot_autojoin"\s*,\s*true\s*\)/.test(fw)) {
+  console.error(
+    "FAIL: the boot auto-join toggle does not default to ON in loadStoredWifi() " +
+      "(U-105)",
+  );
+  bad++;
+}
+// Both-off must be clamped: the car can never run with NO transport at all.
+if (!/if\s*\(\s*!wifiEnabled_\s*&&\s*!btEnabled_\s*\)\s*wifiEnabled_\s*=\s*true;/.test(fw)) {
+  console.error(
+    "FAIL: loadStoredWifi() has no both-off clamp — a corrupted/partial NVS " +
+      "could leave the car with NO transport at all (U-105)",
+  );
+  bad++;
+}
+
+// The toggles must reach the loop through declared getters — a missing getter
+// would silently make WIFICFG;WIFI;OFF a no-op (a toggle that answers but does
+// nothing).
+if (
+  !/\bbool\s+wifiEnabled\s*\(\s*\)\s*const/.test(hdr) ||
+  !/\bbool\s+btEnabled\s*\(\s*\)\s*const/.test(hdr) ||
+  !/\bbool\s+bootAutojoin\s*\(\s*\)\s*const/.test(hdr)
 ) {
   console.error(
-    "FAIL: the give-up fallback does not clear apParked_ and restart the " +
-      "beacon — the power policy would believe the beacon is down while it " +
-      "is up, and the car would have no setup path",
+    "FAIL: wifiEnabled()/btEnabled()/bootAutojoin() are missing from " +
+      "WebServerComm.h — the U-79 loop cannot read the transport toggles (U-105)",
   );
   bad++;
 }
-// U-100 (owner 2026-10-12): the own hotspot is ALWAYS reachable by DEFAULT. The
-// beacon may only be parked while the power-save switch is ON, so a fresh car can
-// never silently lose 4WDCar_Wifi as a way in (the reported "car went into a
-// router and stopped showing its own page" bug).
-if (!/if\s*\(\s*!apPowerSave_\s*\)\s*return;/.test(body)) {
+
+// The command branches must exist so the app can actually switch the transports.
+if (
+  !/strncasecmp\(rest, ";WIFI"/.test(fw) ||
+  !/strncasecmp\(rest, ";BT"/.test(fw) ||
+  !/strncasecmp\(rest, ";AUTOJOIN"/.test(fw)
+) {
   console.error(
-    "FAIL: parking is not gated on the power-save switch — a fresh car would " +
-      "park its own hotspot even though 4WDCar_Wifi must stay reachable by " +
-      "default (U-100)",
+    "FAIL: WIFICFG;WIFI / WIFICFG;BT / WIFICFG;AUTOJOIN branches are missing " +
+      "from handleWifiConfigCommand (U-105)",
   );
   bad++;
 }
-// ...and the switch itself must default OFF in the NVS load, or a virgin board
-// still parks. Asserted on the read, not the member name.
-if (!/getBool\(\s*"ap_psave"\s*,\s*false\s*\)/.test(fw)) {
+
+// The U-79 loop must ENFORCE the toggles every pass (start the enabled ones,
+// stop the disabled ones) — otherwise a switch is just a stored bool.
+if (
+  !/webServerComm\.wifiEnabled\(\)/.test(ino) ||
+  !/webServerComm\.btEnabled\(\)/.test(ino) ||
+  !/webServerComm\.stop\(\)/.test(ino) ||
+  !/webServerComm\.armBootAutoJoin\(\)/.test(ino)
+) {
   console.error(
-    "FAIL: the own-hotspot power-save switch does not default to OFF in " +
-      "loadStoredWifi() — a fresh car would park 4WDCar_Wifi (U-100)",
+    "FAIL: the U-79 loop no longer enforces wifiEnabled()/btEnabled() with " +
+      "stop()/beginAlwaysOn()/armBootAutoJoin() — the transport toggles would " +
+      "be decorative (U-105)",
   );
   bad++;
 }
-// U-100 Phase 4: parallel Bluetooth + WiFi must ALSO ship OFF by default, and
-// the switch must reach the loop through allowParallel() — the U-79
-// arbitration reads it every pass, so a missing getter would silently make
-// `WIFICFG;PARALLEL;ON` a no-op (a toggle that answers but does nothing).
-if (!/getBool\(\s*"allow_parallel"\s*,\s*false\s*\)/.test(fw)) {
-  console.error(
-    "FAIL: the parallel-transports switch does not default to OFF in " +
-      "loadStoredWifi() — a fresh car would run both transports at once with " +
-      "no way to turn it back off (U-100 Phase 4)",
-  );
-  bad++;
-}
-if (!/\bbool\s+allowParallel\s*\(\s*\)\s*const/.test(hdr)) {
-  console.error(
-    "FAIL: allowParallel() is missing from WebServerComm.h — the U-79 loop " +
-      "cannot read the parallel switch, so `WIFICFG;PARALLEL;ON` answers but " +
-      "never changes the transport policy (U-100 Phase 4)",
-  );
-  bad++;
-}
+
 if (!bad) {
   console.log(
-    "PASS: the beacon can only be parked while the car is reachable on a " +
-      "router, and is restored the moment that stops being true",
+    "PASS: the own hotspot is guaranteed (never parked) and the Wi-Fi/" +
+      "Bluetooth toggles are the only off switches, both defaulting ON",
   );
 }
 
@@ -944,7 +849,7 @@ needPage(/sendCmd\('ROUTERS;DEL;'\+ssid\)/.test(js),
 // The dropdown should have the car's own AP as a protected entry
 onmsg({ data: JSON.stringify({
   status: "Stopped", mode: "4WD4M", speed: 200, connected: true,
-  ap: "4WDCar_Wifi", ssid: "HomeNet",
+  ap: "4wd4mCar_Wifi", ssid: "HomeNet",
 }) });
 
 // onload wires the select handlers and the visibilitychange reconnect —

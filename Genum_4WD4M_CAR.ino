@@ -53,44 +53,23 @@ static unsigned long btLastConnectedOkMs = 0;
 // re-armed by a fresh connection, so a genuine mid-session drop still recovers.
 static bool btEverConnected = false;
 
-// ===== U-79 (2026-10-03): TRANSPORT POWER POLICY (owner ruling) ==========
-//  - IDLE (no client on anything): Bluetooth AND Wi-Fi (hotspot; router per
-//    boot preference) both broadcast until the user picks one.
-//  - A client on ONE transport switches the OTHER off (power save). The
-//    transport the client is using is never touched.
-//  - When that connection goes away, both broadcast again after a short
-//    grace period — the car is always reachable somehow.
-//  - Boot/resume return to the LAST SWITCHED router when one is stored (U-98,
-//    2026-10-11): full retry budget, own hotspot beacon up the whole time, and
-//    the give-up path restores it when the router is gone. Bluetooth being the
-//    last transport is NOT a reason to skip that — the last-switch is a property
-//    of the router the owner chose, not of the phone's last transport.
-enum class LastTransport : uint8_t { WIFI = 0, BT = 1 };
-static LastTransport lastTransport = LastTransport::WIFI;
+// ===== U-79 / U-105 (2026-10-13): TRANSPORT AVAILABILITY (owner ruling) =====
+// Every pass the loop enforces two persisted switches instead of the old
+// one-client-powers-the-other-down arbitration:
+//   - Wi-Fi ON (`botcfg/t_wifi`)  -> web layer up (own hotspot + router link)
+//   - Bluetooth ON (`botcfg/t_bt`) -> BT advertising up
+// Both default ON, so a first-flash car is open on BOTH transports at once and
+// both can be connected SIMULTANEOUSLY (the old "one client switches the other
+// off" teardown is gone — the owner asked to connect to both at the same time).
+// The car never runs with both off: the command path refuses it and this loop
+// clamps again. Boot auto-join of the last-switched router (U-98) is gated by
+// `botcfg/boot_autojoin` inside armBootAutoJoin() and no-ops when nothing is
+// stored; the own hotspot beacon stays up the whole time (never parked, U-105).
 static bool webUp = false;   // web layer (AP + HTTP/WS + router join) is up
 static bool btUp = false;    // Bluetooth SPP is up
-static bool transportsIdle = false;
-static unsigned long transportsIdleSinceMs = 0;
-constexpr unsigned long TRANSPORT_GRACE_MS = 3000;
-
-static void saveLastTransport(LastTransport t) {
-  lastTransport = t;
-  Preferences prefs;
-  prefs.begin("botcfg", false);
-  prefs.putUChar("last_transport", static_cast<uint8_t>(t));
-  prefs.end();
-}
-
-static void loadLastTransport() {
-  Preferences prefs;
-  prefs.begin("botcfg", true);
-  const uint8_t v = prefs.getUChar("last_transport",
-                                   static_cast<uint8_t>(LastTransport::WIFI));
-  prefs.end();
-  lastTransport = (v == static_cast<uint8_t>(LastTransport::BT))
-                      ? LastTransport::BT
-                      : LastTransport::WIFI;
-}
+// Legacy: `last_transport` / the idle-grace counters were removed with the
+// teardown arbitration they belonged to (U-105). The NVS key is still wiped on
+// a fresh install by wipeRoutersOnFreshFirmware() for residue cleanliness.
 
 void setup() {
   Serial.begin(115200);
@@ -287,16 +266,13 @@ void setup() {
   relayComm.begin();
   modeManager.setRelayComm(&relayComm);
   // U-98: a power-up ALWAYS returns to the last-switched router when one is
-  // stored (the owner's rule: *"the car should always go to the last switched
-  // router network always; if it is not available it should show its own
-  // router"*). armBootAutoJoin() no-ops when nothing is stored, uses the full
-  // retry budget, and the own hotspot stays up the whole time — an unreachable
-  // router just means the give-up path restores the hotspot after the budget is
-  // spent. The old last-transport gate (BT last -> skip the hop) is gone: the
-  // last-switch is about the router the owner chose, not the last transport.
-  loadLastTransport();
-  Serial.printf("[BOOT] last transport: %s (boot auto-join is router-first, U-98)\n",
-                lastTransport == LastTransport::BT ? "Bluetooth" : "Wi-Fi");
+  // stored AND the auto-join setting is ON (U-105 `botcfg/boot_autojoin`,
+  // default ON) — the owner's rule: *"the car should always go to the last
+  // switched router network always; if it is not available it should show its
+  // own router"*. armBootAutoJoin() no-ops when nothing is stored or the
+  // setting is off, uses the full retry budget, and the own hotspot stays up
+  // the whole time — an unreachable router just means the give-up path
+  // restores the hotspot after the budget is spent.
   webServerComm.armBootAutoJoin();
   // U-96: motors deferred to end of setup — the H-bridge is the biggest
   // non-comms power load and the car is reachable before it loads.
@@ -390,29 +366,23 @@ void loop() {
   // loop(), so skipping this is the same as not having a relay at all.
   relayComm.handle();
 
-  // ===== U-79: transport power arbitration ============================
-  // One client on one transport switches the OTHER off; when nothing is
-  // connected for longer than the grace period, both broadcast again. The
-  // transport WITH a client is never touched, so a live control path can
-  // never be yanked out from under the user.
+  // ===== U-79 / U-105: transport availability enforcement =============
+  // The two persisted toggles (WIFICFG;WIFI / WIFICFG;BT) decide what may
+  // broadcast; this loop forces reality to match every pass. A transport that
+  // is ENABLED stays up no matter what the other transport is doing — the old
+  // "one client on one transport powers the OTHER down" teardown is gone
+  // (owner: *"both should be on and working at the same time if the user
+  // wants"*). Both-off is clamped to Wi-Fi-on so the car can never vanish.
   // CRITICAL: Use portMUX ONLY for atomic state reads/writes, NOT for
   // transport operations which can block for hundreds of milliseconds.
-  // U-100 Phase 4: with `WIFICFG;PARALLEL;ON` (NVS `allow_parallel`) the
-  // teardown branches are skipped entirely - a client on one transport never
-  // powers the OTHER down, and a transport that is still down is brought back
-  // with the same idempotent starts the idle path uses. Both transports stay
-  // up, so Bluetooth and WiFi are connected at the same time.
-  bool btClient, webClient, relayClient, wiredClient;
-  {
-    TRANSPORT_POWER_ENTER_CRITICAL();
-    btClient = btComm.connected();
-    webClient = webServerComm.hasWsClients();
-    relayClient = relayComm.connected();
-    wiredClient = webClient || relayClient;
-    TRANSPORT_POWER_EXIT_CRITICAL();
-  }
+  bool wifiEn = webServerComm.wifiEnabled();
+  bool btEn = webServerComm.btEnabled();
+  if (!wifiEn && !btEn) wifiEn = true;  // clamp: never both off
 
-  if (webServerComm.allowParallel()) {
+  if (wifiEn && btEn) {
+    // Both enabled: start whatever is down, idempotently. The own hotspot is
+    // ALWAYS a way in (never parked, U-105) and a stored router is (re)joined
+    // per boot_autojoin inside armBootAutoJoin().
     bool shouldStartBt = false, shouldStartWeb = false;
     {
       TRANSPORT_POWER_ENTER_CRITICAL();
@@ -424,104 +394,60 @@ void loop() {
     }
     if (shouldStartBt) {
       btComm.begin();  // idempotent; true = advertising again
-      Serial.println("[POWER] Bluetooth advertising (parallel)");
+      Serial.println("[POWER] Bluetooth advertising (both transports on)");
     }
     if (shouldStartWeb) {
       webServerComm.beginAlwaysOn();
       webServerComm.armBootAutoJoin();  // own hotspot stays up
-      Serial.println("[POWER] Wi-Fi up (parallel)");
+      Serial.println("[POWER] Wi-Fi up (both transports on)");
     }
-  } else if (btClient && !wiredClient) {
+  } else if (btEn) {
+    // Wi-Fi transport OFF: the whole web layer is a deliberate stop (any live
+    // WS/HTTP/relay client was dropped by the owner's own switch, not by a
+    // fault), while Bluetooth is the only transport and must be up.
     bool shouldStopWeb = false;
     {
       TRANSPORT_POWER_ENTER_CRITICAL();
       shouldStopWeb = webUp;
-      if (shouldStopWeb) {
-        webUp = false;
-        saveLastTransport(LastTransport::BT);
-      }
+      if (shouldStopWeb) webUp = false;
       TRANSPORT_POWER_EXIT_CRITICAL();
     }
     if (shouldStopWeb) {
       webServerComm.stop();
-      Serial.println("[POWER] Wi-Fi off - Bluetooth client active");
+      Serial.println("[POWER] Wi-Fi off - transport disabled (WIFICFG;WIFI;OFF)");
     }
+    bool shouldStartBt = false;
     {
       TRANSPORT_POWER_ENTER_CRITICAL();
-      transportsIdle = false;
+      shouldStartBt = !btUp;
+      if (shouldStartBt) btUp = true;
       TRANSPORT_POWER_EXIT_CRITICAL();
     }
-  } else if (wiredClient && !btClient) {
-    bool shouldStopBt = false;
+    if (shouldStartBt) {
+      btComm.begin();
+      Serial.println("[POWER] Bluetooth advertising (Wi-Fi off)");
+    }
+  } else {
+    // Bluetooth transport OFF: stop the BT stack; Wi-Fi (own hotspot + the
+    // stored router per boot_autojoin) is the only transport and must be up.
+    bool shouldStopBt = false, shouldStartWeb = false;
     {
       TRANSPORT_POWER_ENTER_CRITICAL();
       shouldStopBt = btUp;
-      if (shouldStopBt) {
-        btUp = false;
-        saveLastTransport(LastTransport::WIFI);
-      }
+      shouldStartWeb = !webUp;
+      if (shouldStopBt) btUp = false;
+      if (shouldStartWeb) webUp = true;
       TRANSPORT_POWER_EXIT_CRITICAL();
     }
     if (shouldStopBt) {
       btComm.stop();
-      Serial.println("[POWER] Bluetooth off - wired client active");
+      Serial.println("[POWER] Bluetooth off - transport disabled (WIFICFG;BT;OFF)");
     }
-    {
-      TRANSPORT_POWER_ENTER_CRITICAL();
-      transportsIdle = false;
-      TRANSPORT_POWER_EXIT_CRITICAL();
+    if (shouldStartWeb) {
+      webServerComm.beginAlwaysOn();
+      webServerComm.armBootAutoJoin();  // own hotspot stays up
+      Serial.println("[POWER] Wi-Fi up (Bluetooth off)");
     }
-  } else if (!btClient && !wiredClient) {
-    bool wasIdle;
-    {
-      TRANSPORT_POWER_ENTER_CRITICAL();
-      wasIdle = transportsIdle;
-      if (!transportsIdle) {
-        transportsIdle = true;
-        transportsIdleSinceMs = millis();
-      }
-      TRANSPORT_POWER_EXIT_CRITICAL();
-    }
-
-    if (!wasIdle) {
-      // Just became idle, wait for grace period
-    } else if (millis() - transportsIdleSinceMs >= TRANSPORT_GRACE_MS) {
-      bool shouldStartBt = false, shouldStartWeb = false, shouldArmAutoJoin = false;
-      {
-        TRANSPORT_POWER_ENTER_CRITICAL();
-        shouldStartBt = !btUp;
-        shouldStartWeb = !webUp;
-        if (shouldStartBt) btUp = true;
-        if (shouldStartWeb) webUp = true;
-        TRANSPORT_POWER_EXIT_CRITICAL();
-      }
-
-      if (shouldStartBt) {
-        btComm.begin();  // idempotent; true = advertising again
-        Serial.println("[POWER] Bluetooth advertising (no client)");
-      }
-      if (shouldStartWeb) {
-        webServerComm.beginAlwaysOn();
-        // U-98: the web layer returns to the last-switched router too — the
-        // resume and boot paths share one policy. armBootAutoJoin() no-ops when
-        // nothing is stored, so this is safe on a clean car.
-        shouldArmAutoJoin = true;
-        Serial.println("[POWER] Wi-Fi up (no client)");
-      }
-      if (shouldArmAutoJoin) {
-        webServerComm.armBootAutoJoin();  // full budget; own hotspot stays up
-      }
-      {
-        TRANSPORT_POWER_ENTER_CRITICAL();
-        transportsIdle = false;
-        TRANSPORT_POWER_EXIT_CRITICAL();
-      }
-    }
-  } else {
-    // both connected: leave both alone
-    TRANSPORT_POWER_ENTER_CRITICAL();
-    transportsIdle = false;
-    TRANSPORT_POWER_EXIT_CRITICAL();
   }
 
   // U-95/F-79: back to idle. The phase markers set above (http-root,

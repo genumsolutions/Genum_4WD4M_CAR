@@ -20,7 +20,7 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.4"  // see TRACKS/CHANGELOG.md
+#define FW_VERSION "1.3.5"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 
 // U-79: Transport power arbitration mutex - declared extern so it can be
@@ -156,7 +156,17 @@ constexpr unsigned long SWITCH_DEBOUNCE_MS = 50u;
 // suffix is gone per owner (name is fixed, no MAC). T-66 (round-9): in ESP_SER
 // this network is the DEFAULT + protected (it leads every saved-router list
 // and can never be deleted/added/saved).
-constexpr char WIFI_AP_NAME[] = "4WDCar_Wifi";
+// U-105 (1.3.5, owner 2026-10-13): ONE own-AP identity. The old fleet carried
+// both the donor's `WirelessCar_Wifi` and the earlier `4WDCar_Wifi`, which
+// duplicated/confused the "car's own hotspot" row everywhere. The owner ruled:
+// *"remove discrepancies and keep fallback default 4wd4mCar_Wifi only and
+// remove that genum car and donor things completely."* This is the ONLY name
+// in the system now (the app registry holds exactly this too).
+constexpr char WIFI_AP_NAME[] = "4wd4mCar_Wifi";
+// FIN-48: the own-hotspot gateway. One source for the OLED fallback line so
+// the old "192.168.4.1" placeholder (a DIFFERENT subnet) can never appear on
+// the display next to the real AP identity.
+constexpr char WIFI_AP_IP[] = "192.168.245.1";
 // How long beginStation() waits for a STORED router before the own AP is
 // declared the network (the hotspot itself is up the whole time — T-65).
 constexpr uint32_t WIFI_STA_TIMEOUT_MS = 8000u;

@@ -24,7 +24,7 @@
 // scans that blank the softAP beacon, so an unreachable saved router must not
 // be retried forever. Auto-reconnect is OFF (beginStation/rejoinNetwork) and
 // only STA_MAX_RETRIES explicit attempts (spaced WIFI_RETRY_INTERVAL_MS) run;
-// after that the car settles AP-ONLY so 4WDCar_Wifi stays rock-solid for
+// after that the car settles AP-ONLY so 4wd4mCar_Wifi stays rock-solid for
 // phone joins. A later ROUTERS;USE / WIFICFG / mode re-entry starts STA fresh.
 // R-16 (2026-09-18) budget note, REWRITTEN 2026-10-11 (U-98): the budget now
 // covers BOTH the explicit user join (ROUTERS;USE / WIFICFG) AND the boot
@@ -122,25 +122,17 @@
 #define REJOIN_MODE_SETTLE_MS 500ul
 #define REJOIN_MODE_DROP_ATTEMPTS 2
 
-// U-86: how long the car must sit on a router before its setup beacon is
-// parked. Long enough that a router which fails within the first moments does
-// not cause a teardown/rebuild flap, short enough that the power saving is
-// real. 20 s.
-#define AP_PARK_GRACE_MS 20000ul
-// How long a lone HTTP request counts as "somebody is using the car". The page
-// loads over :80 and only THEN opens :81, so there is a window in which the
-// only evidence of a user is a completed HTTP request. Deliberately short: it
-// exists to bridge page-load -> WebSocket, not to remember a visitor. If it
-// expires with no WebSocket attached, the car concludes idle and KEEPS the
-// beacon - the safe direction, because a stale "in use" is what drops a link
-// somebody may still be driving over.
-#define AP_PARK_HTTP_MS 15000ul
+// U-105 (1.3.5): the old beacon PARKING (U-86/U-100, `AP_PARK_GRACE_MS` /
+// `AP_PARK_HTTP_MS`) was removed with the power-save switch (owner ruling).
+// The own-hotspot beacon is never parked — it is up whenever the Wi-Fi
+// transport is enabled, full stop. The only remaining power gate is the
+// Wi-Fi/BT transport toggles themselves, which stop the whole layer.
 #define SCAN_MAX_RESULTS 12
 // T-48 (round-5): saved-router registry — the car is the source of truth.
 // Max 6 routers (ssid ≤32 / pass ≤64, no ';' in either — split-rule parity
 // with WIFICFG). Names sync OUT only; passwords never leave the car's NVS.
 // T-62 (round-9): ROUTERS;CLEAR wipes the whole user registry + stored pair.
-// T-66 (round-9): the car's OWN network (WIFI_AP_NAME = 4WDCar_Wifi) is a
+// T-66 (round-9): the car's OWN network (WIFI_AP_NAME = 4wd4mCar_Wifi) is a
 // protected virtual entry — always FIRST in ROUTERS/NETW/JSON lists while in
 // webserver mode, never stored, never deletable; DEL/CLEAR refuse it and
 // USE on it reverts the car to its own AP as the default network.
@@ -191,14 +183,17 @@ public:
   // the .cpp, which says so 55 lines below this header). ESP_SER was removed
   // from the mode registry entirely in U-79; there is no mode to switch to.
   bool handleWifiConfigCommand(const char* cmd);
-  // U-100 Phase 4: parallel Bluetooth + WiFi. The U-79 loop reads this every
-  // pass: ON means a client on one transport never powers the OTHER down (and
-  // a transport that is still down is brought back), OFF keeps the old
-  // arbitration. NVS `botcfg/allow_parallel`, set via `WIFICFG;PARALLEL;ON|OFF`.
-  bool allowParallel() const { return allowParallel_; }
-  // U-R3 (2026-10-12): own-hotspot power-save state for STATE line + /status.
-  // NVS `botcfg/ap_psave`, set via `WIFICFG;APSAVE;ON|OFF`.
-  bool apPowerSave() const { return apPowerSave_; }
+  // U-105 (1.3.5, owner 2026-10-13): two transport ON/OFF toggles REPLACE the
+  // old parallel-links + power-save (APSAVE) switches entirely — their command
+  // branches, NVS keys and app settings are all gone (removed as "residues").
+  // NVS `botcfg/t_wifi` / `botcfg/t_bt`, set via `WIFICFG;WIFI;ON|OFF` /
+  // `WIFICFG;BT;ON|OFF`. Both default ON so a first-flash car is open on both
+  // transports at once; the car never runs with BOTH off (the command path and
+  // the U-79 loop clamp). `bootAutojoin_` (NVS `botcfg/boot_autojoin`) gates
+  // the boot auto-join of the last-switched router (U-98) and ships ON.
+  bool wifiEnabled() const { return wifiEnabled_; }
+  bool btEnabled() const { return btEnabled_; }
+  bool bootAutojoin() const { return bootAutojoin_; }
   // T-48 (round-5): saved-router registry commands — ROUTERS;LIST /
   // ROUTERS;ADD;<ssid>;<pass> / ROUTERS;USE;<ssid> / ROUTERS;DEL;<ssid>.
   // True when the line was a ROUTERS command (consumed). USE stores the pair
@@ -338,29 +333,26 @@ public:
   // CORRECTION (2026-10-10, owner: "the car is not connected through its own
   // hotspot for the phone after some period of time"). A client count alone
   // cannot say WHICH side of the car a client arrived on, so a phone sitting on
-  // 4WDCar_Wifi counted as a reason to PARK 4WDCar_Wifi - roughly 20 s after it
+  // 4wd4mCar_Wifi counted as a reason to PARK 4wd4mCar_Wifi - roughly 20 s after it
   // opened the page the car dropped the very link it was being driven over. A
   // client on the AP is proof the beacon is REQUIRED, never that it is spare.
-  // updateApPowerPolicy() now gates on WiFi.softAPgetStationNum() first, and
-  // HTTP activity (stamped by armHttpGuard()) counts as usage only while nobody
-  // is sitting on the AP.
+  // U-105 (1.3.5): parking was REMOVED entirely (owner ruled the power-save
+  // button and its residues gone), so updateApPowerPolicy() only ever GUARANTEES
+  // the beacon - it never drops it. The own hotspot is always up.
   void updateApPowerPolicy();
   uint32_t staConnectedAtMs_;   // when the current association came up
-  bool apParked_;               // beacon intentionally down, someone is using the car
-  // U-100 (owner 2026-10-12): the own-hotspot POWER-SAVE switch. OFF by default,
-  // deliberately: the own hotspot stays broadcast while the car is on a router, so
-  // `4WDCar_Wifi` is ALWAYS a way in (the reachability property the owner asked
-  // for: *"keep the car's own hotspot always reachable"*). ON restores the U-86
-  // parking (beacon dropped AP_PARK_GRACE_MS after a router-side client connects).
-  // Live-settable via `WIFICFG;APSAVE;ON|OFF`, persisted in NVS `botcfg/ap_psave`.
-  bool apPowerSave_;
-  // U-100 Phase 4 (owner 2026-10-12): parallel transports. Default OFF - the
-  // U-79 power arbitration stands (one client on one transport powers the other
-  // down). ON (via `WIFICFG;PARALLEL;ON`, NVS `botcfg/allow_parallel`) keeps BOTH
-  // transports up and skips the teardown branches, so Bluetooth and WiFi stay
-  // connected at the same time. Read every loop by Genum_4WD4M_CAR.ino.
-  bool allowParallel_;
-  uint32_t lastHttpAtMs_ = 0;   // last HTTP handler that ran (0 = never)
+  // U-105 (1.3.5): the beacon is never parked (the parking feature and the
+  // `apParked_` flag were removed), so `staConnectedAtMs_` is the only beacon-
+  // side state that remains. `apRunning_` is declared below with the radio
+  // stack state it actually belongs to.
+  // U-105 (1.3.5, owner 2026-10-13): the own-hotspot beacon is NEVER parked.
+  // The old power-save (U-100 `ap_psave`) and parallel-links (U-100 Phase 4
+  // `allow_parallel`) switches + NVS keys are gone; updateApPowerPolicy() only
+  // restores the beacon when the STA is gone. Defaults ON so a first-flash car
+  // is open on both transports at once (see the getters above).
+  bool wifiEnabled_ = true;
+  bool btEnabled_ = true;
+  bool bootAutojoin_ = true;
 void advanceRejoinStep();
   uint8_t rejoinStep_;
   // U-95 Phase 2: MODE_WAIT bookkeeping. modeWaitStartMs_ is the base of the
@@ -429,7 +421,7 @@ void advanceRejoinStep();
   // in the give-up path, which restores the own hotspot (up the whole time).
   unsigned long staTimeoutMs_;
   uint8_t staRetryCap_;
-  // R-12: the AP fallback broadcast id (4WDCar_Wifi, T-56) once started;
+  // R-12: the AP fallback broadcast id (4wd4mCar_Wifi, T-56) once started;
   // empty before.
   const char* apBroadcastId() const { return apName_.length() > 0 ? apName_.c_str() : ""; }
   // R-13 (owner matrix 2026-09-15): the car's current reachable IP — the
@@ -563,14 +555,12 @@ private:
   bool startedAsAP;
 // T-65 (round-9) said the car's OWN WiFi stays broadcast for the WHOLE
   // webserver session, even while a router is joined, "so the hotspot is never
-  // hidden". U-86 revisits that: while the car is on a router and reachable
-  // there, the beacon is pure cost — it beacons, accepts up to 4 stations, and
-  // holds the driver out of low-power states.
+  // hidden". U-86 later allowed parking it for power; U-105 (1.3.5) removed
+  // that entirely per the owner — the own hotspot is broadcast whenever the
+  // Wi-Fi transport is enabled, never "pure cost", always a way in.
   //
   // `apRunning_` = the softAP interface is up (the CLAIM, forced false in a few
-  // places by FIN-40/D1). `apParked_` = we took it down on purpose because the
-  // car is healthy on a router. They are different facts and both matter: a
-  // parked beacon must come back the moment the association is lost.
+  // places by FIN-40/D1). The old park flag that lived beside it was removed.
   bool apRunning_;
 
   ModeManager* modeManager;
@@ -611,7 +601,7 @@ private:
   unsigned long scanWaitMs_;
   int scanCount_;
   std::vector<ScannedNetwork> scanNetworks_;
-  // AP fallback broadcast id ("4WDCar_Wifi", T-56), shown on the OLED and
+  // AP fallback broadcast id ("4wd4mCar_Wifi", T-56), shown on the OLED and
   // in the status JSON ("ap") so the app/website can display it.
   String apName_;
 
@@ -620,7 +610,7 @@ private:
 
   void updateExtraInfo();
 
-  // T-65 (round-9) + v2: bring the car's own hotspot (4WDCar_Wifi) up and
+  // T-65 (round-9) + v2: bring the car's own hotspot (4wd4mCar_Wifi) up and
   // keep apRunning_/apName_ consistent. Idempotent; retried by handle() on a
   // softAP failure (FIN-40/D1) — the AP is up for the WHOLE uptime in v2.
   void startOwnAP();

@@ -10,6 +10,74 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.5 (U-105, 2026-10-13): transport toggles ride, beacon never parked, one own-hotspot name
+
+**UNFLASHED (F-61).** Per the owner's device-report failures and redesign mandate
+("remove the parallel thing from the setting entirely and power saving buttons and
+their residues"; Q&A round 2026-10-12/13), the parallel-links and power-save
+settings are removed wholesale and replaced by **Wi-Fi / Bluetooth / boot
+auto-join toggles**, the old own-hotspot name is purged for a single fleet name,
+the beacon parking paths are deleted, and the deleted-network survivor is fixed.
+
+### Removed — `WIFICFG;PARALLEL` / `WIFICFG;APSAVE` and their residue
+
+- `WIFICFG;APSAVE;ON|OFF` (NVS `botcfg/ap_psave`, member `apPowerSave_`) and
+  `WIFICFG;PARALLEL;ON|OFF` (NVS `botcfg/allow_parallel`, member `allowParallel_`,
+  `allowParallel()` getter) are GONE, along with their STATE keys (`;APSAVE=`,
+  `;PARALLEL=`), their `/status` JSON fields, the one-active-link teardown in the
+  U-79 loop (`LastTransport`/`saveLastTransport`/`loadLastTransport`/grace timer)
+  and the `WIFICFG;PARALLEL`/`WIFICFG;APSAVE` command parsing.
+- `wipeRoutersOnFreshFirmware()` (fresh-install wipe, U-98) now also erases
+  `ap_psave` / `allow_parallel` / `last_transport` residue so a re-flash is clean.
+
+### The three toggles (all default ON, never both transports off)
+
+- **`WIFICFG;WIFI;ON|OFF`** — NVS `botcfg/t_wifi`, member `wifiEnabled_`/getter
+  `wifiEnabled()`. OFF stops the whole web layer (`stop()`: AP + STA + WS + mDNS
+  torn down; `updateApPowerPolicy()` no-ops while off). ON restarts it.
+- **`WIFICFG;BT;ON|OFF`** — NVS `botcfg/t_bt`, member `btEnabled_`/getter
+  `btEnabled()`. OFF stops `btComm`; ON restarts it.
+- **`WIFICFG;AUTOJOIN;ON|OFF`** — NVS `botcfg/boot_autojoin`, member
+  `bootAutojoin_`/getter `bootAutojoin()`. OFF stops the boot hop to the
+  last-switched router; `armBootAutoJoin()` is gated on it.
+- **Both-off is impossible**: `loadStoredWifi()`, the WIFI/BT command handler and
+  the U-79 loop each clamp (`if (!wifiEnabled_ && !btEnabled_) wifiEnabled_ = true;`).
+- Both transports stay up SIMULTANEOUSLY when enabled — the "own transport powers
+  the OTHER one down" arbitration is deleted. /status JSON gains
+  `wifi_enabled`/`bt_enabled`/`boot_autojoin`; STATE gains
+  `;WIFI=ON|OFF`/`;BT=ON|OFF`/`;AUTOJOIN=ON|OFF`.
+- Bench rows P4-1..P4-5 rewritten (query-only + BT round trip; Wi-Fi OFF is
+  device-checklist-only because it kills the bench's own web link).
+
+### Beacon never parked (U-86/U-100 parking deleted)
+
+- `updateApPowerPolicy()` rewritten: bails on `!wifiEnabled_`, otherwise ONLY
+  guarantees the beacon — restore `startOwnAP()` when the STA is down; no park
+  branch, no `softAPdisconnect`, no `WiFi.mode()` on the policy path.
+- `apParked_`, `AP_PARK_GRACE_MS`, `AP_PARK_HTTP_MS` and the `lastHttpAtMs_`
+  stamp in `armHttpGuard()` are deleted (parking-era residue).
+
+### Identity + OLED
+
+- `WIFI_AP_NAME` is **`4wd4mCar_Wifi`** — the ONE own-hotspot name; the donor
+  `WirelessCar_Wifi` and the earlier `4WDCar_Wifi` are purged from the app
+  registry and every firmware comment that stated current behaviour.
+- `Config.h` gains `WIFI_AP_IP[] = "192.168.245.1"`; `Oled_1_3.cpp` fallbacks use
+  `WIFI_AP_NAME`/`WIFI_AP_IP` (was `"GenumCar"` and the wrong-subnet
+  `"192.168.4.1"`).
+
+### Deleted networks stay deleted (the owner's "deleted network survives power cycle")
+
+- `ROUTERS;DEL` registry-row and `wasActive` pair matching switched to
+  `strcasecmp` — a different-case delete now removes the row + active pair instead
+  of answering "Not saved" and leaving the router to return after reboot.
+
+**Gates:** `check-firmware-syntax.ps1` 10/10; `check-webpage-js.mjs` section 8
+rewritten to the transport-toggle contract (never-park, default-ON reads, both-off
+clamp, getter/command/loop enforcement); `check-relay-contract.mjs` green.
+App half: 3.2.7 same-version JS-only OTA (registry `4wd4mCar_Wifi`, the three
+linked-gated toggles, both-live arbitration, deleted-network deep fix).
+
 ## UNRELEASED — 1.3.4 (U-104, 2026-10-13): watchdog feed covers the sendState() WS fan-out
 
 **UNFLASHED (F-61).** Hardening from the post-1.3.3 field review (owner's restart/
