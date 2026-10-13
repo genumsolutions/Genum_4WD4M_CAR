@@ -144,6 +144,14 @@ ModeManager::LinkInfo ModeManager::currentLink() const {
   // something false. Under WS because a page on this network is a more local
   // truth than a cloud link, and both cannot be "the" link.
   const bool relayUp = relayComm_ && relayComm_->connected();
+  // M3 (owner 2026-10-13): parallel BT+Wi-Fi. With `WIFICFG;PARALLEL;ON` the
+  // U-79 loop keeps BOTH transports up, so the CURRENT live link is BOTH at
+  // once — reporting only the web client would be the old "panel lies when a
+  // second transport is live" all over again. This branch outranks the single
+  // transport states precisely because both are really connected.
+  if (ws && ws->allowParallel() && wsClients && btUp) {
+    return {"Parallel", "BT+WiFi", true};
+  }
   if (wsClients) return {"WiFi", "WebServer", true};
   if (relayUp) return {"Internet", "WSS", true};
   if (btUp) return {"Bluetooth", "SPP", true};

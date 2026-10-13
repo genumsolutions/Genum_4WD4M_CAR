@@ -338,6 +338,11 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
       const char* apName = (netBuf[0] != '\0') ? netBuf : "GenumCar";
       snprintf(line3, sizeof(line3), "Wifi : %s", apName);
     }
+  } else if (strcmp(linkMethodBuf, "Parallel") == 0) {
+    // M3: `currentLink()` names both live transports under parallel — the
+    // display must too, instead of collapsing into the generic "Wifi : <ssid>"
+    // else-branch and hiding the Bluetooth half.
+    snprintf(line3, sizeof(line3), "Parallel : BT+WiFi");
   } else if (strcmp(linkMethodBuf, "Bluetooth") == 0 || strcmp(linkMethodBuf, "BT") == 0) {
     snprintf(line3, sizeof(line3), "Bluetooth : %s",
              (strcmp(linkTypeBuf, "--") != 0) ? linkTypeBuf : "SPP");
