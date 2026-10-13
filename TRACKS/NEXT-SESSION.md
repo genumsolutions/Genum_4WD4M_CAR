@@ -1,6 +1,6 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4wd4mCar_Wifi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
 
-## U-105 2026-10-13 — transport toggles ride, beacon never parked, one own-hotspot name (UNCOMMITTED → push pending, 1.3.5, UNFLASHED)
+## U-105 2026-10-13 — transport toggles ride, beacon never parked, one own-hotspot name (`4645562`, PUSHED, 1.3.5, UNFLASHED — owner flash target)
 
 Per the owner's device-report failures + redesign mandate (Q&A 2026-10-12/13): remove the
 parallel + power-save settings entirely, replace with Wi-Fi/BT/auto-join toggles, single
@@ -36,8 +36,11 @@ verify stays owner-side. **Owner flash target is now 1.3.5** (re-flash is REQUIR
 SSID rename — bench car still 1.0.5, F-61). After flashing, the app needs the **force-close
 ×2** same-version OTA dance to pick up the new registry + toggles.
 
-**Pending:** commit + push (firmware + app) once app Phase B and its gates are green; device
-verify per the new U-105 rows in `DEVICE-TESTS.md`.
+**Committed + pushed (2026-10-13):** car `4645562` (1.3.5) · app `4cc5b7e` + docs `a01c44c`
+(JS-only OTA 3.2.7, gates green both repos). **Next:** device verify per the new U-105 rows in
+`DEVICE-TESTS.md` after the owner flashes **1.3.5** (the SSID rename + toggle commands need
+the flash; bench car still 1.0.5, F-61), then the app's `TESTING.md` U-105-0..8 in the same
+session (force-close ×2 for the app OTA first).
 
 ## U-104 2026-10-13 — watchdog feed before the sendState() WS fan-out (`02e1081`, PUSHED, 1.3.4, UNFLASHED)
 
