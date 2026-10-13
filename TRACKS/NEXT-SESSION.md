@@ -1,4 +1,43 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, M3: currentLink() parallel branch + OLED 'Parallel : BT+WiFi' — 1.3.3 UNFLASHED, F-61)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-104: watchdog feed before the sendState() WS fan-out — 1.3.4 UNFLASHED, owner flash target)
+
+## U-104 2026-10-13 — watchdog feed before the sendState() WS fan-out (`02e1081`, PUSHED, 1.3.4, UNFLASHED)
+
+Owner's post-1.3.3 field failures (car not (re)connecting, restart soon after connecting, flaky
+WiFi/parallel display, absent car page, restart/freeze) — root-caused round; full round log:
+`RESUME-HERE.md`. The app half is the F-65 same-version OTA (`bc9062c`); HERE the repo carried one
+provably-safe firmware hardening + the version label that owns it.
+
+1. **`WebServerComm::write()`** — NEW `esp_task_wdt_reset()` immediately before each
+   `ws.broadcastTXT()`. `ModeManager::sendStateOn()` delivers STATE / CAPS / NETW / SCAN through
+   this one function (up to four WS broadcasts per transport per 1.5 s ticker) and it was the ONLY
+   WS-write path with no feed of its own (`broadcastStatus()` and `ws.loop()` have theirs). A WS
+   client that stops draining TCP can hold a broadcast for up to 5 s (U-77 measurement) — the
+   heartbeat owns long-lived stallers, but there was nothing between a watchdog tick and a write
+   that STARTS here. Now there is: the write owns a fresh `LOOP_TASK_WDT_TIMEOUT_MS` window. Gate
+   rule `ws-broadcast-feed` (relay-contract PASS).
+2. **`FW_VERSION` 1.3.3 → 1.3.4** — the binary that carries this change names itself 1.3.4 on
+   STATE, `/status` and `device_crash_reports.fw_version` (the 931b31f lesson applied again).
+3. **Power conclusion (owner answer, documented, NO firmware change):** separate 2×3.7 V packs —
+   the L298N alone on one, a second 2S through a buck converter for ESP+OLED. The crash DB
+   (board `1FB608`, 929 boots / 746 crashes, PANIC + BROWNOUT, `last_crash_phase` NULL) therefore
+   points at the buck / regulator / wiring rail, not at firmware. Wiring guidance: prefer a 3.3 V
+   buck feeding the 3V3 pin directly (past the board's AMS1117-class LDO), or a ≥1 A rated buck
+   with a low-ESR 100-470 µF bulk cap at the board input; short, thick power leads; confirm the
+   brownout detector doesn't trip under radio TX bursts. The firmware power budget (motor power
+   deferred, power-budgeted boot) stays as-is.
+4. **Reviewed, no change:** the U-79 spinlock reads under `portENTER_CRITICAL`
+   (`btComm.connected()` / `hasWsClients()` / `relayComm.connected()`) are plain flag reads by
+   design (RelayComm publishes `socketUp_`/`enrolled_` from its task); the boot auto-join
+   beacon-blank window is the documented FIN-40/D2 trade-off with retries already capped; the
+   PANIC rows stay un-named until a `last_crash_phase` capture exists (no serial available).
+
+**Gates:** syntax 10/10 · `check-webpage-js.mjs` PASS · `check-relay-contract.mjs` ALL PASS
+(source-level only — device verify stays owner-side; owner flash target is now **1.3.4**).
+
+**App counterpart:** F-65 `bc9062c` — fleet-AP discovery sweep (`OWN_AP_NAMES` registry, so a
+4WD4M car on `4WDCar_Wifi` is re-found instead of a donor `WirelessCar_Wifi`), honest
+`reconnecting` status on WS drop (no fake green / no vanish), bounded keep-looking re-sweeps
+(15 s × 6 ≈ 90 s) after a failed rejoin. JS-only OTA, app version 3.2.7 unchanged.
 
 ## M3 2026-10-13 — `currentLink()` names BOTH live links under parallel (`d1e33bc`, PUSHED, 1.3.3, UNFLASHED)
 

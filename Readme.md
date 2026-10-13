@@ -80,6 +80,15 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.3.4 (2026-10-13, U-104)** — **watchdog feed before the `sendState()` WS fan-out.**
+  `WebServerComm::write()` — the delivery path `ModeManager::sendStateOn()` uses for STATE / CAPS /
+  NETW / SCAN (up to four WS broadcasts per transport per 1.5 s tick) — was the ONLY WS-write path
+  with no feed of its own (`broadcastStatus()` and `ws.loop()` have theirs). A WS client that stops
+  draining TCP can hold a broadcast for up to 5 s (the U-77 measurement); the write now starts with
+  a fresh `LOOP_TASK_WDT_TIMEOUT_MS` window. `FW_VERSION` 1.3.3 → 1.3.4. Power review this round:
+  BROWNOUT dominates the crash DB and the owner's separate-2S-pack supply (ESP+OLED through a buck)
+  makes the buck/regulator/wiring rail the suspect — documented, no blind firmware change. Gate rule
+  `ws-broadcast-feed`. UNFLASHED (F-61); 1.3.1→1.3.3 notes: `TRACKS/CHANGELOG.md`.
 - **1.3.0 (2026-10-11, U-98)** — **a flash starts clean, and a boot returns to the last-switched
   router.** (a) `botcfg/fw_mark` stores `FW_VERSION`; on the first boot after a (re-)install
   `wipeRoutersOnFreshFirmware()` erases every saved router + the stored pair + the last-good pair
