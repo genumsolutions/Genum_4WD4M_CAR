@@ -1,5 +1,27 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4wd4mCar_Wifi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
 
+## PLAN 2026-10-13 (Phase 0) — field-fix + cleanup round, notes-first, phased
+
+Owner's new round: fix the reported fields (telemetry/status, BT-connect restart not surfaced in the
+app, OLED last-two-lines rules, Wi-Fi connect freeze, SSID, duplicate auto-join settings); the car
+must **self-capture and ship crash/monitor reports**; clean out old car + user-profile records for a
+**fresh start with proper timestamps**; remove **unused donor ("wireless car") leftovers from the
+4WD4M car + the SSID name change only** (nothing else); deliver in **phases, pushing after each fix**.
+
+Full plan: `TRACKS/PLAN-2026-10-13-cleanup-rebuild.md` (master) + app mirror
+`genumsolutions-app\TRACKS\PLAN-2026-10-13-cleanup-rebuild.md`; records reference
+`TRACKS/RECORDS-INVENTORY.md`.
+
+Owner decisions: SSID exact **`4WD4MCar_WiFi`**; **keep both** auto-join toggles (clearer labels);
+firmware-only donor purge; disconnect buttons only under Back; the app sends the real epoch on
+connect; DB fresh start = **this car (`1FB608`) + the owner's account**.
+
+Live bench capture 2026-10-13 (COM7, `tools/serial_capture.py`): `[CRASH] boot=980 crash=754
+reason=PANIC heap=176400 lastphase=''` + `Own AP active: 4wd4mCar_Wifi` + `192.168.245.1` — **the
+bench car is on a 1.3.x build, NOT 1.0.5 as the prior ledger said**, and still PANICs with an empty
+phase → Phase 1 target. Toolchain confirmed locally: bundled `arduino-cli` + ESP32 core 3.3.12 +
+`WebSockets`/`U8g2`; owner flashes. **No code changed yet (Phase 0 = notes).**
+
 ## U-105 2026-10-13 — transport toggles ride, beacon never parked, one own-hotspot name (`4645562`, PUSHED, 1.3.5, UNFLASHED — owner flash target)
 
 Per the owner's device-report failures + redesign mandate (Q&A 2026-10-12/13): remove the
