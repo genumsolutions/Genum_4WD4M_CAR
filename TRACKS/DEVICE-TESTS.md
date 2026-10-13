@@ -28,6 +28,24 @@
       `live_min_heap` / `last_crash_heap_min` fall well below the ~176 KB boot heap — the ~12 KB
       the DB reported is the suspicion this round exists to confirm.
 
+## U-107 round — OLED last-two-lines rule (2026-10-13, firmware 1.3.6 — DEVICE VERIFY PENDING)
+
+> Same 1.3.6 flash as U-106. The last two OLED rows follow the **U-105 Wi-Fi / Bluetooth
+> toggles** (set them from the app's Connectivity panel or `WIFICFG;WIFI;ON|OFF` /
+> `WIFICFG;BT;ON|OFF`). Watch the panel; each frame (~1 s).
+
+- [ ] **U-107-1 — both ON → BT ⇄ Wi-Fi alternate.** With both toggles ON, the last two rows
+      alternate "Bluetooth / <advertised name>" ⇄ "Wifi / SSID:<name>" / "IP:<ip>" about once a
+      second.
+- [ ] **U-107-2 — the Wi-Fi frame's last line alternates name ⇄ IP.** In the Wi-Fi frame the
+      bottom line flips "SSID : <name>" ⇄ "IP : <ip>" ~1 s.
+- [ ] **U-107-3 — one ON → that frame only.** Turn Bluetooth OFF: the rows stay on the Wi-Fi frame
+      with no alternation. Turn Wi-Fi OFF instead: the rows stay on the Bluetooth frame.
+- [ ] **U-107-4 — the advertised BT name is real.** The Bluetooth frame shows the name the radio
+      actually advertises (`Config.h` `BT_SPP_NAME`, "4WD CAR") — one source, not a second literal.
+- [ ] **U-107-5 — a relay (Internet) link keeps its own frame.** With a relay configured and
+      connected, the rows show "Internet : WSS" + IP (no BT/Wi-Fi alternation).
+
 ## U-105 round — transport toggles ride, beacon never parked, one own-hotspot name (2026-10-13, firmware 1.3.5 — DEVICE VERIFY PENDING)
 
 > App half of this round (the Remote "Connectivity" panel: Wi-Fi / Bluetooth / auto-join toggles)

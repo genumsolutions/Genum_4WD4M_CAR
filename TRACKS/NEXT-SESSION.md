@@ -1,5 +1,25 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4wd4mCar_Wifi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
 
+## U-107 2026-10-13 — OLED last-two-lines rule (1.3.6, UNFLASHED — owner flash target)
+
+Owner request: the OLED's last two rows must alternate BT ⇄ Wi-Fi info when both transports
+are on, show a single transport always, and the Wi-Fi line must alternate the network name
+⇄ the IP (~1 s). The old code rotated only while **idle** and keyed off the link state.
+
+- `OledDisplay::setTransportToggles(wifi, bt)` (+ `Oled_1_3` override) and
+  `ModeManager::pushTransportToggles()` carry the live **U-105 toggles** to the panel
+  (change-gated; a toggle repaints at once). `ModeManager::run()` calls it every loop.
+- `Oled_1_3::redrawNow()`: both ON → alternate the Bluetooth frame ⇄ the Wi-Fi frame
+  (`ROTATE_INTERVAL_MS` 1500 → **1000**); one ON → that frame always; the Wi-Fi frame's
+  last line alternates **SSID ⇄ IP** (`WIFI_INFO_INTERVAL_MS` 1000); a **relay (Internet)**
+  link keeps its own fixed frame. `wasIdle` removed.
+- `Config.h` gains `BT_SPP_NAME` (`"4WD CAR"`) — the ONE source of the advertised BT name;
+  `BluetoothComm::begin()` passes it to `SerialBT.begin()` and the OLED's Bluetooth frame
+  shows it (was a second hard-coded literal).
+
+Gates: node `check-webpage-js` + `check-relay-contract`, `check-firmware-syntax.ps1`,
+`arduino-cli compile`. **Device verify pending** (`TRACKS/DEVICE-TESTS.md` U-107-1..5).
+
 ## U-106 2026-10-13 — crash-TIME evidence survives a PANIC + phase coverage (`…`, 1.3.6, UNFLASHED — owner flash target)
 
 The field crash table (board `1FB608`) had ~754 unexpected boots, all `PANIC`, all

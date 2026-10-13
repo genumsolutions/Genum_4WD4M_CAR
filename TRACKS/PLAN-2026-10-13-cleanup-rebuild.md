@@ -76,9 +76,12 @@ and `lastphase` is empty because nothing survives the panic — which is exactly
       syntax gates green; `arduino-cli` compile PASS). *The reset itself is still OPEN* — it needs
       the on-car repro once the owner flashes 1.3.6; the breadcrumb now names the operation/task/
       heap-at-crash so the next COM7 capture identifies it.
-- [ ] **Phase 2 — OLED last-two-lines rule.** `wifiEnabled()/btEnabled()` plumbed to `Oled_1_3.cpp`:
-      both ON → alternate BT frame ⇄ Wi-Fi frame ~1 s; single ON → that one always; Wi-Fi row's last
-      line alternates **network name ⇄ IP**; real BT name (not hard-coded `4WD CAR`).
+- [x] **Phase 2 — OLED last-two-lines rule.** DONE in 1.3.6 (U-107): the last two rows follow the
+      U-105 transport toggles via `setTransportToggles()`/`ModeManager::pushTransportToggles()` —
+      both ON → alternate the Bluetooth frame ⇄ the Wi-Fi frame ~1 s; one ON → that frame always;
+      the Wi-Fi frame's last line alternates **network name ⇄ IP**; a relay (Internet) link keeps
+      its own frame. `BT_SPP_NAME` single-sources the advertised name (was a second literal).
+      Compile PASS, gates green.
 - [ ] **Phase 3 — (app) Remote layout / IP ⇄ name rotation** — see the app plan.
 - [ ] **Phase 4 — (app) connection truth + restart prompt** — see the app plan.
 - [ ] **Phase 5 — SSID = `4WD4MCar_WiFi`.** `Config.h` `WIFI_AP_NAME` + OLED fallbacks; app registry +
@@ -102,8 +105,8 @@ this round produces (likely **1.3.6**); confirm at the Phase 1 bump.
 - **F-61**: green gates are NOT device evidence. Nothing is device-verified until the owner flashes.
 
 ## RESUME HERE
-> Phase 0 (notes) + Phase 1 (firmware **1.3.6** crash capture) committed/pushed. Next: **Phase 2** —
-> the OLED last-two-lines rule (plumb `wifiEnabled()/btEnabled()` into `Oled_1_3.cpp`: both ON →
-> alternate BT ⇄ Wi-Fi ~1 s; single ON → that one always; Wi-Fi row alternates name ⇄ IP; real BT
-> name). Firmware phases 1/2/5/8 are pushed individually but **owner-flashed once at the end**; the
-> PANIC itself is confirmed by the next tethered COM7 capture after that flash.
+> Phases 0/1/2 DONE (firmware **1.3.6** crash capture + OLED last-two-lines rule). Next: **Phase 3
+> (app)** — the Remote screen layout (status only right of Back; remove the duplicate top status
+> line + its disconnect space; separate Bluetooth/Wi-Fi disconnect buttons on the row below Back;
+> IP ⇄ name rotation). Car firmware phases 1/2/5/8 are pushed individually but **owner-flashed once
+> at the end**; the PANIC itself is confirmed by the next tethered COM7 capture after that flash.

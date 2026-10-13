@@ -24,11 +24,20 @@ public:
   // v1.0.1 (owner OLED directive 2026-09-28): the dashboard shows WHICH link
   // method is connected (Bluetooth / WiFi / None) and the transport type under
   // it (SPP / WebServer / AP ready / WiFi / --), updated pronto from
-  // live transport truth. v1.2.4 (2026-10-09): rows 3/4 render the METHOD +
+  // live transport truth. v1.2.4 (2026-10-09): the link rows render the METHOD +
   // network name and the car's CURRENT IP (the number the app shows); the
   // transport type is only surfaced as the Bluetooth status ("Bluetooth : SPP").
-  // Default no-op keeps other displays source-compatible.
+  // U-107 (2026-10-13): the last two rows are now driven by setTransportToggles()
+  // below (the U-105 toggles), so this method supplies the live link truth they
+  // annotate. Default no-op keeps other displays source-compatible.
   virtual void setLinkContext(const char* /*method*/, const char* /*type*/, bool /*connected*/) {}
+  // U-107 (owner 2026-10-13): the last two rows follow the U-105 TRANSPORT
+  // TOGGLES, not the link/idle state — both ON alternates the Bluetooth frame
+  // ⇄ the Wi-Fi frame (~1 s); one ON shows that transport's frame always; and
+  // the Wi-Fi frame's last line alternates the network name ⇄ the IP (~1 s).
+  // ModeManager pushes the live toggle state; a change repaints pronto.
+  // Default no-op keeps other display classes source-compatible.
+  virtual void setTransportToggles(bool /*wifiEnabled*/, bool /*btEnabled*/) {}
   // REMOVED (2026-10-10, owner: "the car's own hotspot name is displayed with
   // [1/2] ... please remove that and treat all router networks equally").
   // setNetworkCycling()/setSavedRouterCount()/cycleNetworkDisplay() drove a
@@ -49,6 +58,7 @@ public:
   void draw(const char* status, int speed, bool connected, const char* mode, const char* extraInfo = nullptr) override;
   void setModeContext(const char* modeToken, bool isStub, bool isWip, bool hasDriveDashboard) override;
   void setLinkContext(const char* method, const char* type, bool connected) override;
+  void setTransportToggles(bool wifiEnabled, bool btEnabled) override;
   void sleep() override;
   void wake() override;
 
@@ -80,11 +90,20 @@ private:
   uint32_t minDrawIntervalMs = 100;
   bool isSleeping = false;
 
-  // Rotation for idle state (both BT + WiFi AP advertising) — 1.5s per phase.
-  static constexpr uint32_t ROTATE_INTERVAL_MS = 1500;
+  // U-107 (owner 2026-10-13): the last-two-rows rule follows the U-105 transport
+  // TOGGLES — both ON alternates the Bluetooth frame ⇄ the Wi-Fi frame every
+  // ROTATE_INTERVAL_MS; one ON shows that frame always. (The U-105 clamp makes
+  // "both OFF" impossible.)
+  static constexpr uint32_t ROTATE_INTERVAL_MS = 1000;   // owner: ~1 s per frame
   uint32_t lastRotateMs = 0;
-  bool rotatePhase = false;     // false = BT info, true = WiFi AP info
-  bool wasIdle = false;         // track idle state transitions
+  bool rotatePhase = false;     // false = Bluetooth frame, true = Wi-Fi frame
+  // U-107: the Wi-Fi frame's last line alternates the network name ⇄ the IP.
+  static constexpr uint32_t WIFI_INFO_INTERVAL_MS = 1000;
+  uint32_t lastWifiInfoMs = 0;
+  bool wifiInfoPhase = false;   // false = network name, true = IP
+  // U-107: the live U-105 toggles, pushed by ModeManager on change.
+  bool wifiOn = true;
+  bool btOn = true;
 
   void safeCopy(char* dst, size_t dstLen, const char* src);
   void redrawNow(int speed, bool connected);

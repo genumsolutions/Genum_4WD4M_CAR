@@ -10,7 +10,7 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
-## UNRELEASED — 1.3.6 (U-106, 2026-10-13): crash-TIME evidence that survives a PANIC + phase coverage
+## UNRELEASED — 1.3.6 (U-106/U-107, 2026-10-13): crash-TIME evidence that survives a PANIC + the OLED last-two-lines rule
 
 **UNFLASHED (F-61).** This batch supersedes 1.3.5 (never flashed) and is the first
 half of the owner's 2026-10-13 field-fix + cleanup round (full plan:
@@ -58,6 +58,23 @@ the main loop (`switch`/`cmd`/`web`/`relay`), `WebServerComm::handle()` +
 `last_crash_heap_at_crash`, `last_crash_heap_min`, `last_crash_task`,
 `last_crash_millis`, `live_min_heap` (fed from the breadcrumb; additive, the existing
 `last_crash_*` keys are unchanged).
+
+### Changed — OLED last-two-lines rule (U-107)
+
+The last two rows now follow the U-105 **transport toggles** instead of the old
+idle/link state, per the owner's 2026-10-13 request:
+
+- **both toggles ON** → the Bluetooth frame ⇄ the Wi-Fi frame alternate ~1 s;
+- **one ON** → that frame is shown always (no alternation at all);
+- the **Wi-Fi frame's last line alternates the network name ⇄ the IP** ~1 s;
+- a **relay (Internet)** link keeps its own fixed frame (a third transport the
+  toggles do not name).
+
+`Config.h` gains `BT_SPP_NAME` (`"4WD CAR"`) as the ONE source of the advertised
+Bluetooth name — `BluetoothComm::begin()` passes it to `SerialBT.begin()` and the
+OLED's Bluetooth frame shows it, replacing the second hard-coded literal.
+`OledDisplay::setTransportToggles()` + `ModeManager::pushTransportToggles()` carry
+the live toggles (change-gated; toggling repaints at once).
 
 ### Changed
 

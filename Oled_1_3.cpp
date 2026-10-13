@@ -97,6 +97,16 @@ void Oled_1_3::setLinkContext(const char* method, const char* type, bool connect
   linkDirty = true;  // the next draw() must render this frame immediately
 }
 
+// U-107 (owner 2026-10-13): the last-two-rows rule rides the U-105 transport
+// TOGGLES. ModeManager pushes the live state on change; a change repaints pronto
+// (consumes linkDirty, the same contract as setLinkContext()).
+void Oled_1_3::setTransportToggles(bool wifiEnabled, bool btEnabled) {
+  if (wifiEnabled == wifiOn && btEnabled == btOn) return;
+  wifiOn = wifiEnabled;
+  btOn = btEnabled;
+  linkDirty = true;
+}
+
 // REMOVED (2026-10-10): cycleNetworkDisplay() / setNetworkCycling() /
 // setSavedRouterCount() implemented the U-98 3-second rotation through saved
 // networks. Its only visible output was the "[n/m]" badge the owner asked to
@@ -268,12 +278,13 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     }
   }
 
-  // T-36 (owner 2026-09-15): the transport line shows the NETWORK the car is
+  // T-36 (owner 2026-09-15): the transport rows show the NETWORK the car is
   // actually on — joined SSID, or the AP-fallback broadcast id — not a generic
   // "Connected". extraInfo carries "pct,rssi,ip,<ssid>" (STA) or
-  // "AP:<name>,<ip>". v1.2.4 (owner 2026-10-09): row 4 renders the car's
-  // CURRENT IP from ipBuf so the OLED matches the app's "WiFi · <ip>" — the
-  // network's directed-broadcast stays on /status + the page's Bcast row.
+  // "AP:<name>,<ip>". v1.2.4 (owner 2026-10-09): the IP comes from ipBuf so the
+  // OLED matches the app's "WiFi · <ip>". U-107 (owner 2026-10-13): the Wi-Fi
+  // frame's last row ALTERNATES that IP ⇄ the network name; the directed
+  // broadcast stays on /status + the page's Bcast row.
   char netBuf[33] = "";
   char ipBuf[32] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
@@ -312,59 +323,53 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   { char* nPipe = strchr(netBuf, '|'); if (nPipe) *nPipe = '\0'; }
   { char* iPipe = strchr(ipBuf, '|');  if (iPipe) *iPipe = '\0'; }
 
-  // Determine if truly idle (no active link — no WS, no relay, no BT client)
-  // "AP ready" means hotspot is up but no client connected — treat as idle for rotation.
-  bool isIdle = (!linkConnected) &&
-                (strcmp(linkMethodBuf, "None") == 0);
-
-  // Rotation timer for idle state (both BT + WiFi AP advertising)
-  if (isIdle) {
-    if (!wasIdle) { lastRotateMs = nowMs; rotatePhase = false; }
-    wasIdle = true;
+  // U-107 (owner 2026-10-13): the last two rows follow the U-105 TRANSPORT
+  // TOGGLES, not the idle/link state (the old model alternated only while idle).
+  // Both ON -> alternate the Bluetooth frame ⇄ the Wi-Fi frame; one ON -> that
+  // frame always; the U-105 clamp makes "both OFF" impossible. A live RELAY link
+  // (Internet) is a third transport the toggles do not name, so it keeps its own
+  // frame whenever it is the current link.
+  const bool internetLink = (strcmp(linkMethodBuf, "Internet") == 0);
+  const bool bothOn = wifiOn && btOn;
+  if (internetLink) {
+    // relay link: pin the frame (the Internet branch below renders it)
+    rotatePhase = false;
+    lastRotateMs = nowMs;
+  } else if (bothOn) {
     if (nowMs - lastRotateMs >= ROTATE_INTERVAL_MS) {
       rotatePhase = !rotatePhase;
       lastRotateMs = nowMs;
     }
   } else {
-    wasIdle = false;
+    // A single transport is enabled: pin its frame, no alternation at all.
+    rotatePhase = wifiOn;   // Wi-Fi only -> true; Bluetooth only -> false
+    lastRotateMs = nowMs;
+  }
+  // U-107: the Wi-Fi frame's own last line alternates network name ⇄ IP ~1 s.
+  if (nowMs - lastWifiInfoMs >= WIFI_INFO_INTERVAL_MS) {
+    wifiInfoPhase = !wifiInfoPhase;
+    lastWifiInfoMs = nowMs;
   }
 
-  // Build row 3 (network method + name)
+  // Build the last two rows.
   char line3[40] = "";
-  if (isIdle) {
-    if (!rotatePhase) {
-      snprintf(line3, sizeof(line3), "Bluetooth : 4WD CAR");
-    } else {
-      const char* apName = (netBuf[0] != '\0') ? netBuf : WIFI_AP_NAME;
-      snprintf(line3, sizeof(line3), "Wifi : %s", apName);
-    }
-  } else if (strcmp(linkMethodBuf, "Parallel") == 0) {
-    // M3: `currentLink()` names both live transports under parallel — the
-    // display must too, instead of collapsing into the generic "Wifi : <ssid>"
-    // else-branch and hiding the Bluetooth half.
-    snprintf(line3, sizeof(line3), "Parallel : BT+WiFi");
-  } else if (strcmp(linkMethodBuf, "Bluetooth") == 0 || strcmp(linkMethodBuf, "BT") == 0) {
-    snprintf(line3, sizeof(line3), "Bluetooth : %s",
-             (strcmp(linkTypeBuf, "--") != 0) ? linkTypeBuf : "SPP");
-  } else if (strcmp(linkMethodBuf, "Internet") == 0) {
-    snprintf(line3, sizeof(line3), "Internet : %s", linkTypeBuf);
-  } else {
-    const char* netName = (netBuf[0] != '\0') ? netBuf : "--";
-    snprintf(line3, sizeof(line3), "Wifi : %s", netName);
-  }
-
-  // Build row 4 (IP address)
   char line4[40] = "";
-  if (isIdle) {
-    if (!rotatePhase) {
-      snprintf(line4, sizeof(line4), "BT : SPP");
-    } else {
-      const char* ipText = (ipBuf[0] != '\0') ? ipBuf : WIFI_AP_IP;
-      snprintf(line4, sizeof(line4), "IP : %s", ipText);
-    }
-  } else {
-    const char* ipText = (ipBuf[0] != '\0') ? ipBuf : "--";
+  const char* ssidText = (netBuf[0] != '\0') ? netBuf : WIFI_AP_NAME;
+  const char* ipText = (ipBuf[0] != '\0') ? ipBuf : WIFI_AP_IP;
+
+  if (internetLink) {
+    snprintf(line3, sizeof(line3), "Internet : %s", linkTypeBuf);
     snprintf(line4, sizeof(line4), "IP : %s", ipText);
+  } else if (rotatePhase) {
+    // Wi-Fi frame — the last line alternates the network name ⇄ the IP.
+    snprintf(line3, sizeof(line3), "Wifi");
+    if (wifiInfoPhase) snprintf(line4, sizeof(line4), "IP : %s", ipText);
+    else               snprintf(line4, sizeof(line4), "SSID : %s", ssidText);
+  } else {
+    // Bluetooth frame — the REAL advertised name (BT_SPP_NAME), single-sourced
+    // in Config.h, not a second hard-coded literal that can drift from the radio.
+    snprintf(line3, sizeof(line3), "Bluetooth");
+    snprintf(line4, sizeof(line4), "%s", BT_SPP_NAME);
   }
 
   // Always draw both lines (no blinking)

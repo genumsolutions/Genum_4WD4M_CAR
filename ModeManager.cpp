@@ -175,6 +175,22 @@ void ModeManager::pushLinkInfo() {
   }
 }
 
+// U-107 (owner 2026-10-13): the last-two-rows rule follows the U-105 transport
+// toggles. WebServerComm owns them (`WIFICFG;WIFI|BT`); push them to the OLED on
+// CHANGE so a toggle repaints the panel at once instead of waiting a tick.
+void ModeManager::pushTransportToggles() {
+  WebServerComm* ws = WebServerComm::instance();
+  const bool w = ws ? ws->wifiEnabled() : true;
+  const bool b = ws ? ws->btEnabled() : true;
+  if (w == lastWifiOn_ && b == lastBtOn_) return;   // unchanged - no repaint
+  lastWifiOn_ = w;
+  lastBtOn_ = b;
+  if (!oled_) return;
+  oled_->setTransportToggles(w, b);
+  // Pronto: setTransportToggles() set linkDirty, so this frame lands now.
+  oled_->draw(statusText_, speed_, isConnectedNow(), getModeString(), extraInfo_);
+}
+
 void ModeManager::queueReply(const char* text) {
   if (!text || !text[0]) return;
   strncpy(pendingReply_, text, sizeof(pendingReply_) - 1);
@@ -809,6 +825,9 @@ void ModeManager::run() {
   // v1.0.1 (owner OLED directive): refresh the Link/Type context every loop
   // (cheap; the OLED change-gates on the string so no repaint storms).
   pushLinkInfo();
+  // U-107 (owner 2026-10-13): keep the OLED's last-two-rows rule in step with
+  // the U-105 transport toggles (change-gated internally).
+  pushTransportToggles();
   if (anyConnected) {
     uint32_t now = nowFn_();
     if (now - lastStateMs_ >= STATE_INTERVAL_MS) {

@@ -20,7 +20,7 @@ bool BluetoothComm::begin() {
   
   // SerialBT.begin() can take time - do it outside critical section
   crashRtcMark("bt-begin");
-  bool success = SerialBT.begin("4WD CAR");
+  bool success = SerialBT.begin(BT_SPP_NAME);
   
   TRANSPORT_POWER_ENTER_CRITICAL();
   started_ = success;
