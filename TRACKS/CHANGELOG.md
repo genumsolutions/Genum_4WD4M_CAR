@@ -76,6 +76,14 @@ OLED's Bluetooth frame shows it, replacing the second hard-coded literal.
 `OledDisplay::setTransportToggles()` + `ModeManager::pushTransportToggles()` carry
 the live toggles (change-gated; toggling repaints at once).
 
+### Changed — own-hotspot SSID case (owner round-4 Phase 5)
+
+`WIFI_AP_NAME` is now **`4WD4MCar_WiFi`** (was `4wd4mCar_Wifi`). The owner's
+round-4 field-fix round pinned the exact casing; everything else about the name
+is unchanged. The app's own-AP matching stays **case-insensitive** (`isOwnApName`
+folds to upper case), so an app that still shows the old casing — or a car still
+running the old firmware — keeps working across the flash.
+
 ### Changed
 
 - `FW_VERSION` `1.3.5 → 1.3.6`.
@@ -129,7 +137,7 @@ the beacon parking paths are deleted, and the deleted-network survivor is fixed.
 
 ### Identity + OLED
 
-- `WIFI_AP_NAME` is **`4wd4mCar_Wifi`** — the ONE own-hotspot name; the donor
+- `WIFI_AP_NAME` is **`4WD4MCar_WiFi`** — the ONE own-hotspot name; the donor
   `WirelessCar_Wifi` and the earlier `4WDCar_Wifi` are purged from the app
   registry and every firmware comment that stated current behaviour.
 - `Config.h` gains `WIFI_AP_IP[] = "192.168.245.1"`; `Oled_1_3.cpp` fallbacks use
@@ -145,7 +153,7 @@ the beacon parking paths are deleted, and the deleted-network survivor is fixed.
 **Gates:** `check-firmware-syntax.ps1` 10/10; `check-webpage-js.mjs` section 8
 rewritten to the transport-toggle contract (never-park, default-ON reads, both-off
 clamp, getter/command/loop enforcement); `check-relay-contract.mjs` green.
-App half: 3.2.7 same-version JS-only OTA (registry `4wd4mCar_Wifi`, the three
+App half: 3.2.7 same-version JS-only OTA (registry `4WD4MCar_WiFi`, the three
 linked-gated toggles, both-live arbitration, deleted-network deep fix).
 
 ## UNRELEASED — 1.3.4 (U-104, 2026-10-13): watchdog feed covers the sendState() WS fan-out

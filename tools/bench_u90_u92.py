@@ -18,7 +18,7 @@ import urllib.request
 import websockets
 
 WS_PATH = "/"
-AP_NAME = "4wd4mCar_Wifi"
+AP_NAME = "4WD4MCar_WiFi"
 
 results: list[tuple[str, bool, str]] = []
 

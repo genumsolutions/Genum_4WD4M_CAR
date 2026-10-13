@@ -849,7 +849,7 @@ needPage(/sendCmd\('ROUTERS;DEL;'\+ssid\)/.test(js),
 // The dropdown should have the car's own AP as a protected entry
 onmsg({ data: JSON.stringify({
   status: "Stopped", mode: "4WD4M", speed: 200, connected: true,
-  ap: "4wd4mCar_Wifi", ssid: "HomeNet",
+  ap: "4WD4MCar_WiFi", ssid: "HomeNet",
 }) });
 
 // onload wires the select handlers and the visibilitychange reconnect —

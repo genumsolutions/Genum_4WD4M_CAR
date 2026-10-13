@@ -26,7 +26,7 @@ Owner request (2026-10-13), verbatim intent:
 
 Owner decisions (answers to the 2026-10-13 questions):
 - **PANIC capture** — car saves error/bug reports itself, shipped via DB/app. Car is tetherable.
-- **SSID** — exact **`4WD4MCar_WiFi`** (supersedes `4wd4mCar_Wifi`; matching stays case-insensitive).
+- **SSID** — exact **`4WD4MCar_WiFi`** (supersedes `4WD4MCar_WiFi`; matching stays case-insensitive).
 - **Auto-join** — **keep two** toggles, clearer labels (do NOT merge).
 - **Donor** — firmware-only: unused donor leftovers + the name change. No app/DB/donor-repo work.
 - **DB fresh start** — everything car-related **for this car + the owner's account** (not the shared
@@ -45,7 +45,7 @@ current bench firmware:
 [BOOT] reset reason: PANIC
 [BOOT] *** UNSOLICITED RESTART #754 - last was PANIC, phase '', heap 176400 ***
 [V2] Web layer always-on: AP= ip=192.168.245.1 http=:80 ws=:81
-Own AP active: 4wd4mCar_Wifi
+Own AP active: 4WD4MCar_WiFi
 [RELAY] RELAY_HOST is empty - the relay transport stays off (see Config.h)
 ```
 
@@ -82,10 +82,14 @@ and `lastphase` is empty because nothing survives the panic — which is exactly
       the Wi-Fi frame's last line alternates **network name ⇄ IP**; a relay (Internet) link keeps
       its own frame. `BT_SPP_NAME` single-sources the advertised name (was a second literal).
       Compile PASS, gates green.
-- [ ] **Phase 3 — (app) Remote layout / IP ⇄ name rotation** — see the app plan.
-- [ ] **Phase 4 — (app) connection truth + restart prompt** — see the app plan.
-- [ ] **Phase 5 — SSID = `4WD4MCar_WiFi`.** `Config.h` `WIFI_AP_NAME` + OLED fallbacks; app registry +
-      fixtures/docs. Matching is case-insensitive so only display literals change.
+- [x] **Phase 3 — (app) Remote layout / IP ⇄ name rotation** — DONE (app): status only right of Back,
+      per-link Bluetooth/Wi-Fi disconnect row below Back, IP ⇄ name rotation, strip removed from the
+      Connectivity panel. See the app plan.
+- [x] **Phase 4 — (app) connection truth + restart prompt** — DONE (app): `phoneSsid` + boot-count
+      restart prompt (Reconnect/Leave/Cancel). See the app plan.
+- [x] **Phase 5 — SSID = `4WD4MCar_WiFi`.** DONE (car half): `Config.h` `WIFI_AP_NAME` →
+      `4WD4MCar_WiFi`; the rest of the repo (comments/docs/tools) renamed too. App half DONE (registry
+      + fixtures/docs; matching stays case-insensitive). Compile PASS, gates green.
 - [ ] **Phase 6 — (app) auto-join labels** — see the app plan.
 - [ ] **Phase 7 — fresh start + timestamps.** Car: a factory-reset that wipes every `botcfg` key +
       stamps records with the app-provided epoch. App + DB work mirrored in the app/website plan.

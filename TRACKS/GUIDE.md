@@ -27,7 +27,7 @@ live drive mode (4WD4M) over BOTH Bluetooth and Wi-Fi, unique on-air identity.
 - This car accepts drive over Wi-Fi directly in `4WD4M`; there is no website-server mode to
   select.
 - On-air names are per-car unique: `WIRELESS CAR`/`WirelessCar_Wifi` (donor) vs
-  `4WD CAR`/`4wd4mCar_Wifi` (this car — 1.3.5: the ONE own-hotspot name; the earlier
+  `4WD CAR`/`4WD4MCar_WiFi` (this car — 1.3.5: the ONE own-hotspot name; the earlier
   `4WDCar_Wifi` is gone). AP subnets differ (.244 vs .245) so two cars coexist.
 - The command protocol grammar is IDENTICAL across generations — never forked.
 

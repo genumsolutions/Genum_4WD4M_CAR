@@ -18,7 +18,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Item | Value |
 |---|---|
 | Bluetooth SPP name | **`4WD CAR`** (PIN 1234) — `BluetoothComm.cpp` |
-| Wi-Fi AP SSID | **`4wd4mCar_Wifi`** (open) — `Config.h` `WIFI_AP_NAME` (1.3.5: the ONE own-hotspot name fleet-wide; the donor `WirelessCar_Wifi` and the older `4WDCar_Wifi` are fully removed) |
+| Wi-Fi AP SSID | **`4WD4MCar_WiFi`** (open) — `Config.h` `WIFI_AP_NAME` (1.3.5: the ONE own-hotspot name fleet-wide; the donor `WirelessCar_Wifi` and the older `4WDCar_Wifi` are fully removed) |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
 | FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.6` — `Config.h` |
 
@@ -106,7 +106,7 @@ gitignored, never committed; the sketch compiles without it).
   to a **guarantee-beacon** policy: no parking branch, no `softAPdisconnect`, no `WiFi.mode()` on the
   policy path; it bails when `wifiEnabled_` is false and otherwise only restores the beacon when the
   STA is down. `apParked_`, `AP_PARK_GRACE_MS`, `AP_PARK_HTTP_MS`, and the `lastHttpAtMs_` stamp — all
-  parking-era residue — are deleted. (c) **`WIFI_AP_NAME` is now `4wd4mCar_Wifi`** — the ONE own-
+  parking-era residue — are deleted. (c) **`WIFI_AP_NAME` is now `4WD4MCar_WiFi`** — the ONE own-
   hotspot name; the donor `WirelessCar_Wifi` and the earlier `4WDCar_Wifi` are purged from the app
   registry and all firmware comments. `Config.h` gains `WIFI_AP_IP[] = "192.168.245.1"`; the OLED
   fallback literals in `Oled_1_3.cpp` now use `WIFI_AP_NAME`/`WIFI_AP_IP` (was `"GenumCar"` and the

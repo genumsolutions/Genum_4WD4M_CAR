@@ -164,10 +164,10 @@ constexpr unsigned long SWITCH_DEBOUNCE_MS = 50u;
 // U-105 (1.3.5, owner 2026-10-13): ONE own-AP identity. The old fleet carried
 // both the donor's `WirelessCar_Wifi` and the earlier `4WDCar_Wifi`, which
 // duplicated/confused the "car's own hotspot" row everywhere. The owner ruled:
-// *"remove discrepancies and keep fallback default 4wd4mCar_Wifi only and
+// *"remove discrepancies and keep fallback default 4WD4MCar_WiFi only and
 // remove that genum car and donor things completely."* This is the ONLY name
 // in the system now (the app registry holds exactly this too).
-constexpr char WIFI_AP_NAME[] = "4wd4mCar_Wifi";
+constexpr char WIFI_AP_NAME[] = "4WD4MCar_WiFi";
 // FIN-48: the own-hotspot gateway. One source for the OLED fallback line so
 // the old "192.168.4.1" placeholder (a DIFFERENT subnet) can never appear on
 // the display next to the real AP identity.

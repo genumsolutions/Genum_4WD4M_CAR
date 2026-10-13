@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4wd4mCar_Wifi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4WD4MCar_WiFi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
 
 ## U-107 2026-10-13 — OLED last-two-lines rule (1.3.6, UNFLASHED — owner flash target)
 
@@ -63,7 +63,7 @@ firmware-only donor purge; disconnect buttons only under Back; the app sends the
 connect; DB fresh start = **this car (`1FB608`) + the owner's account**.
 
 Live bench capture 2026-10-13 (COM7, `tools/serial_capture.py`): `[CRASH] boot=980 crash=754
-reason=PANIC heap=176400 lastphase=''` + `Own AP active: 4wd4mCar_Wifi` + `192.168.245.1` — **the
+reason=PANIC heap=176400 lastphase=''` + `Own AP active: 4WD4MCar_WiFi` + `192.168.245.1` — **the
 bench car is on a 1.3.x build, NOT 1.0.5 as the prior ledger said**, and still PANICs with an empty
 phase → Phase 1 target. Toolchain confirmed locally: bundled `arduino-cli` + ESP32 core 3.3.12 +
 `WebSockets`/`U8g2`; owner flashes. **No code changed yet (Phase 0 = notes).**
@@ -87,13 +87,13 @@ OTA (F-65 stayed 3.2.7; this round is Phase B of that rebuild).
    `!wifiEnabled_`; restore beacon when STA down). `apParked_`, `AP_PARK_GRACE_MS`,
    `AP_PARK_HTTP_MS`, `lastHttpAtMs_` stamp removed. `WIFICFG;PARALLEL`/`WIFICFG;APSAVE` and
    `ap_psave`/`allow_parallel`/`last_transport` residue wiped on fresh install.
-3. **Identity** — `WIFI_AP_NAME = "4wd4mCar_Wifi"` (ONE name; `WirelessCar_Wifi` +
+3. **Identity** — `WIFI_AP_NAME = "4WD4MCar_WiFi"` (ONE name; `WirelessCar_Wifi` +
    `4WDCar_Wifi` purged from app registry + firmware). `WIFI_AP_IP[] = "192.168.245.1"`;
    OLED fallbacks now `WIFI_AP_NAME`/`WIFI_AP_IP`.
 4. **Deleted-network root cause** — `ROUTERS;DEL` registry-row + `wasActive` matching is now
    case-INSENSITIVE (`strcasecmp`), so a different-case delete removes the row + active pair
    and the router stays gone after a power cycle.
-5. **App companion (3.2.7, same version)** — registry/own-AP name mirror `4wd4mCar_Wifi`;
+5. **App companion (3.2.7, same version)** — registry/own-AP name mirror `4WD4MCar_WiFi`;
    Remote settings show the three linked-gated toggles (Wi-Fi/BT/auto-join) that query on
    link and persist to DevicePrefs + cloud; arbitration is both-live; deleted-network deep
    fix via `wifi_enabled` cloud write-through.

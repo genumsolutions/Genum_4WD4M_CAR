@@ -24,7 +24,7 @@
 // scans that blank the softAP beacon, so an unreachable saved router must not
 // be retried forever. Auto-reconnect is OFF (beginStation/rejoinNetwork) and
 // only STA_MAX_RETRIES explicit attempts (spaced WIFI_RETRY_INTERVAL_MS) run;
-// after that the car settles AP-ONLY so 4wd4mCar_Wifi stays rock-solid for
+// after that the car settles AP-ONLY so 4WD4MCar_WiFi stays rock-solid for
 // phone joins. A later ROUTERS;USE / WIFICFG / mode re-entry starts STA fresh.
 // R-16 (2026-09-18) budget note, REWRITTEN 2026-10-11 (U-98): the budget now
 // covers BOTH the explicit user join (ROUTERS;USE / WIFICFG) AND the boot
@@ -132,7 +132,7 @@
 // Max 6 routers (ssid ≤32 / pass ≤64, no ';' in either — split-rule parity
 // with WIFICFG). Names sync OUT only; passwords never leave the car's NVS.
 // T-62 (round-9): ROUTERS;CLEAR wipes the whole user registry + stored pair.
-// T-66 (round-9): the car's OWN network (WIFI_AP_NAME = 4wd4mCar_Wifi) is a
+// T-66 (round-9): the car's OWN network (WIFI_AP_NAME = 4WD4MCar_WiFi) is a
 // protected virtual entry — always FIRST in ROUTERS/NETW/JSON lists while in
 // webserver mode, never stored, never deletable; DEL/CLEAR refuse it and
 // USE on it reverts the car to its own AP as the default network.
@@ -333,7 +333,7 @@ public:
   // CORRECTION (2026-10-10, owner: "the car is not connected through its own
   // hotspot for the phone after some period of time"). A client count alone
   // cannot say WHICH side of the car a client arrived on, so a phone sitting on
-  // 4wd4mCar_Wifi counted as a reason to PARK 4wd4mCar_Wifi - roughly 20 s after it
+  // 4WD4MCar_WiFi counted as a reason to PARK 4WD4MCar_WiFi - roughly 20 s after it
   // opened the page the car dropped the very link it was being driven over. A
   // client on the AP is proof the beacon is REQUIRED, never that it is spare.
   // U-105 (1.3.5): parking was REMOVED entirely (owner ruled the power-save
@@ -421,7 +421,7 @@ void advanceRejoinStep();
   // in the give-up path, which restores the own hotspot (up the whole time).
   unsigned long staTimeoutMs_;
   uint8_t staRetryCap_;
-  // R-12: the AP fallback broadcast id (4wd4mCar_Wifi, T-56) once started;
+  // R-12: the AP fallback broadcast id (4WD4MCar_WiFi, T-56) once started;
   // empty before.
   const char* apBroadcastId() const { return apName_.length() > 0 ? apName_.c_str() : ""; }
   // R-13 (owner matrix 2026-09-15): the car's current reachable IP — the
@@ -601,7 +601,7 @@ private:
   unsigned long scanWaitMs_;
   int scanCount_;
   std::vector<ScannedNetwork> scanNetworks_;
-  // AP fallback broadcast id ("4wd4mCar_Wifi", T-56), shown on the OLED and
+  // AP fallback broadcast id ("4WD4MCar_WiFi", T-56), shown on the OLED and
   // in the status JSON ("ap") so the app/website can display it.
   String apName_;
 
@@ -610,7 +610,7 @@ private:
 
   void updateExtraInfo();
 
-  // T-65 (round-9) + v2: bring the car's own hotspot (4wd4mCar_Wifi) up and
+  // T-65 (round-9) + v2: bring the car's own hotspot (4WD4MCar_WiFi) up and
   // keep apRunning_/apName_ consistent. Idempotent; retried by handle() on a
   // softAP failure (FIN-40/D1) — the AP is up for the WHOLE uptime in v2.
   void startOwnAP();

@@ -522,7 +522,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
         (ssidLen == strlen(WIFI_AP_NAME) &&
          strncasecmp(ssid, WIFI_AP_NAME, ssidLen) == 0);
     if (isOwnApName) {
-      // T-66: "USE 4wd4mCar_Wifi" = switch back to the car's own network
+      // T-66: "USE 4WD4MCar_WiFi" = switch back to the car's own network
       // (nothing stored → rejoin to the own AP as the default).
       hasStoredWifi_ = false;
       storedSsid_[0] = '\0';
@@ -690,7 +690,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
     }
   } else if (rest[0] == ';' && strncasecmp(rest, ";CLEAR", 6) == 0) {
     // T-62: wipe ALL saved routers + the stored active pair. The car's OWN
-    // network (4wd4mCar_Wifi) is virtual/protected — it is never removed.
+    // network (4WD4MCar_WiFi) is virtual/protected — it is never removed.
     savedRouterCount_ = 0;
     for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
       savedRouterSsid_[i][0] = '\0';
@@ -973,7 +973,7 @@ size_t WebServerComm::buildScanJson(char* buf, size_t bufLen) const {
 
 // T-49: names-only SPP line — "NETW;<ssid1>;<ssid2>;..." (fed to the remote's
 // SW saved-networks menu). Never contains passwords. T-66: the car's own
-// network (4wd4mCar_Wifi) leads the list first while in webserver mode.
+// network (4WD4MCar_WiFi) leads the list first while in webserver mode.
 void WebServerComm::buildNetworksLine(char* buf, size_t bufLen) {
   if (!buf || bufLen == 0) return;
   strncpy(buf, "NETW", bufLen - 1);
@@ -1051,7 +1051,7 @@ void WebServerComm::startOwnAP() {
   // T-71 (round-11): keep the radio beaconing for the whole webserver session.
   // In WIFI_AP_STA the STA side scans/associates to a saved router; with the
   // default duty-cycling the softAP can blink out right when a phone races to
-  // join `4wd4mCar_Wifi`, which surfaces as Android's intermittent "unable
+  // join `4WD4MCar_WiFi`, which surfaces as Android's intermittent "unable
   // to connect" from the phone's Wi-Fi search/connect menus (owner report).
   // setSleep(false) removes those gaps; explicit open-AP params (no password,
   // channel 1 follows the STA router in AP_STA, visible, up to 4 clients) keep
@@ -1571,7 +1571,7 @@ void WebServerComm::advanceRejoinStep() {
         // that one, but switches to other router fine"*): "back to my own
         // hotspot" used to stop HERE — rejoinNetwork() armed nothing
         // (pendingRejoin_ keys on hasStoredWifi_, which T-66 had just
-        // cleared), so the car ANSWERED `ROUTERS;USED;4wd4mCar_Wifi` and then
+        // cleared), so the car ANSWERED `ROUTERS;USED;4WD4MCar_WiFi` and then
         // simply stayed associated to the router. There is no target to
         // begin(), but there IS an association to LEAVE: hand off to the
         // existing one-call-per-pass teardown (disconnect → mode(WIFI_AP) →
@@ -2165,7 +2165,7 @@ void WebServerComm::currentIp(char* buf, size_t bufLen) {
 // the router with no configuration - and, importantly, the advertisement
 // re-publishes itself every time the car changes network, so it is never stale.
 //
-// The hostname is deliberately NOT the AP name: `4wd4mCar_Wifi` contains an
+// The hostname is deliberately NOT the AP name: `4WD4MCar_WiFi` contains an
 // underscore, which is not legal in a strict mDNS hostname. `genum-car` is the
 // documented name (the `mdns` transport placeholder in the app already expects
 // `genum-car.local`).
@@ -2674,7 +2674,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   if (modeManager) modeManager->buildCapsMap(caps, sizeof(caps));
   // v1.4.0 provisioning truth: configured SSID (never the password) and the
   // AP broadcast id — the app shows both in the ESP_SER deck. T-64: when
-  // nothing is stored, the car's OWN network (4wd4mCar_Wifi) IS the
+  // nothing is stored, the car's OWN network (4WD4MCar_WiFi) IS the
   // network — the compile-time secrets.h fallback is never joined nor named.
   // U-70 (2026-10-02): the JSON `ssid` is the network the car is ACTUALLY on.
   // It used to be the stored target, which is written the moment `ROUTERS;USE`
