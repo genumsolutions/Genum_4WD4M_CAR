@@ -26,7 +26,7 @@ The bench car is on an older build. One flash of `main` brings all of it:
 first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join ON,
 no router saved. Re-add your router in Step 5.
 
-## 1 · Flash 1.3.9 (USB)
+## 1 · Flash 1.3.10 (USB)
 
 ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 (this CH340 fails at the default 921600):
@@ -39,7 +39,7 @@ step, another version-change wipe of saved routers.)
 
 Capture the first boot while you are at it (~15 s, resets the board):
 
-    python tools/serial_capture.py COM<port> 15 boot-1.3.9.log
+    python tools/serial_capture.py COM<port> 15 boot-1.3.10.log
 
 **Expect in that log:** `[BOOT] Restored mode=4WD4M`, the router-wipe line
 (version change), `Own AP active: 4WD4MCar_WiFi`, and
@@ -73,7 +73,7 @@ once, re-join. Expect an `192.168.245.x` address, then open:
 
     http://192.168.245.1/status
 
-Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.9`, and the crash
+Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.10`, and the crash
 fields (`crash_count`, `reset_reason`, the phase). The page's mode dropdown and
 router table must work.
 
