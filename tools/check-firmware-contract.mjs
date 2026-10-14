@@ -1,7 +1,29 @@
-// U-111: stripped of the U-94 Phase 2 relay rules. The remaining rules
-// are the restart-record gate (F-79), the watchdog & budget gates (F-60/F-77)
-// and the WebSocket pump / broadcast gates (F-75/F-76). All other sections
-// were merged into mutate-gates.mjs or removed entirely.
+// U-111: the firmware contract gate. This file is `check-relay-contract.mjs`
+// with the U-94 Phase 2 RELAY rules removed (RelayComm.cpp/.h are gone with the
+// Internet method): control-frame, TLS, token, armed-handshake, enrolment,
+// inert-by-default, caps/inbound-fit and singleton are all dropped with the
+// transport they described.
+//
+// EVERY OTHER RULE SURVIVES HERE: the transport seams + grammar lock, the
+// restart record (F-79), the watchdog & budget gates (F-60/F-77), the
+// WebSocket pump / guard / budget gates (F-75/F-76), the OLED extra-row
+// decoupling (U-98 P2), the router-switch teardown + NVS-persistence + retry
+// split (U-95 Phase 2), the scan honesty/quality rules, the mode-cycle walk
+// and the status network fields (U-95 Phase 3), and the board-id consumer
+// comparison.
+//
+// They are here, not "merged into mutate-gates.mjs": the mutation harness runs
+// this gate as `gateContract` and asserts one mutant per rule, so a rule that
+// leaves this file does not retire - it goes UNDETECTED (measured: 35
+// undetected mutants the round this file was cut down to the relay rules).
+//
+// HOW THIS FILE READS SOURCE (F-83): structural rules run against `code()` -
+// comments and string/char literals blanked - so prose can never satisfy a
+// rule. Rules that must see LITERALS (a reply string, a strcmp token) run
+// against `stripComments()`, which keeps string literals and blanks only the
+// comments - `code()` blanks strings, raw text lets a comment that NAMES the
+// token pass for code. Every rule states which view it reads, and every rule
+// is mutation-proven BOTH directions by tools/mutate-gates.mjs.
 
 import { existsSync, readFileSync } from "node:fs";
 import { createHash, X509Certificate } from "node:crypto";
@@ -21,6 +43,14 @@ const code = (text) =>
     .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
     .replace(/"(?:\\.|[^"\\])*"/g, (m) => '"' + " ".repeat(Math.max(0, m.length - 2)) + '"')
     .replace(/'(?:\\.|[^'\\])*'/g, (m) => "'" + " ".repeat(Math.max(0, m.length - 2)) + "'");
+
+/** Comments blanked, string literals KEPT. The only view that is both: raw
+ *  text lets a comment naming a token pass for code; `code()` blanks the
+ *  literal the rule exists to check. */
+const stripComments = (text) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
 
 /** Extract a function body by brace matching, so "mentions it somewhere in the
  *  file" cannot pass for "mentions it in this function". */
@@ -362,6 +392,336 @@ if (!existsSync(consumerRelay)) {
     pass("board-id-consumer", "website BOARD_ID_RE + CLAIM_UNIQUE_ID_RE are exactly the 6-hex forms this car produces");
   }
 }
+
+// ---- 10. the broadcast cannot walk the sockets with nobody listening ----
+// U-95 1c: broadcastStatus() measured 5-8 s writing to a client that stopped
+// draining TCP, and ran unguarded on the 1 s ticker - a 1536-byte JSON built
+// and every socket walked whether or not anyone was listening. The guard must
+// be INSIDE broadcastStatus and must run BEFORE the JSON build; a guard
+// anywhere else (or after it) is that case still. Comment-stripped view: the
+// prose above the guard explains it and would otherwise satisfy the rule.
+{
+  const guardAt = broadcastBody.search(/hasWsClients\s*\(\s*\)|connectedClients\s*\(\s*\)/);
+  const bcastAt = broadcastBody.indexOf("broadcastTXT");
+  if (!broadcastBody) {
+    fail("ws-guard", "could not locate broadcastStatus() - check this rule still matches the code");
+  } else if (guardAt < 0) {
+    fail("ws-guard", "broadcastStatus() has no connectedClients() guard - the 1 s ticker builds a 1536-byte JSON and walks every socket with nobody listening (U-95 Phase 1c)");
+  } else if (bcastAt >= 0 && guardAt > bcastAt) {
+    fail("ws-guard", "the client guard runs AFTER broadcastTXT() - it must return before the JSON is built and the sockets are walked");
+  } else {
+    pass("ws-guard", "broadcastStatus() is client-guarded, before the JSON build and the write");
+  }
+}
+
+// The watchdog must sit STRICTLY above the library's worst single operation:
+// 8000 ms is the U-77 write measurement (5000 ms no-progress retry + a 3000 ms
+// inner socket block); the partial-frame read is 5000 ms. A watchdog EQUAL to
+// either is the F-77 tie again - both clocks expire together and correctness
+// is whichever the scheduler reaches first.
+if (!wdt) {
+  fail("ws-budget", "LOOP_TASK_WDT_TIMEOUT_MS is gone or unparseable - check this rule still matches the code");
+} else if (wdt <= 8000) {
+  fail("ws-budget", `the watchdog is ${wdt} ms - it does not exceed the WebSockets library's worst single operation (8000 ms measured: 5000 ms no-progress retry + 3000 ms socket send timeout); the stall ties the watchdog instead of fitting under it`);
+} else {
+  pass("ws-budget", `the watchdog is ${wdt} ms - ${wdt - 8000} ms above the library's worst operation (read 5000, write ~8000), each fed immediately before it runs`);
+}
+
+// ---- 11. the OLED extra row ticks apart from the WS broadcast (U-98 P2) --
+// The OLED's network/extra row and the WebSocket status JSON used to share ONE
+// `if (now - lastExtraMs >= EXTRA_INTERVAL)` block, so the OLED refresh rate
+// could not move without changing how often every client is broadcast to. The
+// owner asked for the OLED to be "pronto" (U-98); the honest fix is to raise
+// the extra row's OWN cadence and leave the broadcast alone - NOT to double the
+// status JSON to every socket. This rule pins the two ticks APART and ordered:
+// each call sits under its own interval constant (a shared constant is the
+// re-coupling back, dressed differently), and the extra row refreshes strictly
+// FASTER than the broadcast (a slower OLED tick is the same defect in reverse).
+{
+  const guards = [];
+  const gre = /(?:now|millis\s*\(\s*\))\s*-\s*(last\w*Ms)\s*>=\s*(\w+)/g;
+  let gm;
+  while ((gm = gre.exec(handleBody)) !== null) guards.push({ at: gm.index, interval: gm[2] });
+
+  const intervals = {};
+  const ire = /const\s+unsigned\s+long\s+(\w+)\s*=\s*(\d+)\s*;/g;
+  let im;
+  while ((im = ire.exec(handleBody)) !== null) intervals[im[1]] = Number(im[2]);
+
+  // Map each call to the LAST tick guard that precedes it (the calls appear
+  // several times elsewhere in handle(), each under its own event branch, so an
+  // indexOf would grab the wrong one - the last guard wins). The tick block is
+  // the last timer in handle(), so this lands on the right pair.
+  const guardFor = (callRe) => {
+    let hit = null;
+    for (let i = 0; i < guards.length; i++) {
+      const start = guards[i].at;
+      const end = i + 1 < guards.length ? guards[i + 1].at : handleBody.length;
+      if (callRe.test(handleBody.slice(start, end))) hit = guards[i];
+    }
+    return hit;
+  };
+  const eg = guardFor(/updateExtraInfo\s*\(/);
+  const bg = guardFor(/broadcastStatus\s*\(/);
+
+  if (!eg || !bg) {
+    fail("extra-status-decoupled", "could not map updateExtraInfo()/broadcastStatus() to a `now - last…Ms >= …` tick in handle() - check this rule still matches the code");
+  } else if (eg.interval === bg.interval) {
+    fail("extra-status-decoupled", `updateExtraInfo() and broadcastStatus() share the tick ${eg.interval} - the OLED cadence is bolted to the client broadcast again (U-98 Phase 2)`);
+  } else if (!(eg.interval in intervals) || !(bg.interval in intervals)) {
+    fail("extra-status-decoupled", `one of the tick constants (${eg.interval}, ${bg.interval}) has no literal value - the rule cannot compare the two cadences`);
+  } else if (!(intervals[eg.interval] < intervals[bg.interval])) {
+    fail("extra-status-decoupled", `the extra row (${eg.interval}=${intervals[eg.interval]} ms) is not faster than the broadcast (${bg.interval}=${intervals[bg.interval]} ms) - the "pronto" refresh is not actually sooner`);
+  } else {
+    pass("extra-status-decoupled", `OLED extra row refreshes every ${intervals[eg.interval]} ms (${eg.interval}); the WS broadcast stays at ${intervals[bg.interval]} ms (${bg.interval})`);
+  }
+}
+
+// ---- 12. a router switch must be a real teardown (U-95 Phase 2) ----------
+// U-90 shipped the claim this rule enforces as a COMMENT: the MODE step's
+// prose said "WiFi.mode(WIFI_AP_STA) restarts the WiFi driver, the stale STA
+// state is torn down". The installed core does not restart anything when the
+// requested mode equals the current one (WiFiGeneric.cpp:602 early-returns),
+// and the current mode IS WIFI_AP_STA after the first switch - so the
+// teardown did not exist on any switch after the first, the stale
+// association survived, and every gate in this file stayed green through it.
+// Prose certified by plausibility, F-82 in one line.
+//
+// So the sequence is asserted, IN ORDER, against the comment-stripped body:
+//   drop (mode WIFI_AP, always unequal -> always real work)
+//   -> poll (getMode, confirms the drop took, 0 radio calls)
+//   -> restore (startOwnAP while the STA is down - the one window
+//      startOwnAP()'s staBusy() guard cannot refuse, so the phone keeps a
+//      way in for the WHOLE switch: T-65's "reachable throughout")
+//   -> raise (mode WIFI_AP_STA, always unequal)
+//   -> begin (WiFi.begin on a clean slate)
+// A missing step or a reordered one is the U-90 defect again: a begin that
+// races the old link, or a switch that leaves the car without its hotspot.
+const rejoinBody = body(wscCode, "void WebServerComm::advanceRejoinStep") ?? "";
+if (!rejoinBody) {
+  fail("switch-teardown", "could not locate advanceRejoinStep() - check this rule still matches the code");
+} else {
+  const dropAt = rejoinBody.search(/WiFi\s*\.\s*mode\s*\(\s*WIFI_AP\s*\)/);
+  const pollAt = rejoinBody.search(/WiFi\s*\.\s*getMode\s*\(\s*\)/);
+  const restoreAt = rejoinBody.search(/startOwnAP\s*\(\s*\)/);
+  const raiseAt = rejoinBody.search(/WiFi\s*\.\s*mode\s*\(\s*WIFI_AP_STA\s*\)/);
+  const beginAt = rejoinBody.search(/WiFi\s*\.\s*begin\s*\(/);
+  if (dropAt < 0) {
+    fail("switch-teardown", "the MODE step no longer DROPS the mode (WiFi.mode(WIFI_AP)) - mode(WIFI_AP_STA) on an already-AP_STA driver is the WiFiGeneric.cpp:602 early return: no teardown on any switch after the first (the U-90 defect)");
+  } else if (pollAt < 0) {
+    fail("switch-teardown", "the drop is never confirmed (no WiFi.getMode() poll) - mode() returns once the set is ACCEPTED, not once it took; proceeding blind is racing the driver");
+  } else if (restoreAt < 0) {
+    fail("switch-teardown", "the rejoin path never restores the hotspot (startOwnAP()) - the phone loses its way in during the switch (T-65)");
+  } else if (raiseAt < 0) {
+    fail("switch-teardown", "the STA side is never re-raised (no WiFi.mode(WIFI_AP_STA)) - the car would stay AP-only after a switch");
+  } else if (beginAt < 0) {
+    fail("switch-teardown", "the rejoin path never reaches WiFi.begin() - nothing ever joins the router");
+  } else if (!(dropAt < pollAt && pollAt < restoreAt && restoreAt < raiseAt && raiseAt < beginAt)) {
+    fail("switch-teardown", `the steps are out of order (drop=${dropAt}, poll=${pollAt}, restore=${restoreAt}, raise=${raiseAt}, begin=${beginAt}) - the sequence must be drop -> confirm -> restore -> raise -> begin`);
+  } else {
+    pass("switch-teardown", "drop -> confirm -> restore -> raise -> begin, in order, one radio call per pass");
+  }
+}
+
+// NVS wear (U-95 Phase 2). Arduino-ESP32 defaults to persistent(true), which
+// routes every esp_wifi_set_config through FLASH: each WiFi.begin() rewrites
+// the station credentials and each softAP() rewrites the AP config. A router
+// switch multiplies that by the retry budget (STA_MAX_RETRIES), the boot
+// auto-join adds more, and none of it is data this firmware reads back - its
+// credentials live in its own `botcfg` Preferences. The guard must exist AND
+// sit in the boot bring-up (beginAlwaysOn, or the top of beginStation before
+// it configures the radio): placed anywhere else in the file it runs after
+// the very first config write it exists to prevent.
+const abBody = body(wscCode, "void WebServerComm::beginAlwaysOn") ?? "";
+const bsBody = body(wscCode, "bool WebServerComm::beginStation") ?? "";
+const persistRe = /WiFi\s*\.\s*persistent\s*\(\s*false\s*\)/;
+const pAb = abBody ? abBody.search(persistRe) : -1;
+const pBs = bsBody ? bsBody.search(persistRe) : -1;
+const bsFirstRadio = bsBody ? bsBody.search(/WiFi\s*\.\s*(?:mode|softAP|begin)\s*\(/) : -1;
+if (pAb < 0 && pBs < 0) {
+  fail("wifi-persistent", "WiFi.persistent(false) is not in the boot bring-up (beginAlwaysOn/beginStation) - every WiFi.begin()/softAP() rewrites flash NVS against ~100k erase cycles (the Arduino default is persistent=true)");
+} else if (pAb < 0 && bsFirstRadio >= 0 && pBs > bsFirstRadio) {
+  fail("wifi-persistent", "WiFi.persistent(false) runs AFTER the first mode/softAP/begin inside beginStation() - the first config write still reaches flash, so the guard is decorative");
+} else {
+  pass("wifi-persistent", "WiFi.persistent(false) is set in the boot bring-up, before the radio is configured");
+}
+
+// The retry's disconnect and its begin must NOT share one handle() pass
+// (U-95 Phase 2). Same shape as the give-up path that rebooted the car (U-75):
+// two radio calls back to back inside one loop iteration, with the begin
+// racing a driver that is still tearing the old association down - the plan's
+// "separate the disconnect/begin across passes". Three structural facts, then
+// the two ways a deferred begin can still leak (a rejoin must cancel it, and
+// must re-stamp the backoff or the retry fires on pass 1, mid-teardown).
+const rejoinNetBody = body(wscCode, "void WebServerComm::rejoinNetwork()") ?? "";
+const rbArmAt = handleBody.search(/retryBeginPending_\s*=\s*true/);
+const rbGuardAt = handleBody.search(/if\s*\(\s*retryBeginPending_\s*\)/);
+const rbGuardBody = rbGuardAt >= 0 ? braced(handleBody, rbGuardAt) ?? "" : "";
+const samePassBegin = /WiFi\.disconnect\s*\(\s*\)\s*;\s*(?:noteRadioStep\s*\(\s*"[^"]*"\s*\)\s*;\s*)?WiFi\.begin\s*\(/.test(handleBody);
+if (!handleBody) {
+  fail("retry-split", "could not locate WebServerComm::handle() - check this rule still matches the code");
+} else if (rbArmAt < 0) {
+  fail("retry-split", "the retry branch never arms retryBeginPending_ - the deferred begin has no producer");
+} else if (rbGuardAt < 0) {
+  fail("retry-split", "no if (retryBeginPending_) guard - the deferred begin is never issued (the flag is armed and forgotten)");
+} else if (!/WiFi\.begin\s*\(/.test(rbGuardBody)) {
+  fail("retry-split", "the retryBeginPending_ guard does not contain WiFi.begin - the arm has no consumer, so a disconnect with no begin leaves the STA down until the give-up path settles");
+} else if (samePassBegin) {
+  fail("retry-split", "a WiFi.disconnect() still runs directly into a WiFi.begin() in handle() - the same-pass race the split removes (the U-75 shape: two radio calls in one loop pass)");
+} else if (!rejoinNetBody) {
+  fail("retry-split", "could not locate rejoinNetwork() - check this rule still matches the code");
+} else if (!/retryBeginPending_\s*=\s*false/.test(rejoinNetBody)) {
+  fail("retry-split", "rejoinNetwork() does not cancel an in-flight retry begin - a stale deferred begin lands after the user asked for a different network (the U-75 pattern)");
+} else if (!/lastWifiRetryMs_\s*=\s*millis\s*\(\s*\)/.test(rejoinNetBody)) {
+  fail("retry-split", "rejoinNetwork() does not re-stamp the retry backoff - the 10 s stamp is stale after any successful session, so the retry branch fires on pass 1 of the step machine and disconnects the teardown that is mid-walk");
+} else {
+  pass("retry-split", "disconnect and begin are on separate passes, the deferred begin has a guard and a producer, and rejoinNetwork() cancels + re-stamps");
+}
+
+// U-95 Phase 2C: the SCAN answer must be TRUE or BUSY - never an unconditional
+// STARTED for a scan that was silently dropped - and startScan() must refuse
+// BOTH while a scan is in flight and while the STA is mid-join. Literals are
+// read from the comment-stripped view (F-83: stripComments KEEPS string
+// literals, so `"ROUTERS;SCAN;BUSY"` is a real reply only if the source
+// carries it; the string is written in code only, never quoted in a comment).
+const scanLiterals = stripComments(wsc);
+const scanStartBody = body(wscCode, "bool WebServerComm::startScan") ?? "";
+const routerCmdBody = body(wscCode, "bool WebServerComm::handleRouterCommand") ?? "";
+if (!scanStartBody) {
+  fail("scan-honest", "startScan() is no longer `bool WebServerComm::startScan` - void startScan() is the pre-U-95 shape: it refuses silently and the handler cannot answer BUSY");
+} else if ((scanStartBody.match(/return false/g) || []).length < 2) {
+  fail("scan-honest", "startScan() does not refuse in both cases - it must reject an in-flight scan AND a scan kicked while the STA is associating (mid-join scans race the driver and return garbage)");
+} else if (!/connectingPending_/.test(scanStartBody)) {
+  fail("scan-honest", "startScan() no longer gates on connectingPending_ - a scan is started between WiFi.begin() and association, racing a driver that is mid-join");
+} else if (!routerCmdBody) {
+  fail("scan-honest", "could not locate handleRouterCommand() - check this rule still matches the code");
+} else if (!/if\s*\(\s*startScan\s*\(\s*\)\s*\)/.test(routerCmdBody)) {
+  fail("scan-honest", "the SCAN handler does not key the reply on startScan()'s result - ROUTERS;SCAN;STARTED is claimed unconditionally, so a dropped scan still reports success and the app waits forever");
+} else if (!scanLiterals.includes('\"ROUTERS;SCAN;BUSY\"')) {
+  fail("scan-honest", "the source never answers ROUTERS;SCAN;BUSY - a refusal has no honest form");
+} else if (!scanLiterals.includes('\"ROUTERS;SCAN;STARTED\"')) {
+  fail("scan-honest", "the source never answers ROUTERS;SCAN;STARTED - a scan that DID start has no acknowledgement");
+} else {
+  pass("scan-honest", "startScan() answers (false = BUSY, gated on in-flight + associating) and the handler keys the reply on it");
+}
+
+// U-95 Phase 2C: the collected list must be ranked by STRENGTH, deduped per
+// RADIO (BSSID, not name), with exactly ONE cap applied AFTER the sort. The
+// old shape capped before the loop and at insert, never sorted, and deduped
+// on names - so it kept the first N results in radio-order, dropped strong
+// networks, and silently merged two different routers broadcasting one SSID.
+const collectBody = body(wscCode, "void WebServerComm::collectScanIfDone") ?? "";
+const sortAt = collectBody.search(/scanNetworks_\[\s*b\s*-\s*1\s*\]\s*\.\s*rssi\s*<\s*key\s*\.\s*rssi/);
+const capAt = collectBody.search(/scanNetworks_\s*\.\s*resize\s*\(\s*SCAN_MAX_RESULTS/);
+if (!collectBody) {
+  fail("scan-quality", "could not locate collectScanIfDone() - check this rule still matches the code");
+} else if (!/char\s+bssid\s*\[/.test(wsh)) {
+  fail("scan-quality", "ScannedNetwork has no BSSID field - there is no per-RADIO dedupe key, so the list can only dedupe on names (merging different routers that share an SSID)");
+} else if (!/WiFi\.BSSIDstr\s*\(/.test(collectBody)) {
+  fail("scan-quality", "collectScanIfDone() never reads the BSSID - the dedupe key is declared but never captured");
+} else if (!/strcasecmp\s*\(\s*scanNetworks_\[\s*\w+\s*\]\s*\.\s*bssid/.test(collectBody)) {
+  fail("scan-quality", "the dedupe no longer compares BSSIDs - name-dedupe silently merges two different routers broadcasting one SSID and hides a multi-AP router's second radio");
+} else if (/if\s*\(\s*n\s*>\s*SCAN_MAX_RESULTS/.test(collectBody)) {
+  fail("scan-quality", "the list is still pre-truncated before the loop - the cap runs before the sort, keeping radio-report order instead of strength");
+} else if (/scanNetworks_\s*\.\s*size\s*\(\s*\)\s*<\s*SCAN_MAX_RESULTS/.test(collectBody)) {
+  fail("scan-quality", "the list is still capped at INSERT time - the first N results in radio-order survive, dropping the strong networks");
+} else if (sortAt < 0) {
+  fail("scan-quality", "no strongest-first sort (descending RSSI comparison) before the cap - the list is unordered, so which rows survive the cap is radio-report luck");
+} else if (capAt < 0) {
+  fail("scan-quality", "the SCAN_MAX_RESULTS cap is gone entirely - an unbounded list bloats the status broadcast and the app's table");
+} else if (sortAt > capAt) {
+  fail("scan-quality", "the cap runs BEFORE the sort - truncation must happen last, or the rows dropped are chosen before strength is known");
+} else {
+  pass("scan-quality", "dedupe on BSSID, sort strongest-first (hand-rolled), single cap applied last");
+}
+
+// U-95 Phase 3: MODECYCLE/MODEPREV/MODENEXT must be ONE walk (cycleMode)
+// behind three tokens. The walk existed only on the GPIO switch, so without
+// tokens the page and the app would each grow their own - three
+// implementations, three wrap rules, three drift stories. The rule checks the
+// tokens reach cycleMode with the right SIGN (prev must not walk forward),
+// that cycleMode wraps both ways (a missing negative wrap hands setMode() an
+// out-of-range enum), and that the GPIO still uses the same walk.
+// The token checks run on stripComments(mmHandle), NOT mmHandle: code() BLANKS
+// string literals, so a strcmp against `"MODECYCLE"` reads as strcmp against
+// nothing there - while raw would let the comment above the tokens (which
+// NAMES them) pass for code. stripComments is the only view that is both.
+const mmHandle = stripComments(body(raw("ModeManager.cpp"), "void ModeManager::handleCommand") ?? "");
+const mmCycleBody = body(mmCode, "void ModeManager::cycleMode") ?? "";
+const inoSrc = raw("Genum_4WD4M_CAR.ino");
+if (!mmHandle) {
+  fail("mode-cycle", "could not locate ModeManager::handleCommand - check this rule still matches the code");
+} else if (!/strcmp\s*\(\s*cmdBuf\s*,\s*\"MODECYCLE\"\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "no MODECYCLE token - the walk is GPIO-only, so page and app must each invent their own and drift apart");
+} else if (!/strcmp\s*\(\s*cmdBuf\s*,\s*\"MODEPREV\"\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "no MODEPREV token - there is no way to walk backwards");
+} else if (!/strcmp\s*\(\s*cmdBuf\s*,\s*\"MODENEXT\"\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "no MODENEXT token - the forward step has no explicit alias for consumers that mean 'next' rather than 'cycle'");
+} else if (!/cycleMode\s*\(\s*1\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "the forward tokens do not call cycleMode(1) - the shared walk is bypassed");
+} else if (!/cycleMode\s*\(\s*-1\s*\)/.test(mmHandle)) {
+  fail("mode-cycle", "MODEPREV does not call cycleMode(-1) - 'prev' walks forwards");
+} else if (!mmCycleBody) {
+  fail("mode-cycle", "could not locate cycleMode() - check this rule still matches the code");
+} else if (!/next\s*>=\s*MODE_COUNT/.test(mmCycleBody)) {
+  fail("mode-cycle", "cycleMode() never wraps past the end of the registry");
+} else if (!/next\s*<\s*0\s*\)\s*next\s*=\s*MODE_COUNT\s*-\s*1/.test(mmCycleBody)) {
+  fail("mode-cycle", "cycleMode() never wraps below 0 - MODEPREV from the first mode hands setMode() an out-of-range enum");
+} else if (!/cycleMode\s*\(\s*\)/.test(inoSrc)) {
+  fail("mode-cycle", "the GPIO switch no longer calls cycleMode() - two implementations of the walk now exist and will drift");
+} else {
+  pass("mode-cycle", "MODECYCLE/MODENEXT -> cycleMode(1), MODEPREV -> cycleMode(-1), wraps both ways, GPIO uses the same walk");
+}
+
+// U-95 Phase 3: the status data must carry the network facts a client cannot
+// compute itself - per-scan-row channel/own/saved/current (the page's table,
+// and the car is the only place the saved list and the association live) and
+// the four IP fields (station/ap/broadcast/subnet; softAPBroadcastIP() was
+// never called anywhere in this repository). Literals run on stripComments
+// views (code() blanks strings); structure on code views. Rule:
+// `status-net-fields`.
+const scanJsonBody = body(wscCode, "size_t WebServerComm::buildScanJson") ?? "";
+const scanJsonLits = stripComments(body(raw("WebServerComm.cpp"), "size_t WebServerComm::buildScanJson") ?? "");
+const statusLits = scanLiterals; // stripComments of the whole cpp - literals kept
+const statusBody = body(wscCode, "void WebServerComm::buildStatusJson") ?? "";
+// The format strings contain ESCAPED quotes (`\"station_ip\":\"%s\"`), so a
+// plain substring of `"station_ip":"%s"` never matches the source characters -
+// match the backslash-quote shape instead.
+const ipFieldRe = [
+  /\\+"station_ip\\+":\\+"%s/,
+  /\\+"ap_ip\\+":\\+"%s/,
+  /\\+"broadcast_ip\\+":\\+"%s/,
+  /\\+"subnet\\+":\\+"%s/,
+];
+const missingIp = ["station_ip", "ap_ip", "broadcast_ip", "subnet"].filter((_, i) => !ipFieldRe[i].test(statusLits));
+if (!scanJsonBody) {
+  fail("status-net-fields", "could not locate buildScanJson() - check this rule still matches the code");
+} else if (!/\\+"channel\\+"/.test(scanJsonLits)) {
+  fail("status-net-fields", "scan rows no longer carry channel - a table column only the radio can answer is gone");
+} else if (!/\\+"own\\+"/.test(scanJsonLits) || !/\\+"saved\\+"/.test(scanJsonLits) || !/\\+"current\\+"/.test(scanJsonLits)) {
+  fail("status-net-fields", "scan rows no longer carry own/saved/current - the page would have to guess which row is the car's own network, from three app modules that already disagree");
+} else if (!/WiFi\.channel\s*\(/.test(collectBody)) {
+  fail("status-net-fields", "collectScanIfDone() never reads WiFi.channel(i) - the channel field is declared but never captured from the radio at collect time, while the driver still holds it");
+} else if (!/savedRouterSsid_/.test(scanJsonBody)) {
+  fail("status-net-fields", "buildScanJson() no longer consults the saved-router list - `saved` is guessed, not car truth");
+} else if (!/WiFi\.status\s*\(\s*\)\s*==\s*WL_CONNECTED/.test(scanJsonBody)) {
+  fail("status-net-fields", "buildScanJson() no longer checks the association - `current` cannot distinguish an associated STA from a dropdown guess");
+} else if (!statusBody) {
+  fail("status-net-fields", "could not locate buildStatusJson() - check this rule still matches the code");
+} else if (missingIp.length > 0) {
+  fail("status-net-fields", `status JSON is missing ${missingIp.join(", ")} - the single legacy ip slot cannot say which interface is up, and the directed-broadcast path has no address to use`);
+} else if (!/WiFi\.softAPBroadcastIP\s*\(/.test(statusBody)) {
+  fail("status-net-fields", "WiFi.softAPBroadcastIP() is never called - the broadcast address was, until Phase 3, unreachable from anywhere in this repository");
+} else if (!/WiFi\.softAPSubnetMask\s*\(/.test(statusBody)) {
+  fail("status-net-fields", "the subnet mask is never read - broadcast without mask is an arithmetic guess");
+} else {
+  pass("status-net-fields", "scan rows carry channel/own/saved/current from car truth; station_ip/ap_ip/broadcast_ip/subnet are all computed");
+}
+
+// The one thing this gate cannot check is the thing that matters most: that a
+// real car answers. That is the owner's bench, not a laptop.
+console.log("\nfirmware-contract: source checks only - no radio was touched, no car was asked.");
+console.log("End-to-end is the device matrix (TRACKS/DEVICE-TESTS.md); green here is not evidence it works (F-61).");
 
 console.log(`\n${failures} gate failures total`);
 process.exit(failures > 0 ? 1 : 0);
