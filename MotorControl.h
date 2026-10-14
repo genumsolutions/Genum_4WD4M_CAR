@@ -32,5 +32,12 @@ public:
 
 private:
   uint32_t mapSpeedToDuty(uint16_t speed) const;
+  // U-109: false until begin() configures the LEDC channels. applyBootState()
+  // stops the motors during setup(), BEFORE motor.begin() runs (motors are
+  // deferred to the end of setup by the U-96 power budget), and an unguarded
+  // drive() reached ledc_set_duty on unconfigured channels — the boot log's
+  // "E ledc: LEDC is not initialized" noise. Before begin() the pins are inputs
+  // and the bridge is inert, so a no-op is the correct answer.
+  bool begun_ = false;
 };
 #endif

@@ -1135,6 +1135,14 @@ bool WebServerComm::showReservedEntry() const {
 void WebServerComm::startOwnAP() {
   crashRtcMark("wifi-ap");
   if (apRunning_) return;
+  // U-109: state the intended broadcast id BEFORE any early return. The name is
+  // a constant, and buildStatusJson() reads apName_ for the `ap` field with no
+  // apRunning_ guard — the app's discovery sweep identifies the car by that name
+  // before it has ever paired. An early return here (the staBusy() guard below,
+  // or a softAP() that has not retried yet) used to leave apName_ empty, so
+  // `ap` came back "" and the car was unfindable. apRunning_ still carries
+  // whether the beacon is actually up; the name is identity, not state.
+  if (apName_.length() == 0) apName_ = String(WIFI_AP_NAME);
   // U-76 (2026-10-02): THE ROOT CAUSE, from the owner's breadcrumbs.
   //
   //   [RADIO] rejoin/softAP
@@ -1317,13 +1325,21 @@ void WebServerComm::beginAlwaysOn() {
   WiFi.mode(WIFI_AP_STA);  // resting mode: AP now, STA joins without a mode dance
   beginStation();  // startOwnAP() + server.begin() + ws.begin() (mode already AP_STA)
   updateExtraInfo();
-  
-  // Protect state variables with critical section
-  TRANSPORT_POWER_ENTER_CRITICAL();
-  apRunning_ = true;
-  startedAsAP = true;
-  TRANSPORT_POWER_EXIT_CRITICAL();
-  
+
+  // U-109: DO NOT force apRunning_ = true here. beginStation() -> startOwnAP()
+  // has already claimed exactly what the radio achieved; forcing the claim true
+  // regardless is what defeated the FIN-40/D1 retry in handle() (which keys on
+  // `!apRunning_`). The boot softAP was in fact being skipped by a staBusy()
+  // misread — `WiFi.status()` is WL_STOPPED (254) for the first moments after
+  // mode(WIFI_AP_STA) until the arduino_events task delivers STA_START (fixed at
+  // the allow-list in staBusy()) — and forcing the claim true then marked that
+  // skipped bring-up as done, so the retry never ran and the car sat with NO own
+  // hotspot for the WHOLE uptime: no phone could join 4WD4MCar_WiFi, and /status
+  // `ap` stayed empty so the app's discovery sweep could not find it either —
+  // "no connection on any method". With the claim left honest, handle() retries
+  // the bring-up and the hotspot comes up by itself. `startedAsAP` is owned by
+  // beginStation().
+
   // U-79: the boot auto-join (armBootAutoJoin) is NO LONGER fired from here.
   // This function now also runs on the U-79 power-policy RESUME path (idle ->
   // Wi-Fi back up), and whether the router join runs is the .ino's decision
@@ -1579,6 +1595,18 @@ bool WebServerComm::staBusy() const {
     case WL_CONNECT_FAILED:
     case WL_DISCONNECTED:
     case WL_CONNECTION_LOST:
+    // U-109: WL_STOPPED (254) is the core's INITIAL value for STAClass::_status
+    // (STA.cpp: `_status(WL_STOPPED)`) and it is what `WiFi.status()` still
+    // reports in the first moments after `mode(WIFI_AP_STA)` returns — the
+    // arduino_events task has not yet delivered WIFI_EVENT_STA_START, which is
+    // what flips it to WL_DISCONNECTED. It means the STA interface is stopped,
+    // so it is settled by definition. Omitting it made the very first
+    // `startOwnAP()` at boot read 254, fall through to `default`, and skip the
+    // softAP ("[RADIO] skip-softAP/sta-busy"). The forced `apRunning_ = true`
+    // that used to follow marked the skipped bring-up as done, so no retry ever
+    // ran and the car came up with NO own hotspot — the field "no connection on
+    // any method".
+    case WL_STOPPED:
       return false;  // settled, and not currently on a router
     default:
       return true;   // WL_CONNECTED + any unknown/transition state

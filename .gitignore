@@ -21,3 +21,4 @@ desktop.ini
 __pycache__/
 *.pyc
 serial.log
+out.log

@@ -1,4 +1,60 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-13, U-105: transport toggles ride, beacon never parked, `4WD4MCar_WiFi` — 1.3.5 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-109: the own-hotspot boot fix — 1.3.6 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+
+## U-109 2026-10-14 — the car came up with NO own hotspot ("no connection on any method") (1.3.6, UNFLASHED — owner flash target)
+
+**Owner symptom:** the car would not connect to the app on **any** method
+(Bluetooth SPP, own-AP WebSocket, router WebSocket).
+
+**Evidence (live COM7 bench capture, `out.log`):**
+
+```
+[BOOT] Restored mode=4WD4M
+E (2481) ledc: ledc_set_duty(1062): LEDC is not initialized
+[RADIO] skip-softAP/sta-busy          <-- the boot softAP was skipped
+[V2] Web layer always-on: AP= ip=192.168.245.1 http=:80 ws=:81   <-- AP= is EMPTY
+```
+
+**Root cause (car):** the very first `startOwnAP()` of the boot was refused by
+`staBusy()`. On ESP32 core 3.3.12 `STAClass::_status` is initialised to
+**`WL_STOPPED`** and only flips to `WL_DISCONNECTED` when the `arduino_events`
+task delivers `WIFI_EVENT_STA_START` — *asynchronously*. `WiFi.status()`
+therefore still reports `WL_STOPPED` (254) in the first moments after
+`WiFi.mode(WIFI_AP_STA)` returns, and `staBusy()`'s settle allow-list omitted
+`WL_STOPPED`, so it fell to `default: return true` (busy). The softAP was skipped
+— and `beginAlwaysOn()` then force-set `apRunning_ = true`, marking the skipped
+bring-up as done and defeating the FIN-40/D1 retry in `handle()` (which keys on
+`!apRunning_`). The car then had no hotspot for the whole uptime, and `apName_`
+was left empty so `/status` `ap` was `""` and the app's discovery sweep could not
+find the car either.
+
+**Fixes (all in `WebServerComm.cpp` / `MotorControl.h` / `L298NControl.cpp` /
+`ModeManager.cpp`):**
+
+1. **`staBusy()`: `WL_STOPPED` is now an allow-listed settled state.** A stopped
+   STA interface is not "busy"; the boot softAP is no longer skipped.
+2. **`beginAlwaysOn()` no longer forces `apRunning_ = true`.** The flag carries
+   only what the radio achieved, so `handle()`'s retry works.
+3. **`startOwnAP()` sets `apName_ = WIFI_AP_NAME` before any early return** — the
+   cold-start identity is always known to `/status` + the app.
+4. **`L298NControl::drive()/setSpeed()` guarded by `begun_`** — `applyBootState()`
+   stops the motors before `motor.begin()` (U-96 defers the H-bridge to the end of
+   `setup()`); before `begin()` the pins are inputs, so a no-op is correct. Kills
+   the boot `E ledc: LEDC is not initialized` noise.
+5. **`applyBootState()` restores only a LIVE stored mode** — a valid-but-retired
+   (CS) row now keeps 4WD4M with its own log line; an out-of-range value is
+   logged instead of silently ignored.
+
+**Gates:** `check-firmware-syntax.ps1` 10/10 · `check-webpage-js.mjs` PASS ·
+`check-relay-contract.mjs` all PASS · `mutate-gates.mjs` 69/69 byte-exact.
+Source-level only — **F-61: nothing is device-verified until the owner flashes
+1.3.6.** First post-flash read: does `4WD4MCar_WiFi` appear in the phone's Wi-Fi
+list, and does `/status` `ap` read `4WD4MCar_WiFi`?
+
+**App half (U-109, 3.2.7 JS-only OTA):** retired `ESP_SER`/`ESP_CLI` dropped from
+`EVERY_LINK_COMMANDS`; the inert `transports/` LinkManager wiring removed from
+`useControlHub` (`chosenRadio: null`); the donor `"4WD4M": "Wireless Car"` label
+corrected to `"4WD4M Car"`; contradictory comments fixed. `transports/` + its
+tests and `commandRouting.ts` kept as the documented roadmap registry.
 
 ## U-108 2026-10-13 — fresh start + timestamps (1.3.6, UNFLASHED — owner flash target)
 

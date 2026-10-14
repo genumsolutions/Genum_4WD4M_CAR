@@ -10,7 +10,7 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
-## UNRELEASED — 1.3.6 (U-106/U-107, 2026-10-13): crash-TIME evidence that survives a PANIC + the OLED last-two-lines rule
+## UNRELEASED — 1.3.6 (U-106/U-107/U-108/U-109, 2026-10-13): crash-TIME evidence that survives a PANIC + the OLED last-two-lines rule + fresh start + the own-hotspot boot fix
 
 **UNFLASHED (F-61).** This batch supersedes 1.3.5 (never flashed) and is the first
 half of the owner's 2026-10-13 field-fix + cleanup round (full plan:
@@ -102,6 +102,39 @@ running the old firmware — keeps working across the flash.
   stale config record is provable. Boot-state (`mode`/`spd`, `ParamsStore`) is
   intentionally NOT stamped — it changes on every drive action, and the app/DB
   timestamps cover it.
+
+### Fixed — the car came up with NO own hotspot (U-109, "no connection on any method")
+
+**The boot softAP was being skipped every time.** A live bench capture showed
+`[RADIO] skip-softAP/sta-busy` immediately after `WiFi.mode(WIFI_AP_STA)`, then
+`[V2] Web layer always-on: AP= …` — an **empty** broadcast id. With no own
+hotspot and an empty `ap` field, a phone could neither join `4WD4MCar_WiFi` nor
+be found by the app's discovery sweep.
+
+- **Root cause — `staBusy()` misread the core's initial status.** On ESP32 core
+  3.3.12 `STAClass::_status` is initialised to `WL_STOPPED` and stays there until
+  the `arduino_events` task delivers `WIFI_EVENT_STA_START` (which sets
+  `WL_DISCONNECTED`) — *asynchronously*, so `WiFi.status()` still reports
+  `WL_STOPPED` (254) when the very first `startOwnAP()` runs. `staBusy()`'s
+  settle allow-list omitted `WL_STOPPED`, so it fell through to `default: return
+  true` (busy) and skipped the softAP. Fixed: **`WL_STOPPED` is now an allowed
+  state** — a stopped STA interface is settled by definition.
+- **`beginAlwaysOn()` no longer forces `apRunning_ = true`.** That claim marked
+  the skipped bring-up as done, defeating the FIN-40/D1 retry in `handle()`
+  (which keys on `!apRunning_`), so the hotspot never came up for the whole
+  uptime. The flag now carries only what the radio actually achieved.
+- **`apName_` is set before any early return in `startOwnAP()`.** The name is
+  identity, not state: `buildStatusJson()` reads it for the `ap` field with no
+  `apRunning_` guard, so the app's discovery sweep can identify the car even
+  before the beacon is up.
+- **Boot-port drive no longer touches the LEDC.** `applyBootState()` stops the
+  motors before `motor.begin()` (deferred to the end of `setup()` by the U-96
+  power budget); `L298NControl::drive()`/`setSpeed()` are now guarded by a
+  `begun_` flag, removing the boot serial noise `E ledc: LEDC is not initialized`.
+- **`applyBootState()` restores only a LIVE stored mode.** The old `else if`
+  could not fire for a valid-but-not-LIVE row; a retired (CS) mode restored from
+  NVS now correctly keeps 4WD4M (with a distinct log line), and an out-of-range
+  value is logged rather than silently ignored.
 
 ### Changed
 

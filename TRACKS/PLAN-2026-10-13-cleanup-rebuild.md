@@ -116,6 +116,10 @@ this round produces (likely **1.3.6**); confirm at the Phase 1 bump.
 ## Constraints / invariants (do not break)
 - Car AP IP `192.168.245.1`; `192.168.4.x` FORBIDDEN fleet-wide (FIN-48).
 - `startOwnAP()` remains the only wifi-config op; `beginAlwaysOn()` sets `WIFI_AP_STA` first.
+- **`staBusy()` allow-lists the SETTLED `wl_status_t` states; `WL_STOPPED` (254) must stay
+  allow-listed** — it is `STAClass::_status`'s initial value and is what the core reports for the
+  first moments after `mode(WIFI_AP_STA)` until the `arduino_events` task delivers `STA_START`.
+  Removing it re-creates the U-109 boot "skip-softAP/sta-busy" (no own hotspot).
 - `.3.x`/`.4.x` address ban, U-92 own-AP guards, case-insensitive router delete — keep.
 - **F-61**: green gates are NOT device evidence. Nothing is device-verified until the owner flashes.
 
@@ -126,4 +130,8 @@ this round produces (likely **1.3.6**); confirm at the Phase 1 bump.
 > retained). **App Phases 3/4/5/6/7b DONE** (Remote layout, restart prompt, SSID, auto-join labels,
 > `resetCarData` + Remote button). **DB Phase 7c PENDING** (owner runs migration in Supabase).
 > **Phase 9 DONE** (DEVICE-TESTS U-108 rows, TESTING.md, RESUME-HERE close-out).
-> Nothing device-verified until owner flashes 1.3.6 (F-61); COM7 capture after flash confirms.
+> **U-109 (2026-10-14) DONE:** the own-hotspot boot fix — `staBusy()` allow-lists `WL_STOPPED`,
+> `beginAlwaysOn()` no longer forces `apRunning_`, `apName_` set before early returns, motor
+> `begun_` guard, `applyBootState()` LIVE-only restore. Car gates green; app half is the same-version
+> 3.2.7 JS-only OTA. Nothing device-verified until owner flashes 1.3.6 (F-61); COM7 capture after
+> flash confirms.

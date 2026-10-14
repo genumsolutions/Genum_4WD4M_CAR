@@ -894,17 +894,24 @@ void ModeManager::applyBootState() {
   uint8_t bootMode = 0xFF;
   uint16_t bootSpeed = 0xFFFF;
   if (loadBootState(bootMode, bootSpeed)) {
-    // v2: only restore modes that are still LIVE. A retired (CS) restored
-    // mode — e.g. ESP_SER from donor-firmware NVS on the refit testbed —
-    // would boot the car into a COMING SOON frame; keep 4WD4M instead.
-    if (bootMode < MODE_COUNT) {
+    // v2: only restore modes that are still LIVE. A retired (CS) or
+    // in-progress (WIP) restored mode — e.g. ESP_SER from donor-firmware NVS on
+    // the refit testbed — would boot the car into a COMING SOON frame; keep
+    // 4WD4M instead.
+    if (bootMode < MODE_COUNT &&
+        registryFor(static_cast<Mode>(bootMode)).avail == ModeAvail::LIVE) {
       currentMode_ = static_cast<Mode>(bootMode);
       // T-41 (round-3): level-1 so reboot-restore is visible on the flash
       // session.
       FW_LOG("[BOOT] Restored mode=%s\n", modeToString(currentMode_));
     } else if (bootMode < MODE_COUNT) {
-      FW_LOG("[BOOT] Restored mode=%s is retired (CS) in v2 - keeping 4WD4M.\n",
+      // Reachable whenever the stored mode is a valid registry row that is not
+      // LIVE (WIP/CS) — the case the branch above used to swallow.
+      FW_LOG("[BOOT] Restored mode=%s is not LIVE in v2 - keeping 4WD4M.\n",
              registryFor(static_cast<Mode>(bootMode)).token);
+    } else {
+      FW_LOG("[BOOT] Stored mode %u out of range - keeping 4WD4M.\n",
+             static_cast<unsigned>(bootMode));
     }
     if (bootSpeed >= static_cast<uint16_t>(MIN_SPEED) && bootSpeed <= static_cast<uint16_t>(MAX_SPEED)) {
       speed_ = bootSpeed;

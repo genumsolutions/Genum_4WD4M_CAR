@@ -75,10 +75,12 @@ bool L298NControl::begin() {
   ledc_set_duty(MODE, CH_A, 0); ledc_update_duty(MODE, CH_A);
   ledc_set_duty(MODE, CH_B, 0); ledc_update_duty(MODE, CH_B);
 
+  begun_ = true;  // U-109: the LEDC channels are live from here on
   return true;
 }
 
 void L298NControl::drive(Action action, uint16_t speed) {
+  if (!begun_) return;  // U-109: no LEDC/pin writes before begin()
   crashRtcMark("motor");
   uint32_t duty = mapSpeedToDuty(speed);
 
@@ -124,6 +126,7 @@ void L298NControl::drive(Action action, uint16_t speed) {
 }
 
 void L298NControl::setSpeed(uint16_t speed) {
+  if (!begun_) return;  // U-109: no LEDC writes before begin()
   uint32_t duty = mapSpeedToDuty(speed);
   ledc_set_duty(MODE, CH_A, duty);
   ledc_update_duty(MODE, CH_A);
