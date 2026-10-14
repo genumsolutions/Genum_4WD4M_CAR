@@ -1,5 +1,11 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-112: heap floor + page stall-abort for the post-1.3.9 reset/freeze report — **1.3.10 UNFLASHED, owner flash target**; app unchanged, 3.2.7 JS-only OTA)
 
+> **⏭️ NEXT ROUND IS PLANNED:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
+> owner's 13-issue list (dual BT+Wi-Fi link, Remote-screen merge, conditional disconnects,
+> settings widening/audit, the BT heap diet, Wi-Fi-off hiding, mode rotate). **Phase 0 = evidence
+> captures while the owner tests 1.3.10**, then P1..P8 one at a time. App mirror:
+> `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`.
+
 ## U-112 2026-10-14 — the reset while pairing BT + own hotspot, and the freeze while using the page with the app connected (1.3.10, UNFLASHED — owner flash target)
 
 **Owner report after flashing 1.3.9 (the DB backs him):** connecting Bluetooth
