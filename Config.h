@@ -143,7 +143,7 @@ constexpr unsigned long SWITCH_DEBOUNCE_MS = 50u;
 // RUNTIME source of truth is Preferences (namespace "botcfg", keys
 // "wifi_ssid"/"wifi_pass"), written by the app/website (ROUTERS/WIFICFG).
 // With nothing stored, the car's OWN network (WIFI_AP_NAME below) simply IS
-// the network in ESP_SER — join it directly instead of a hidden "Esp" join.
+// the network — join it directly instead of a hidden "Esp" join.
 // secrets.h is still included only to keep the legacy wiring compiling; its
 // values are never fed to WiFi.begin() anymore.
 #if __has_include("secrets.h")

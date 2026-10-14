@@ -106,7 +106,7 @@ and `lastphase` is empty because nothing survives the panic — which is exactly
       The CS modes (PATH, OBS_US, OBS_IR, MANUAL, AUTO) are retained per owner request to show
       "Coming Soon" on the OLED and remain toggleable. No other unused donor code found — all
       remaining paths are live. Compile PASS, gates green.
-- [ ] **Phase 9 — docs / DEVICE-TESTS rows / close-out.**
+- [x] **Phase 9 — docs / DEVICE-TESTS rows / close-out.**
 
 ### Flash batching
 Phases 1/2/5/8 are firmware. They are committed/pushed individually but **owner-flashed once** at the

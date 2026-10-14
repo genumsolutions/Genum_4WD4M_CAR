@@ -728,7 +728,7 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
             FW_LOG_VERBOSE("[ROUTERS] USE SSID=\"%s\" (newly added)\n", storedSsid_);
             snprintf(reply, sizeof(reply), "ROUTERS;USED;%s", storedSsid_);
             // Server stays up during the hand-over (T-34 proven path). In BT mode
-            // the pair is simply stored — the next ESP_SER begin() uses it.
+            // the pair is simply stored — the next rejoinNetwork() uses it.
             if (serverRunning) rejoinNetwork();
             else updateExtraInfo();
           } else {
@@ -1189,9 +1189,9 @@ void WebServerComm::startOwnAP() {
   // FIN-40/D1 (2026-09-18 device gate, T-71a FAIL): softAP() can fail while the
   // radio is busy (mode entry / BT stack / scan). The old code logged the
   // warning but STILL set apRunning_ = true, so startOwnAP() never retried and
-  // the car could sit in ESP_SER with NO broadcast. Now: only a real success
-  // marks the AP running; a failure leaves apRunning_ false and handle()
-  // retries every AP_RETRY_INTERVAL_MS until it sticks.
+  // the car could sit with NO broadcast. Now: only a real success marks the AP
+  // running; a failure leaves apRunning_ false and handle() retries every
+  // AP_RETRY_INTERVAL_MS until it sticks.
   WiFi.setSleep(false);
   String apName = String(WIFI_AP_NAME);
   // FIN-48 (owner gate 2026-09-20, T-71a still failing on v1.8.2: "only the car's
@@ -2100,7 +2100,7 @@ void WebServerComm::handle() {
 
   // FIN-40/D1: a softAP() that failed at bring-up (radio busy) is retried with
   // backoff until the beacon is actually up — apRunning_ only turns true on a
-  // real success now, so ESP_SER always ends up broadcasting 4WDCar_Wifi.
+  // real success, so the car always ends up broadcasting its own hotspot.
   {
     const unsigned long apNow = millis();
     if (!apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {
@@ -2776,7 +2776,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   } else if (apRunning_) {
     // R-13: in an own-network session the reachable IP is the softAP gateway
     // (192.168.245.1 since FIN-48) — announce it like the OLED already does so
-    // the JSON `ip` is never empty in ESP_SER (app deck + tap-to-open).
+    // the JSON `ip` is never empty on the own AP (app deck + tap-to-open).
     WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
   }
   // U-95 Phase 3: the contract had ONE `ip` slot, which carries the STA lease
@@ -2822,9 +2822,9 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   char caps[128] = "";
   if (modeManager) modeManager->buildCapsMap(caps, sizeof(caps));
   // v1.4.0 provisioning truth: configured SSID (never the password) and the
-  // AP broadcast id — the app shows both in the ESP_SER deck. T-64: when
-  // nothing is stored, the car's OWN network (4WD4MCar_WiFi) IS the
-  // network — the compile-time secrets.h fallback is never joined nor named.
+  // AP broadcast id — the app deck shows both. T-64: when nothing is stored,
+  // the car's OWN network (4WD4MCar_WiFi) IS the network — the compile-time
+  // secrets.h fallback is never joined nor named.
   // U-70 (2026-10-02): the JSON `ssid` is the network the car is ACTUALLY on.
   // It used to be the stored target, which is written the moment `ROUTERS;USE`
   // stores the pair and BEFORE any association is attempted — so a failed switch

@@ -558,10 +558,9 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // Bluetooth-only controller finally sees WHY the car reset — the same fields
   // /status has carried since U-95. wifiKeys grew 224 -> 288 to hold it.
   char buf[512];
-  // R-12: in webserver mode, STATE also carries the configured SSID (never
-  // the password) and the AP fallback broadcast id so the hand-held remote's
-  // ESP_SER dashboard can show the car's WiFi truth (app gets the same via
-  // WS JSON `ssid`/`ap`).
+  // R-12: STATE also carries the configured SSID (never the password) and the
+  // AP fallback broadcast id so the remote's dashboard can show the car's
+  // WiFi truth (the app gets the same via the WS JSON `ssid`/`ap`).
   // R-13: plus the car's LIVE reachable IP (`;IP=`), so the remote OLED and
   // the app deck show where to point a browser / WS even over pure WiFi.
   // Connections-Hub: plus the stable board id (`;ID=`), the fw:<id> profile
