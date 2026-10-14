@@ -1,4 +1,54 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-111: real BT pairing + AP retry storm removed + boot-window tx power — 1.3.8 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-111b: the Internet method removed from the car + the firmware-contract gate completed — 1.3.9 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+
+## U-111b 2026-10-14 — the Internet method (cloud relay) removed from the car + the firmware-contract gate completed (1.3.9, UNFLASHED — owner flash target)
+
+**Owner directive:** the Internet / remote-link ("control from anywhere")
+method is dropped entirely — it will be rebuilt from scratch later. Nothing
+reachable is lost: the relay deployment was build-blocked by design (F-84,
+`armed-handshake`) and never ran against a live host.
+
+**Firmware (`9de4c2e`, `FW_VERSION` 1.3.8 → 1.3.9):**
+- `RelayComm.cpp` / `RelayComm.h` deleted and every seam unwired — the sketch,
+  `ModeManager` (run drain / `sendState()` fan-out / `isConnectedNow()` /
+  `currentLink()`), `Oled_1_3.cpp`, `WebServerComm`, `Config.h` (`RELAY_*`, the
+  `RELAYCFG` system-command hook). `grep -ri relay` over the sources now
+  returns nothing.
+- The OLED link rotation is back to the two live transports (Bluetooth /
+  WiFi); `currentLink()` can no longer report `Internet|WSS`.
+- CI job `relay-contract` → `firmware-contract`; `Readme.md` /
+  `TRACKS/CATALOG.md` drop the `RELAYCFG` protocol row.
+
+**The gate rename was incomplete until this round — and it was FAILING.**
+`9de4c2e` renamed `check-relay-contract.mjs` → `check-firmware-contract.mjs`
+but kept only 14 of the old gate's 40 rules, and left the old file in place
+reading the deleted `RelayComm.cpp` (exit 1). Because `mutate-gates.mjs` runs
+`gateContract`, **35 of the 63 mutants went UNDETECTED and the harness
+failed** — while the commit message claimed "mutate-gates 63/63 ready".
+Completed here:
+- the 10 missing NON-relay rule families ported verbatim into
+  `check-firmware-contract.mjs`: `ws-guard`, `ws-budget`,
+  `extra-status-decoupled`, `switch-teardown`, `wifi-persistent`,
+  `retry-split`, `scan-honest`, `scan-quality`, `mode-cycle`,
+  `status-net-fields` — plus the `stripComments` (comments-blanked,
+  literals-kept) view three of them read;
+- `tools/check-relay-contract.mjs` deleted (RelayComm is gone; CI has run
+  `firmware-contract` since `9de4c2e`).
+
+**Gates (all green, clean tree):** `check-firmware-syntax.ps1` **9/9** TUs
+(9, not 10 — `RelayComm.cpp` is gone) · `check-webpage-js.mjs` PASS ·
+`check-firmware-contract.mjs` **37/37 ok, 0 failures** · `mutate-gates.mjs`
+**63/63 caught by their intended rule** (35 UNDETECTED before this fix).
+
+**App half (U-112):** the app's method model is now TWO methods —
+`ConnectionMethodId = "bluetooth" | "wifi"` — the Internet pill /
+unavailability card and the `internet` radio plus the `mqtt` / `cloud-relay`
+transports are gone, tests pin its ABSENCE. See
+`genumsolutions-app/TRACKS/NEXT-SESSION.md`.
+
+**Owner flash steps:** flash **1.3.9** (USB, 115200, `huge_app`). A version
+change, so `wipeRoutersOnFreshFirmware()` clears saved routers + transport
+toggles on first boot (both transports ON, auto-join ON). Then the U-111 rows
+below **plus U-111-7** (the link surface never says Internet).
 
 ## U-111 2026-10-14 — Bluetooth pairing that actually completes + a hotspot that joins + the car↔app settings round-trip (1.3.8, UNFLASHED — owner flash target)
 

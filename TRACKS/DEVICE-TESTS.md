@@ -3,9 +3,10 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
-## U-111 round — real Bluetooth pairing + a hotspot that joins + car↔app state round-trip (2026-10-14, firmware 1.3.8 — DEVICE VERIFY PENDING)
+## U-111 round — real Bluetooth pairing + a hotspot that joins + car↔app state round-trip (2026-10-14, firmware 1.3.9 — DEVICE VERIFY PENDING)
 
-> Flash **1.3.8** (supersedes 1.3.7 / 1.3.6 — never flashed). Third pass on the
+> Flash **1.3.9** (supersedes 1.3.8 / 1.3.7 / 1.3.6 — none flashed; 1.3.9 also
+> deletes the Internet/relay method, U-111b). Third pass on the
 > owner's report: Bluetooth "appears but won't pair", the car's own hotspot
 > sometimes won't connect, flaky Wi-Fi with an occasional freeze — plus the
 > app↔car settings round-trip the owner asked for.
@@ -42,6 +43,11 @@
       cause; U-111 removes one plausible cause (the AP retry churn) but does NOT
       claim the freeze fixed.
 
+- [ ] **U-111-7 — the Internet method is GONE (U-111b, 1.3.9).** The OLED's
+      link rows only ever read `Bluetooth : …` / `WiFi : …` (never `Internet`
+      / `WSS`), the boot log has no `[RELAY]` lines, `grep -ri relay` over the
+      sources is empty, and the app offers exactly TWO methods (Bluetooth,
+      WiFi (LAN)) with no Internet pill anywhere. Nothing dials a cloud relay.
 ## U-110 round — OLED format + Bluetooth pairing + honest BT state (2026-10-14, firmware 1.3.7 — DEVICE VERIFY PENDING)
 
 > Flash **1.3.7** (supersedes 1.3.6 — never flashed). From the owner's post-flash

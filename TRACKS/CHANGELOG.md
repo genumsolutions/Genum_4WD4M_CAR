@@ -10,7 +10,42 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
-## UNRELEASED — 1.3.8 (U-111, 2026-10-14): Bluetooth pairing actually completes + no AP retry storm + the 11 dBm cap becomes a boot-window cap
+## UNRELEASED — 1.3.9 (U-111b, 2026-10-14): the Internet method (cloud relay) removed + the firmware-contract gate completed
+
+**UNFLASHED (F-61).** Supersedes 1.3.8 (never flashed). Owner directive: the
+Internet / remote-link ("control from anywhere") method is dropped entirely and
+will be rebuilt from scratch later.
+
+### Removed — the whole relay transport
+
+`RelayComm.cpp` / `RelayComm.h` deleted; the four seams unwired from the
+sketch, `ModeManager` (`run()` drain, `sendState()` fan-out, `isConnectedNow()`,
+`currentLink()`), `Oled_1_3.cpp`, `WebServerComm` and `Config.h` (`RELAY_*`, the
+`RELAYCFG` system-command hook). The OLED link rotation is back to the two live
+transports, `currentLink()` can no longer return `Internet|WSS`, and `grep -ri
+relay` over the sources returns nothing. `FW_VERSION` 1.3.8 → 1.3.9. CI job
+`relay-contract` → `firmware-contract`; `Readme.md` / `TRACKS/CATALOG.md` drop
+the `RELAYCFG` protocol row.
+
+> Flashing 1.3.9 is a firmware-version change, so
+> `wipeRoutersOnFreshFirmware()` clears the saved routers + transport toggles on
+> the first boot (both transports ON, auto-join ON).
+
+### Gates — the rename was incomplete until the follow-up commit
+
+`check-relay-contract.mjs` → `check-firmware-contract.mjs` kept only 14 of the
+old gate's 40 rules and left the old file reading the deleted `RelayComm.cpp`
+(exit 1). `mutate-gates.mjs` runs `gateContract`, so **35 of the 63 mutants
+went UNDETECTED and the harness failed**. The 10 missing NON-relay rule families
+(`ws-guard`, `ws-budget`, `extra-status-decoupled`, `switch-teardown`,
+`wifi-persistent`, `retry-split`, `scan-honest`, `scan-quality`, `mode-cycle`,
+`status-net-fields`) are ported back in, and the dead gate is deleted.
+
+**VERIFY — source only.** `check-firmware-syntax.ps1` **9/9** TUs (RelayComm.cpp
+is gone) · `check-webpage-js.mjs` PASS · `check-firmware-contract.mjs` 37/37 ·
+`mutate-gates.mjs` **63/63**.
+
+## UNRELEASED — 1.3.8 (U-111, 2026-10-14): Bluetooth pairing actually completes + no AP retry storm + the 11 dBm cap becomes a boot-window cap **(superseded by 1.3.9 — never flashed)**
 
 **UNFLASHED (F-61).** Supersedes 1.3.7 (never flashed). Third pass on the owner's
 2026-10-14 report — Bluetooth "appears but does not pair", "the car's own hotspot
