@@ -56,6 +56,14 @@ list, and does `/status` `ap` read `4WD4MCar_WiFi`?
 corrected to `"4WD4M Car"`; contradictory comments fixed. `transports/` + its
 tests and `commandRouting.ts` kept as the documented roadmap registry.
 
+**U-109b (2026-10-14, comment hygiene — no behaviour change):** dropped the stale
+`Oled_1_3.cpp` claims that a donor ESP_SER drawing block was retained as dead code
+(it was removed in U-79), deleted a duplicated comment line in `redrawNow()` (a
+U-107b insert artifact), and corrected `WebServerComm.cpp` / `ModeManager.cpp` /
+`Config.h` comments that still named the retired `ESP_SER` mode or the old
+`4WDCar_Wifi` AP name as live. Commit `cfdc50d`; all gates re-run green (syntax
+10/10, page-js PASS, relay-contract all PASS, mutate-gates 69/69 byte-exact).
+
 ## U-108 2026-10-13 — fresh start + timestamps (1.3.6, UNFLASHED — owner flash target)
 
 Owner round 4, Phase 7 (car half). Two new system commands ride the SAME hook as

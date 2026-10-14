@@ -136,6 +136,18 @@ be found by the app's discovery sweep.
   NVS now correctly keeps 4WD4M (with a distinct log line), and an out-of-range
   value is logged rather than silently ignored.
 
+### Changed — comment hygiene (U-109b, no behaviour change)
+
+Removed stale/contradictory notes that described retired state as current. The
+`Oled_1_3.cpp` header and `redrawNow()` claimed the donor's ESP_SER "signal bars +
+RSSI + IP" drawing block was **retained as dead code** — U-79 removed that block,
+so both comments are reworded to say so; a duplicated `Fleet-standard computed
+layout` comment line (an artifact of the U-107b insert) is deleted; and comments
+in `WebServerComm.cpp` / `ModeManager.cpp` / `Config.h` that still named the
+retired `ESP_SER` mode or the old `4WDCar_Wifi` AP name as live are corrected.
+Companion app change: the pre-U-105 two-name paragraph in the `OWN_AP_NAME` doc
+comment is reworded to the single-name contract.
+
 ### Changed
 
 - `FW_VERSION` `1.3.5 → 1.3.6`.
