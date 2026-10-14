@@ -1,12 +1,14 @@
-# RUNSHEET — flash 1.3.9 + the U-111 / U-112 device pass
+# RUNSHEET — flash 1.3.10 + the U-111 / U-112 device pass
 
-> One sheet for the owner's next bench session. Firmware **1.3.9** (UNFLASHED) +
+> One sheet for the owner's next bench session. Firmware **1.3.10** (UNFLASHED;
+> 1.3.9 IS on the car) +
 > app **3.2.7 / versionCode 60** (OTA published; live manifest = commit `e5caaa8`).
 > Tick the rows in the row sheets as you go: car `TRACKS/DEVICE-TESTS.md`
-> (U-111-1..7) · app `mobile/TESTING.md` (U-112-1..3, then U-111-1..6).
+> (U-112-1..6 first — the reset/freeze round — then U-111-1..7) · app
+> `mobile/TESTING.md` (U-112-1..3, then U-111-1..6).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
-## 0 · What this one flash carries (1.3.7 → 1.3.9)
+## 0 · What this one flash carries (1.3.9 → 1.3.10, plus everything below it)
 
 The bench car is on an older build. One flash of `main` brings all of it:
 
@@ -14,7 +16,8 @@ The bench car is on an older build. One flash of `main` brings all of it:
 |---|---|
 | U-110 (1.3.7) | OLED last two rows = `Bluetooth : 4WD4M Car` / `Type : SPP`, rotating with `WiFi : <ssid>` / `IP : <car ip>`; the advertised BT name is **`4WD4M Car`** (was `4WD CAR`); Bluetooth starts after the radio's resting `AP_STA` mode; `btUp` is honest and retries a refused bring-up every 2 s |
 | U-111 (1.3.8) | **Bluetooth pairing completes** (SSP "Just Works" — no PIN; `1234` only as legacy fallback); the own hotspot no longer re-runs `softAP()` every loop pass (the freeze-shaped radio churn); the 11 dBm AP cap is boot-window only — 17 dBm again after 15 s |
-| U-111b (1.3.9) | **The Internet / cloud-relay method is gone** — no `[RELAY]` log lines, no `RELAYCFG`, the OLED link row only ever reads Bluetooth / WiFi |
+| U-111b (1.3.9, ON THE CAR) | **The Internet / cloud-relay method is gone** — no `[RELAY]` log lines, no `RELAYCFG`, the OLED link row only ever reads Bluetooth / WiFi |
+| **U-112 (1.3.10)** | **The reset-while-pairing and freeze-while-page-open round.** The status broadcast defers below a 49 kB heap floor (time-boxed 4 s); scans refuse below 65 kB with an honest BUSY; the page send aborts a reader that stops draining, so the app link keeps running while a page is open. Serial grows `[HEAP] …` and `[SCAN] refused` lines — that is the evidence this flash exists to produce |
 | app U-110 | the "Connection lost / reconnect?" prompt appears only when **no** link is live, and both prompts are centered dialogs |
 | app U-111 | the app adopts the car's Wi-Fi / Bluetooth / boot-auto-join settings on connect |
 | app U-112 | **exactly TWO methods** — Bluetooth · WiFi (LAN); no Internet pill or card anywhere |
@@ -30,6 +33,9 @@ ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 
     arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app .
     arduino-cli upload  --fqbn esp32:esp32:esp32:PartitionScheme=huge_app -p COM<port> --upload-property upload.speed=115200 .
+
+(1.3.9 is already on the car if you flashed it — 1.3.10 is a normal upgrade
+step, another version-change wipe of saved routers.)
 
 Capture the first boot while you are at it (~15 s, resets the board):
 
@@ -79,7 +85,17 @@ App → Connectivity panel → Wi-Fi → add your router; the car switches and
 reports the new IP on the OLED and in `/status`. Optional bench script for the
 switch rows: `python tools/bench_u90_u92.py <car-ip>`.
 
-## 6 · Settings round-trip + the two-method panel
+## 6 · The U-112 checks (reset + freeze round) — do these FIRST
+
+With both links live (BT + own hotspot) and the app connected: load the car's
+page in the browser repeatedly and keep using the app — the telemetry must keep
+moving while the page loads and nothing may reset (rows U-112-1..2). Watch the
+serial for `[HTTP] root page paused`, `[HEAP] status broadcast
+deferred/resumed` and `[SCAN] refused` — if the freeze STILL happens, capture
+60 s of serial across it (`serial_capture.py COM<port> 60 u112.log`) and send
+the `[CRASH] rtc: …` line from the next boot; it names phase + task + heap.
+
+## 7 · Settings round-trip + the two-method panel
 
 App → Remote → Settings: Wi-Fi / Bluetooth / Boot auto-join show the car's
 real values on connect. Flip **Boot auto-join OFF** → confirm → power-cycle the
@@ -89,7 +105,7 @@ Internet pill, globe or "not set up yet" card anywhere.
 
 → app rows: **U-112-1..3**, **U-111-4..6**, **U-110-5/6**.
 
-## 7 · The freeze — capture it, do not guess (STILL OPEN)
+## 8 · The freeze — capture it, do not guess (STILL OPEN)
 
 U-111 removed one plausible cause (the AP retry churn) but the freeze is **not
 claimed fixed**: every capture so far predates the own-hotspot fix, so none of
@@ -102,7 +118,7 @@ them can name this report's cause. If the car freezes:
    breadcrumb records phase + task + heap at the crash — that datum is the
    whole reason this round exists (rows U-111-6 / U-110-4 / U-R4-7).
 
-## 8 · Still open after the pass
+## 9 · Still open after the pass
 
 - **DB Phase 7c migration** — owner runs
   `genumsolutions-website/supabase/migrations/20261013120000_phase7c_fresh_start_cleanup.sql`

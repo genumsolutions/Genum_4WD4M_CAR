@@ -80,6 +80,16 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.3.10 (2026-10-14, U-112)** — **heap floor for status/scan + the page
+  stall-abort** (the post-1.3.9 report: reset while pairing BT + the own
+  hotspot; freeze using the page with the app connected; field heap 13-18 kB).
+  `broadcastStatus()` defers below 49152 B time-boxed to 4 s;
+  `startScan()` refuses below 65536 B with an honest BUSY; the root-page send
+  aborts a non-draining reader after 2 zero-writes so loop() keeps running the
+  app link. New `heap-guard` gate rule + mutants M70-M75; mutation also
+  re-pinned `scan-honest`'s in-flight refusal BY TEXT (the new floor's extra
+  `return false` had propped its count up). mutate-gates **69/69**.
+
 - **1.3.9 (2026-10-14, U-111b)** — **the Internet / cloud-relay method is removed.**
   `RelayComm.cpp`/`.h` are deleted and every seam is unwired (sketch, `ModeManager`,
   OLED, `WebServerComm`, `Config.h`): no `[RELAY]` log lines, no `RELAYCFG`, and the

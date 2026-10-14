@@ -10,7 +10,55 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
-## UNRELEASED — 1.3.9 (U-111b, 2026-10-14): the Internet method (cloud relay) removed + the firmware-contract gate completed
+## UNRELEASED — 1.3.10 (U-112, 2026-10-14): heap floor for status/scan + the page stall-abort (the post-1.3.9 reset/freeze report)
+
+**UNFLASHED (F-61).** Owner flash target. The owner flashed 1.3.9 and reported:
+the car **resets while connecting Bluetooth + the own hotspot together**, and
+**freezes when the car's own page is opened while the app holds a Wi-Fi link**.
+The field record (`device_crash_reports`, boots 1026-1029, fw 1.3.9) matches
+both reads: **free_heap 13-18 kB at report time** with PANIC resets and an empty
+phase — the car lives at the allocation floor, where every big transient is a
+coin flip.
+
+### Added — three guards, one mutation-proven rule each (`heap-guard`)
+
+1. **The status broadcast respects a heap floor.** Below
+   `STATUS_HEAP_FLOOR_BYTES` (49152 B) `broadcastStatus()` DEFERS — and the
+   defer is TIME-BOXED (`STATUS_HEAP_DEFER_MAX_MS`, 4000 ms), after which one
+   attempt goes through regardless, so a chronically low heap degrades
+   telemetry to one attempt / 4 s instead of black-holing it forever. The
+   policy lives INSIDE `broadcastStatus()`, so the 1 s tick and the
+   `REQ_STATE`/`REQ_NETW` paths share ONE rule; each defer edge logs once
+   (`[HEAP] status broadcast deferred/resumed`) so the serial capture shows it.
+2. **The coexistence scan respects a higher floor.** `startScan()` refuses
+   below `SCAN_HEAP_FLOOR_BYTES` (65536 B — above the status floor: the bigger
+   transient gets the bigger cushion) with the honest `ROUTERS;SCAN;BUSY` the
+   handler already answers, instead of kicking a scan whose allocation lands
+   8 s later on a silently EMPTY router list. Refusals are counted and logged.
+3. **The root page no longer lets an undrained reader own the loop.**
+   `HTTP_STALL_ABORT_AFTER` (2) CONSECUTIVE zero-byte writes now end the page
+   transfer for that pass: a non-draining reader used to cost the full 3500 ms
+   budget on EVERY pass, during which no `ws.loop()`/BT/pins run — which is
+   what *"freezes while the page is open with the app connected"* IS. The
+   counter resets on progress, so slow-but-alive readers keep the full budget.
+
+**Gate + mutants.** New `heap-guard` rule in `check-firmware-contract.mjs`
+(5 assertions: defines parse · scan floor > status floor · defer <= 10 s ·
+floor+time-box in `broadcastStatus()` · scan refusal · stall abort + reset).
+Mutants **M70-M75**, one per assertion. Writing them also exposed a
+**weakened old rule**: the U-112 floor's extra `return false` bumped
+`scan-honest`'s return-COUNT back to 2 after M38 removed the in-flight
+refusal — the count rule stayed green over a removed refusal (found by M38
+going UNDETECTED, the F-83 shape again). `scan-honest` now pins the in-flight
+refusal **by text** (`if (scanPending_ || scanBusy_) return false`), and M13's
+anchor was re-sewn after the stall-abort moved the lines it matched.
+
+**VERIFY — source only.** `check-firmware-syntax.ps1` **9/9** TUs ·
+`check-webpage-js.mjs` PASS · `check-firmware-contract.mjs` 0 failures
+(44 rules incl. 5x heap-guard) · `mutate-gates.mjs` **69/69 caught by their
+intended rule**.
+
+## 1.3.9 (U-111b, 2026-10-14, ON THE OWNER'S CAR): the Internet method (cloud relay) removed + the firmware-contract gate completed
 
 **UNFLASHED (F-61).** Supersedes 1.3.8 (never flashed). Owner directive: the
 Internet / remote-link ("control from anywhere") method is dropped entirely and

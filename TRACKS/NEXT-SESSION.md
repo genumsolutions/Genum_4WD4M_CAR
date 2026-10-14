@@ -1,4 +1,49 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-111b: the Internet method removed from the car + the firmware-contract gate completed — 1.3.9 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-112: heap floor + page stall-abort for the post-1.3.9 reset/freeze report — **1.3.10 UNFLASHED, owner flash target**; app unchanged, 3.2.7 JS-only OTA)
+
+## U-112 2026-10-14 — the reset while pairing BT + own hotspot, and the freeze while using the page with the app connected (1.3.10, UNFLASHED — owner flash target)
+
+**Owner report after flashing 1.3.9 (the DB backs him):** connecting Bluetooth
+**and** the own hotspot together makes the car RESET (crash counter 757); using
+the car's own page while the app holds a Wi-Fi link FREEZES it. The field
+record (`device_crash_reports`, boots 1026-1029, fw 1.3.9) shows **free_heap
+13-18 kB** at report time with PANIC resets and an empty phase: the car runs at
+the allocation floor, where every big transient — a status broadcast, a
+coexistence scan, a page serve — is a coin flip, and where 3500 ms of
+blocked loop() (the page send to a slow/undrained reader) IS a freeze for
+every other link.
+
+**Fixes in 1.3.10 (car):**
+
+1. **Heap floor for the status broadcast** — below `STATUS_HEAP_FLOOR_BYTES`
+   (49152 B) `broadcastStatus()` defers, TIME-BOXED by
+   `STATUS_HEAP_DEFER_MAX_MS` (4 s): under pressure telemetry degrades to one
+   attempt per 4 s instead of black-holing, and recovers to 1 Hz the pass the
+   heap is back. One policy for every caller (tick + REQ_STATE/REQ_NETW);
+   each edge logs `[HEAP] status broadcast deferred/resumed`.
+2. **Higher floor for the coexistence scan** — `startScan()` refuses below
+   `SCAN_HEAP_FLOOR_BYTES` (65536 B) with the honest `ROUTERS;SCAN;BUSY`
+   (counted + logged) instead of kicking a scan that lands 8 s later on a
+   silently EMPTY router list.
+3. **Page stall-abort** — `HTTP_STALL_ABORT_AFTER` (2) consecutive zero-byte
+   writes end the page send for that pass (connection closed honestly); a
+   moving reader resets the counter and keeps the full 3500 ms budget. An
+   undrained reader no longer owns loop() every pass, so `ws.loop()`/BT/pins
+   keep running while a page is open.
+
+**Gates:** new `heap-guard` rule (5 assertions) + mutants **M70-M75**;
+mutation also caught a **weakened old rule** — the floor's extra
+`return false` had propped up `scan-honest`'s return-count after M38 removed
+the in-flight refusal; the refusal is now pinned by text. Green:
+syntax **9/9** TUs · webpage-js PASS · firmware-contract 0 failures ·
+mutate-gates **69/69**.
+
+**Owner flash steps:** flash **1.3.10** (USB, 115200, `huge_app`) — follow
+`TRACKS/RUNSHEET.md`. Watch the serial for `[HEAP]` lines under load and
+`[SCAN] refused` when scanning on a low heap; those lines are the evidence
+this round exists to produce. Then the U-112 rows in
+`TRACKS/DEVICE-TESTS.md`. **The freeze is NOT claimed fixed until those rows
+are ticked** — the earlier captures (all pre-1.3.9) never named a phase, so
+the serial capture in the run sheet remains the authority if it recurs.
 
 ## U-111b 2026-10-14 — the Internet method (cloud relay) removed from the car + the firmware-contract gate completed (1.3.9, UNFLASHED — owner flash target)
 
@@ -50,7 +95,7 @@ change, so `wipeRoutersOnFreshFirmware()` clears saved routers + transport
 toggles on first boot (both transports ON, auto-join ON). Then the U-111 rows
 below **plus U-111-7** (the link surface never says Internet).
 
-Step-by-step for the owner's bench session: `TRACKS/RUNSHEET-1.3.9.md`.
+Step-by-step for the owner's bench session: `TRACKS/RUNSHEET.md` (updated for 1.3.10).
 
 ## U-111 2026-10-14 — Bluetooth pairing that actually completes + a hotspot that joins + the car↔app settings round-trip (1.3.8, UNFLASHED — owner flash target)
 
