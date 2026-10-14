@@ -364,3 +364,4 @@ if (!existsSync(consumerRelay)) {
 }
 
 console.log(`\n${failures} gate failures total`);
+process.exit(failures > 0 ? 1 : 0);
