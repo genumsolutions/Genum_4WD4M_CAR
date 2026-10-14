@@ -38,6 +38,15 @@ public:
   // ModeManager pushes the live toggle state; a change repaints pronto.
   // Default no-op keeps other display classes source-compatible.
   virtual void setTransportToggles(bool /*wifiEnabled*/, bool /*btEnabled*/) {}
+  // U-107b (owner 2026-10-14): the last-two-rows rule alternates the frames on a
+  // ~1 s clock, so SOMETHING has to tick even when nothing else changes. An idle
+  // car's extraInfo is CONSTANT (the AP-fallback string never varies), and
+  // setExtraInfo() returns early on an unchanged string, so no draw() ever ran
+  // again and the rotation FROZE on whichever frame happened to be showing. The
+  // owner saw exactly that ("it alternated once or twice and then stayed there").
+  // ModeManager calls tick() every loop; a default no-op keeps other display
+  // classes source-compatible.
+  virtual void tick() {}
   // REMOVED (2026-10-10, owner: "the car's own hotspot name is displayed with
   // [1/2] ... please remove that and treat all router networks equally").
   // setNetworkCycling()/setSavedRouterCount()/cycleNetworkDisplay() drove a
@@ -59,6 +68,7 @@ public:
   void setModeContext(const char* modeToken, bool isStub, bool isWip, bool hasDriveDashboard) override;
   void setLinkContext(const char* method, const char* type, bool connected) override;
   void setTransportToggles(bool wifiEnabled, bool btEnabled) override;
+  void tick() override;
   void sleep() override;
   void wake() override;
 
@@ -105,6 +115,14 @@ private:
   bool wifiOn = true;
   bool btOn = true;
 
+  // U-107b: the last inputs to draw(), so tick() can repaint the rotating
+  // frames on its own clock without ModeManager re-supplying them.
+  int lastSpeed = 0;
+  bool lastConnected = false;
+
   void safeCopy(char* dst, size_t dstLen, const char* src);
+  // U-107b: advance the frame/name-vs-IP phases. Returns true when the frame
+  // that is VISIBLE right now would change, so tick() only repaints on change.
+  bool advanceRotationPhases(uint32_t nowMs);
   void redrawNow(int speed, bool connected);
 };

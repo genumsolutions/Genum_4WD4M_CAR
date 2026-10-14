@@ -115,6 +115,61 @@ void Oled_1_3::setTransportToggles(bool wifiEnabled, bool btEnabled) {
 // currentNetworkIndex, lastNetworkCycleMs) went with it, so nothing can
 // re-enable it.
 
+// U-107b (owner 2026-10-14): advance the rotation phases on the ~1 s clocks and
+// report whether the frame that is VISIBLE right now would change. This is the
+// piece that was missing: the phases used to advance ONLY inside redrawNow(),
+// and redrawNow() only ran from draw(), which only ran on a content change. An
+// idle car's status/extra rows are constant, so draw() stopped being called and
+// the alternation FROZE on one frame — exactly the owner's report ("it showed
+// the Wi-Fi info, then the Bluetooth info, then the Wi-Fi info again and stayed
+// there"). tick() now drives it every loop.
+bool Oled_1_3::advanceRotationPhases(uint32_t nowMs) {
+  // U-107 (owner 2026-10-13): the last two rows follow the U-105 TRANSPORT
+  // TOGGLES, not the idle/link state. Both ON -> alternate the Bluetooth frame
+  // <=> the Wi-Fi frame; one ON -> that frame always; the U-105 clamp makes
+  // "both OFF" impossible. A live RELAY link (Internet) is a third transport
+  // the toggles do not name, so it keeps its own pinned frame.
+  const bool internetLink = (strcmp(linkMethodBuf, "Internet") == 0);
+  const bool bothOn = wifiOn && btOn;
+  const bool prevRotate = rotatePhase;
+
+  if (internetLink) {
+    rotatePhase = false;          // relay frame is rendered by the Internet branch
+    lastRotateMs = nowMs;
+  } else if (bothOn) {
+    if (nowMs - lastRotateMs >= ROTATE_INTERVAL_MS) {
+      rotatePhase = !rotatePhase;
+      lastRotateMs = nowMs;
+    }
+  } else {
+    // A single transport is enabled: pin its frame, no alternation at all.
+    rotatePhase = wifiOn;   // Wi-Fi only -> true; Bluetooth only -> false
+    lastRotateMs = nowMs;
+  }
+
+  // U-107: the Wi-Fi frame's own last line alternates network name <=> IP ~1 s.
+  // Only advance while Wi-Fi can be shown, so a Bluetooth-only panel schedules
+  // no pointless repaints.
+  const bool prevWifiInfo = wifiInfoPhase;
+  if (wifiOn && (nowMs - lastWifiInfoMs >= WIFI_INFO_INTERVAL_MS)) {
+    wifiInfoPhase = !wifiInfoPhase;
+    lastWifiInfoMs = nowMs;
+  }
+
+  // A rotate flip always changes the visible frame; a name/IP flip changes it
+  // only while the Wi-Fi frame is the one on screen.
+  if (rotatePhase != prevRotate) return true;
+  if (wifiInfoPhase != prevWifiInfo && rotatePhase && !internetLink) return true;
+  return false;
+}
+
+void Oled_1_3::tick() {
+  if (!u8g2 || isSleeping) return;
+  if (advanceRotationPhases(millis())) {
+    redrawNow(lastSpeed, lastConnected);
+  }
+}
+
 void Oled_1_3::redrawNow(int speed, bool connected) {
   if (!u8g2) return;
 
@@ -323,33 +378,12 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   { char* nPipe = strchr(netBuf, '|'); if (nPipe) *nPipe = '\0'; }
   { char* iPipe = strchr(ipBuf, '|');  if (iPipe) *iPipe = '\0'; }
 
-  // U-107 (owner 2026-10-13): the last two rows follow the U-105 TRANSPORT
-  // TOGGLES, not the idle/link state (the old model alternated only while idle).
-  // Both ON -> alternate the Bluetooth frame ⇄ the Wi-Fi frame; one ON -> that
-  // frame always; the U-105 clamp makes "both OFF" impossible. A live RELAY link
-  // (Internet) is a third transport the toggles do not name, so it keeps its own
-  // frame whenever it is the current link.
+  // U-107b: advance the two rotation phases. Factored out so `tick()` can drive
+  // the alternation on its own clock even when nothing else changes (see the
+  // tick() note in the header). Idempotent within an interval, so a content
+  // redraw landing right after a tick does not double-step.
+  advanceRotationPhases(nowMs);
   const bool internetLink = (strcmp(linkMethodBuf, "Internet") == 0);
-  const bool bothOn = wifiOn && btOn;
-  if (internetLink) {
-    // relay link: pin the frame (the Internet branch below renders it)
-    rotatePhase = false;
-    lastRotateMs = nowMs;
-  } else if (bothOn) {
-    if (nowMs - lastRotateMs >= ROTATE_INTERVAL_MS) {
-      rotatePhase = !rotatePhase;
-      lastRotateMs = nowMs;
-    }
-  } else {
-    // A single transport is enabled: pin its frame, no alternation at all.
-    rotatePhase = wifiOn;   // Wi-Fi only -> true; Bluetooth only -> false
-    lastRotateMs = nowMs;
-  }
-  // U-107: the Wi-Fi frame's own last line alternates network name ⇄ IP ~1 s.
-  if (nowMs - lastWifiInfoMs >= WIFI_INFO_INTERVAL_MS) {
-    wifiInfoPhase = !wifiInfoPhase;
-    lastWifiInfoMs = nowMs;
-  }
 
   // Build the last two rows.
   char line3[40] = "";
@@ -404,6 +438,11 @@ void Oled_1_3::draw(const char* status, int speed, bool connected, const char* m
   safeCopy(statusBuf, STATUS_BUF_LEN, status ? status : "");
   if (mode) safeCopy(modeBuf, MODE_BUF_LEN, mode);
   safeCopy(extraBuf, EXTRA_BUF_LEN, extraInfo ? extraInfo : "");
+
+  // U-107b: remember the live drive values so tick() can repaint the rotating
+  // frames on its own clock without ModeManager re-supplying them.
+  lastSpeed = speed;
+  lastConnected = connected;
 
   if (!contentChanged && (millis() - lastDrawMs) < minDrawIntervalMs) {
     return;

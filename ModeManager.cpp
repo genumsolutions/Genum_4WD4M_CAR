@@ -828,6 +828,12 @@ void ModeManager::run() {
   // U-107 (owner 2026-10-13): keep the OLED's last-two-rows rule in step with
   // the U-105 transport toggles (change-gated internally).
   pushTransportToggles();
+  // U-107b (owner 2026-10-14): drive the frame/name-vs-IP rotation on its own
+  // clock. Without this the phases only advanced inside a content-changing
+  // draw() — and an idle car never changes content, so the alternation froze on
+  // whichever frame was showing. Cheap: tick() repaints only when the visible
+  // frame actually flips (~2x/s), not every loop.
+  if (oled_) oled_->tick();
   if (anyConnected) {
     uint32_t now = nowFn_();
     if (now - lastStateMs_ >= STATE_INTERVAL_MS) {
