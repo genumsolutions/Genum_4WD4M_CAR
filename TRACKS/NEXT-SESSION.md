@@ -181,6 +181,10 @@ are on, show a single transport always, and the Wi-Fi line must alternate the ne
   `BluetoothComm::begin()` passes it to `SerialBT.begin()` and the OLED's Bluetooth frame
   shows it (was a second hard-coded literal).
 
+> **Superseded by U-110** (top of this file): the Wi-Fi frame's SSID ⇄ IP alternation was
+> removed (its two rows are now shown at once) and `BT_SPP_NAME` is now `4WD4M Car`. The
+> Bluetooth ⇄ Wi-Fi frame rotation described here is unchanged.
+
 Gates: node `check-webpage-js` + `check-relay-contract`, `check-firmware-syntax.ps1`,
 `arduino-cli compile`. **Device verify pending** (`TRACKS/DEVICE-TESTS.md` U-107-1..5).
 
