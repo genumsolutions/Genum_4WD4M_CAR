@@ -113,6 +113,53 @@
 // genuine hang resets in 10 s instead of 5 s. The benefit: a phone sending a
 // half-frame can no longer reboot the car. The gate rule is `ws-budget`.
 #define LOOP_TASK_WDT_TIMEOUT_MS 10000ul
+
+// U-112 (2026-10-14). TWO guards for the owner's post-1.3.9 report ("reset when
+// I connect BT + own hotspot together" · "freezes using the car's own page
+// while the app is connected on Wi-Fi"). Both symptoms have one measured shape
+// behind them: the field record shows free_heap at 13-18 kB on every boot
+// (device_crash_reports, boot 1026-1029) - the WS-status statics alone are
+// 7.2 kB (2 x 3584 B JSON + 512 B page chunk) on top of the BT + Wi-Fi + OLED
+// stacks, and the WS coexistence scan allocates the biggest transient block of
+// the whole system. Working near the floor, the failures are allocation
+// failures: 1) a refused allocation inside buildStatusJson/serveRoot degrades
+// silently (snprintf truncation, empty fragments) and, per the read loop below,
+// a client that gets a short response keeps asking; 2) a scan whose kick never
+// lands lands 8 s later on a SILENTLY EMPTY router list (collectScanIfDone
+// clears busy on timeout, so it recovers - but the owner sees "no networks
+// found" with no reason, which reads as the list being broken).
+//
+// BROADCAST_FLOOR_BYTES: below this free heap the status broadcast is
+// DEFERRED - but only up to STATUS_HEAP_DEFER_MAX_MS, after which one attempt
+// is allowed through regardless. The window is the safety valve: the field
+// heap sits in the 13-18 kB zone at connect time, and an UNTIMED defer at a
+// chronically low floor would black-hole telemetry forever, which is worse
+// than a rare allocation attempt. Effect: under pressure the cadence degrades
+// from 1 Hz to one attempt per 4 s (4x less allocation pressure) and recovers
+// to 1 Hz the pass the heap is back over the floor.
+// 49152 = ~6x the 7268 B the status path provably needs (2 x 3584 B JSON +
+// 512 B page chunk), refusing to spend the last kilobytes the run-time needs.
+#define STATUS_HEAP_FLOOR_BYTES 49152ul
+// How long a below-floor broadcast may be deferred before one attempt is
+// allowed through anyway. Telemetry can never be silent longer than this, and
+// the gate pins it <= 10000 ms so it can never become an untimed defer.
+#define STATUS_HEAP_DEFER_MAX_MS 4000ul
+// SCAN_FLOOR_BYTES: the WS coexistence scan is the largest transient alloc of
+// the system (driver buffers + the vector reallocation in collectScanIfDone()).
+// Below this floor a scan request is REFUSED up front with ROUTERS;SCAN;BUSY
+// - an honest, retryable answer the app already renders - instead of kicking
+// the radio and landing 8 s later on a silently empty list when the
+// allocation never happened. Must stay ABOVE the status floor: the bigger
+// transient needs the bigger cushion (gate rule `heap-guard`).
+#define SCAN_HEAP_FLOOR_BYTES 65536ul
+// The root-page send loop: this many CONSECUTIVE zero-byte writes (one retry
+// gap each) ends the transfer for THIS pass. A client that moves resets the
+// count on every byte, so it keeps the full HTTP_BODY_BUDGET_MS; a reader that
+// makes no progress at all used to cost the whole budget on every pass -
+// 3500 ms of loop() not running (no ws.loop(), no BT poll: the owner's
+// "freezes using the car's own page while the app is connected").
+#define HTTP_STALL_ABORT_AFTER 2
+
 #define SCAN_SETTLE_MS 400ul
 #define SCAN_TIMEOUT_MS 8000ul
 // U-95 Phase 2: the rejoin MODE drop is asynchronous — WiFi.mode() returns
@@ -471,6 +518,9 @@ void advanceRejoinStep();
   // side joined a router (server reachable on the LAN even with no client).
   // (Non-const: WebSocketsServer::connectedClients() is not const-safe.)
   bool hasWsClients();
+  // U-112: true while the status broadcast is currently below the heap floor
+  // and inside its defer window (STATUS_HEAP_FLOOR_BYTES / _DEFER_MAX_MS).
+  bool broadcastDeferred();
   bool isStaJoined() const;
 
   // CommInterface overrides
@@ -640,6 +690,17 @@ private:
     bool open;
   };
   bool scanPending_;
+  // U-112 (in-class initialisers: these are read from the first handle() pass,
+  // before begin() could set them - a bare member would be indeterminate).
+  // `statusDeferStreak_` marks an ACTIVE defer (logged once on each edge, so
+  // the serial capture shows the defer instead of a dashboard that quietly
+  // went quiet); `statusDeferSinceMs_` is when the current below-floor window
+  // opened (the untimed-defer safety valve); `scanFloorRefusals_` counts
+  // scans refused for low heap so the refusal is visible in the log, not
+  // silent.
+  bool statusDeferStreak_ = false;
+  unsigned long statusDeferSinceMs_ = 0;
+  uint32_t scanFloorRefusals_ = 0;
   bool scanBusy_;
   unsigned long scanStartMs_;
   unsigned long scanWaitMs_;

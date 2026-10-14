@@ -251,8 +251,8 @@ const mutants = [
     why: "the stall path stops feeding the watchdog entirely — the spin returns" },
 
   { id: "M13", rule: "wdt-feed", file: WSC,
-    find: "      const unsigned long gapStart = millis();\n      while (millis() - gapStart < HTTP_WRITE_RETRY_GAP_MS) {\n        esp_task_wdt_reset();\n        delay(1);\n      }\n      continue;",
-    repl: "      yield();\n      continue;",
+    find: "      const unsigned long gapStart = millis();\n      while (millis() - gapStart < HTTP_WRITE_RETRY_GAP_MS) {\n        esp_task_wdt_reset();\n        delay(1);\n      }",
+    repl: "      yield();",
     why: "the real gap reverts to the bare yield() that caused millions of wasted iterations" },
 
   { id: "M14", rule: "wdt-budget", file: WSC,
@@ -519,6 +519,39 @@ const mutants = [
     find: "const unsigned long EXTRA_INTERVAL = 500;",
     repl: "const unsigned long EXTRA_INTERVAL = 2000;",
     why: "the extra row refreshes SLOWER than the 1 s broadcast — the ticks are split but the OLED is now the staler of the two, the same defect the other way around" },
+
+  // ---- U-112: the heap floor + the page stall-abort (the owner's post-1.3.9
+  // report: reset while connecting BT + own hotspot; freeze while using the
+  // car's page with the app connected; field heap 13-18 kB, boots 1026-1029).
+  { id: "M70", rule: "heap-guard", file: WSC,
+    find: "  if (ESP.getFreeHeap() < SCAN_HEAP_FLOOR_BYTES) {",
+    repl: "  if (false) {",
+    why: "startScan() no longer refuses below the scan floor — a scan is kicked against a heap that cannot allocate it and lands 8 s later on a silently EMPTY router list, which the owner reads as the list being broken" },
+
+  { id: "M71", rule: "heap-guard", file: WSC,
+    find: "    if (millis() - statusDeferSinceMs_ < STATUS_HEAP_DEFER_MAX_MS) {",
+    repl: "    if (true) {",
+    why: "the below-floor defer loses its time box — at a chronically low heap every broadcast is deferred forever and telemetry black-holes, a worse failure than the one the floor prevents" },
+
+  { id: "M72", rule: "heap-guard", file: "WebServerComm.h",
+    find: "#define STATUS_HEAP_DEFER_MAX_MS 4000ul",
+    repl: "#define STATUS_HEAP_DEFER_MAX_MS 4000000ul",
+    why: "the defer window becomes ~66 minutes — the time box still 'exists' but no longer bounds anything (a window must be <= 10 s to be a window)" },
+
+  { id: "M73", rule: "heap-guard", file: WSC,
+    find: "      if (stallRetries >= HTTP_STALL_ABORT_AFTER) {",
+    repl: "      if (stallRetries >= 100000) {",
+    why: "the page-send loop's stall abort is disconnected from its own constant — an undrained reader costs the full 3500 ms budget every pass again, so no ws.loop()/BT poll runs while a page loads (the owner's freeze)" },
+
+  { id: "M74", rule: "heap-guard", file: "WebServerComm.h",
+    find: "#define SCAN_HEAP_FLOOR_BYTES 65536ul",
+    repl: "#define SCAN_HEAP_FLOOR_BYTES 32768ul",
+    why: "the scan floor drops BELOW the status floor — the biggest transient in the system gets the smaller cushion, inverting the ordering the guard exists for" },
+
+  { id: "M75", rule: "heap-guard", file: WSC,
+    find: "    stallRetries = 0;  // progress: a moving reader keeps the full budget",
+    repl: "    // stall counter no longer reset on progress",
+    why: "the stall counter never resets when bytes flow — one slow moment would end EVERY later page pass, so slow-but-alive readers can no longer finish a page" },
 ];
 
 // ---- runner -------------------------------------------------------------

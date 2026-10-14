@@ -923,6 +923,23 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
 bool WebServerComm::startScan() {
   if (scanPending_ || scanBusy_) return false;  // armed or in flight already
   if (connectingPending_) return false;         // associating - do not race the join
+  // U-112: the WS coexistence scan is the largest transient allocation of the
+  // system (driver buffers + the vector reallocation in collectScanIfDone()).
+  // On a heap at the field floor (13-18 kB measured, boots 1026-1029) the kick
+  // can fail to allocate and the scan lands 8 s later on a SILENTLY EMPTY list
+  // (collectScanIfDone's timeout clears busy - it recovers, but the owner sees
+  // "no networks found" with no reason, which reads as the list being broken).
+  // Refuse UP FRONT with an honest false: the handler already answers
+  // ROUTERS;SCAN;BUSY, which the app renders as busy and can retry. Counted +
+  // logged so the serial capture shows WHY, not just that it did not scan.
+  if (ESP.getFreeHeap() < SCAN_HEAP_FLOOR_BYTES) {
+    scanFloorRefusals_++;
+    FW_LOG("[SCAN] refused: low heap (free=%u, floor=%u, refusals=%u)\n",
+           static_cast<unsigned>(ESP.getFreeHeap()),
+           static_cast<unsigned>(SCAN_HEAP_FLOOR_BYTES),
+           static_cast<unsigned>(scanFloorRefusals_));
+    return false;
+  }
   scanPending_ = true;
   scanStartMs_ = 0;  // armed; handle() kicks it on a later pass
   return true;
@@ -1871,6 +1888,12 @@ bool WebServerComm::isRunning() const { return serverRunning; }
 // v1.0.1 (owner OLED directive): differentiated link truth for the OLED.
 bool WebServerComm::hasWsClients() { return ws.connectedClients() > 0; }
 
+// U-112: is the status broadcast currently below the heap floor? The one
+// place the threshold lives; broadcastStatus() applies the time-box policy.
+bool WebServerComm::broadcastDeferred() {
+  return ESP.getFreeHeap() < STATUS_HEAP_FLOOR_BYTES;
+}
+
 bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; }
 // U-70 (2026-10-02): the CURRENT network, as opposed to the stored target.
 //
@@ -2159,6 +2182,8 @@ void WebServerComm::handle() {
   const unsigned long STATUS_INTERVAL = 1000;
   if (now - lastStatusMs >= STATUS_INTERVAL) {
     lastStatusMs = now;
+    // U-112: the heap floor lives INSIDE broadcastStatus() (time-boxed defer),
+    // so this tick and the REQ_STATE/REQ_NETW paths share ONE policy.
     broadcastStatus();
     FW_LOG_VERBOSE("Free heap: %d\n", static_cast<int>(ESP.getFreeHeap()));
   }
@@ -2541,6 +2566,32 @@ void WebServerComm::redactForAck(const char* cmd, char* out, size_t outLen) {
 
 void WebServerComm::broadcastStatus() {
   if (!modeManager) return;
+  // U-112: THE heap floor for the status path, in ONE place so every caller
+  // (the 1 s tick, REQ_STATE/REQ_NETW, the scan-complete push) obeys the same
+  // rule. Deferred, never silently dropped: while below the floor the defer is
+  // TIME-BOXED (STATUS_HEAP_DEFER_MAX_MS) - after the window one attempt goes
+  // through regardless, so telemetry degrades to one attempt / 4 s under
+  // chronic pressure instead of black-holing, and returns to 1 Hz the pass the
+  // heap is back over the floor. Each defer edge is logged once, so the serial
+  // capture shows the defer instead of a dashboard that quietly went quiet.
+  if (broadcastDeferred()) {
+    if (statusDeferSinceMs_ == 0) statusDeferSinceMs_ = millis();
+    if (millis() - statusDeferSinceMs_ < STATUS_HEAP_DEFER_MAX_MS) {
+      if (!statusDeferStreak_) {
+        statusDeferStreak_ = true;
+        FW_LOG("[HEAP] status broadcast deferred (free=%u, floor=%u)\n",
+               static_cast<unsigned>(ESP.getFreeHeap()),
+               static_cast<unsigned>(STATUS_HEAP_FLOOR_BYTES));
+      }
+      return;
+    }
+    statusDeferSinceMs_ = 0; // window spent - this attempt goes through
+  }
+  if (statusDeferStreak_) {
+    statusDeferStreak_ = false;
+    FW_LOG("[HEAP] status broadcast resumed (free=%u)\n",
+           static_cast<unsigned>(ESP.getFreeHeap()));
+  }
   // U-95 Phase 1c: nobody listening, nothing to build or send. The 1 s ticker
   // (and the scan-complete and REQ_STATE/REQ_NETW paths) used to build this
   // 1536-byte JSON and walk every socket every second of every uptime with no
@@ -2629,6 +2680,22 @@ void WebServerComm::serveRootBounded() {
   // will say "http-root" and the hunt starts in the right place instead of
   // everywhere. Cleared at the end of loop(), so it is written on the way out.
   crashLogPhase("http-root");
+  // U-112 (the owner's "freeze using the page while the app is on Wi-Fi"): an
+  // UNSTALLED client keeps this loop running for the full 3500 ms budget -
+  // that is what the budget is FOR (a page must still arrive over a slow link)
+  // - but during those 3500 ms loop() is not running: no ws.loop() for the
+  // app, no modeTicker, no BT poll, so every link looks frozen while the page
+  // loads, and the cheap pages (handlers below) make it look intermittent.
+  // A client that is NOT draining TCP - the wedge shape this function exists
+  // to survive - produced the same 3500 ms every pass, for free, because a
+  // zero-byte write makes no progress at all. From NOW a stalled (zero-write)
+  // pass ends the transfer: the connection is closed below, so the browser
+  // retries a fresh request (nothing is corrupted - Content-Length is honest
+  // and the socket close tells the client the response ended) instead of the
+  // car spending 3500 ms per pass on a client that will never read it.
+  // Moving traffic keeps its full budget - only a provably dead reader is
+  // cut short.
+  uint8_t stallRetries = 0;  // consecutive zero-byte writes this pass
   const size_t pageLen = strlen_P(PAGE_HTML);
   server.setContentLength(pageLen);
   server.send(200, "text/html; charset=utf-8", "");
@@ -2668,13 +2735,27 @@ void WebServerComm::serveRootBounded() {
       // instruction, so 28 kB of stalled page was ~millions of wasted
       // iterations inside one loop pass. delay() parks the task, which also
       // gives the TCP window time to reopen instead of re-testing it instantly.
+      stallRetries++;
       const unsigned long gapStart = millis();
       while (millis() - gapStart < HTTP_WRITE_RETRY_GAP_MS) {
         esp_task_wdt_reset();
         delay(1);
       }
+      // U-112: one retry gap already spent with NO progress. A second
+      // consecutive zero-write means the reader is not draining at all - end
+      // THIS pass (the close below tells the client the response ended) rather
+      // than spend HTTP_BODY_BUDGET_MS of loop() per pass on it: while this
+      // loop runs, ws.loop()/BT/pins do not, which is the app "freezing". A
+      // client that moves resets the count on the very next byte and keeps the
+      // full budget, so slow-but-alive readers are untouched.
+      if (stallRetries >= HTTP_STALL_ABORT_AFTER) {
+        FW_LOG("[HTTP] root page paused (no client progress after %u attempts)\n",
+               static_cast<unsigned>(stallRetries));
+        break;
+      }
       continue;
     }
+    stallRetries = 0;  // progress: a moving reader keeps the full budget
     off += w;
     // Feed on the progress path too. The 512 B chunk usually returns in
     // microseconds, but a write that fills the socket buffer blocks for up to
@@ -2685,6 +2766,10 @@ void WebServerComm::serveRootBounded() {
   }
   // A short body after an honest Content-Length leaves the browser waiting for
   // bytes that will never arrive. End the response instead of hanging it.
+  // U-112: the stall-abort break above lands here too (off < pageLen), so an
+  // unresponsive reader costs HTTP_STALL_ABORT_AFTER attempts + one gap per
+  // pass instead of the whole budget; the browser may retry, and a retry that
+  // MOVES gets the full budget again.
   if (off < pageLen && c.connected()) {
     // We are about to break a promise made in a header we already sent. Close
     // the connection so the client stops waiting for bytes that will never come.

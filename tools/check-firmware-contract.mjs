@@ -591,6 +591,13 @@ if (!scanStartBody) {
   fail("scan-honest", "startScan() is no longer `bool WebServerComm::startScan` - void startScan() is the pre-U-95 shape: it refuses silently and the handler cannot answer BUSY");
 } else if ((scanStartBody.match(/return false/g) || []).length < 2) {
   fail("scan-honest", "startScan() does not refuse in both cases - it must reject an in-flight scan AND a scan kicked while the STA is associating (mid-join scans race the driver and return garbage)");
+} else if (!/if\s*\(\s*scanPending_\s*\|\|\s*scanBusy_\s*\)\s*return\s+false/.test(scanStartBody)) {
+  // The COUNT check above is no longer sufficient on its own: the U-112 heap
+  // floor added a third `return false`, so removing the in-flight refusal
+  // still leaves two returns and the count stays green (found by mutation M38
+  // going undetected - a rule weakened by an unrelated addition is the F-83
+  // shape again). The in-flight refusal is now pinned BY TEXT.
+  fail("scan-honest", "startScan() no longer refuses while a scan is armed or in flight - a double-tap arms a second scan over one already running, and the reply lies about both");
 } else if (!/connectingPending_/.test(scanStartBody)) {
   fail("scan-honest", "startScan() no longer gates on connectingPending_ - a scan is started between WiFi.begin() and association, racing a driver that is mid-join");
 } else if (!routerCmdBody) {
@@ -716,6 +723,81 @@ if (!scanJsonBody) {
   fail("status-net-fields", "the subnet mask is never read - broadcast without mask is an arithmetic guess");
 } else {
   pass("status-net-fields", "scan rows carry channel/own/saved/current from car truth; station_ip/ap_ip/broadcast_ip/subnet are all computed");
+}
+
+
+// ---- U-112: the heap floor and the page stall-abort ----------------------
+// The owner's post-1.3.9 report: the car RESET while connecting Bluetooth +
+// the own hotspot together, and FREEZES when the car's own page is opened
+// while the app holds a Wi-Fi link. The field record (device_crash_reports,
+// boots 1026-1029, fw 1.3.9) shows free_heap at 13-18 kB and PANIC resets
+// with an empty phase - the car lives at the allocation floor, where every
+// big transient is a coin flip. Three guards exist for that, each with a rule:
+//   1. broadcastStatus() checks STATUS_HEAP_FLOOR_BYTES for EVERY caller and
+//      the defer is TIME-BOXED (an untimed defer at a chronically low heap is
+//      a permanent telemetry black hole - a worse failure than the one it
+//      prevents);
+//   2. startScan() refuses below SCAN_HEAP_FLOOR_BYTES with the honest BUSY
+//      the handler already answers, instead of kicking the radio into an
+//      allocation that lands 8 s later on a silently EMPTY router list;
+//   3. the root-page send loop aborts a reader that makes no progress after
+//      HTTP_STALL_ABORT_AFTER attempts, because a full 3500 ms budget per
+//      pass means loop() is not running - no ws.loop() for the app, no BT
+//      poll - which is what "freezes while the page is open" IS. The counter
+//      resets on progress, so slow-but-alive readers keep the whole budget.
+// Reads: the header raw (defines are preprocessor, they survive \b word
+// boundaries only as text), structure on code() views as always (F-83).
+{
+  const num = (name) => Number(String(wsh.match(new RegExp("#define\\s+" + name + "\\s+(\\d+)"))?.[1] ?? 0));
+  const statusFloor = num("STATUS_HEAP_FLOOR_BYTES");
+  const deferMax = num("STATUS_HEAP_DEFER_MAX_MS");
+  const scanFloor = num("SCAN_HEAP_FLOOR_BYTES");
+  const stallAfter = num("HTTP_STALL_ABORT_AFTER");
+  if (!statusFloor || !scanFloor || !deferMax || !stallAfter) {
+    fail("heap-guard", `one of the U-112 defines is missing or unparseable (status=${statusFloor}, defer=${deferMax}, scan=${scanFloor}, stall=${stallAfter})`);
+  } else {
+    if (scanFloor <= statusFloor) {
+      fail("heap-guard", `SCAN_HEAP_FLOOR_BYTES (${scanFloor}) must sit ABOVE STATUS_HEAP_FLOOR_BYTES (${statusFloor}) - the bigger transient needs the bigger cushion`);
+    } else {
+      pass("heap-guard", `floors: status ${statusFloor} B < scan ${scanFloor} B; page stall-abort after ${stallAfter} zero-writes`);
+    }
+    if (deferMax > 10000) {
+      fail("heap-guard", `STATUS_HEAP_DEFER_MAX_MS is ${deferMax} ms - the below-floor defer must be time-boxed (<= 10000 ms) or a chronically low heap black-holes telemetry forever`);
+    } else {
+      pass("heap-guard", `the below-floor defer is time-boxed at ${deferMax} ms - telemetry can never be silent longer than that`);
+    }
+  }
+
+  const bcBody = body(wscCode, "void WebServerComm::broadcastStatus()") ?? "";
+  if (!bcBody) {
+    fail("heap-guard", "could not locate broadcastStatus() - check this rule still matches the code");
+  } else if (!/if\s*\(\s*broadcastDeferred\(\)\s*\)/.test(bcBody)) {
+    fail("heap-guard", "broadcastStatus() no longer checks the heap floor - the REQ_STATE/REQ_NETW paths would allocate against the last kilobytes again");
+  } else if (!/STATUS_HEAP_DEFER_MAX_MS/.test(bcBody)) {
+    fail("heap-guard", "broadcastStatus()'s defer has no time box - a chronically low heap would defer every broadcast forever (the untimed-defer failure mode)");
+  } else {
+    pass("heap-guard", "broadcastStatus() checks the floor for every caller, and the defer is time-boxed");
+  }
+
+  const scanBody = body(wscCode, "bool WebServerComm::startScan") ?? "";
+  if (!scanBody || !/ESP\s*\.\s*getFreeHeap\s*\(\s*\)\s*<\s*SCAN_HEAP_FLOOR_BYTES/.test(scanBody)) {
+    fail("heap-guard", "startScan() no longer refuses below SCAN_HEAP_FLOOR_BYTES - a low-heap scan lands 8 s later on a silently empty router list instead of an honest BUSY");
+  } else {
+    pass("heap-guard", "startScan() refuses below the scan floor (the handler answers ROUTERS;SCAN;BUSY)");
+  }
+
+  const rootBody = body(wscCode, "void WebServerComm::serveRootBounded") ?? "";
+  const sendAt = rootBody.indexOf("while (off < pageLen)");
+  const sendLoop = sendAt >= 0 ? rootBody.slice(sendAt) : "";
+  if (!sendLoop) {
+    fail("heap-guard", "could not find the page-send loop - check this rule still matches the code");
+  } else if (!/stallRetries\s*>=\s*HTTP_STALL_ABORT_AFTER/.test(sendLoop)) {
+    fail("heap-guard", "the page-send loop has no stall abort - a non-draining reader still costs HTTP_BODY_BUDGET_MS of loop() per pass, freezing ws.loop()/BT while a page loads (the owner's report)");
+  } else if (!/stallRetries\s*=\s*0\s*;/.test(sendLoop)) {
+    fail("heap-guard", "the stall counter is never reset on progress - ONE slow moment would end every later page pass, breaking slow-but-alive readers");
+  } else {
+    pass("heap-guard", "the page-send loop aborts a non-draining reader after the attempt cap and resets the counter on progress");
+  }
 }
 
 // The one thing this gate cannot check is the thing that matters most: that a
