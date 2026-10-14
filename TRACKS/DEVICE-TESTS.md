@@ -46,6 +46,47 @@
 - [ ] **U-107-5 — a relay (Internet) link keeps its own frame.** With a relay configured and
       connected, the rows show "Internet : WSS" + IP (no BT/Wi-Fi alternation).
 
+## U-108 round — fresh start + timestamps + auto-join labels + Reset car data (2026-10-13, firmware 1.3.6 — DEVICE VERIFY PENDING)
+
+> Same 1.3.6 flash as U-106/U-107. The car has `FACTORY;RESET` (wipes NVS + counters),
+> `TIME;<epoch>` (app clock sync), `TIME?` (reads epoch + config_epoch), and
+> `botcfg/config_epoch` stamped on config writes. The app has `resetCarData()` (sends
+> FACTORY;RESET + wipes local storage) and a red "Reset car data" button in the
+> Remote settings panel. The two auto-join toggles are now clearly labelled:
+> "Boot auto-join (car)" vs "Auto-join saved router (app)".
+
+- [ ] **U-108-1 — FACTORY;RESET wipes the car clean.** Send `FACTORY;RESET` (app button or
+      raw line): reply `FACTORY;CLEARED`. After a power-cycle: the car boots on its own
+      hotspot `4WD4MCar_WiFi`; STATE shows `SSID=4WD4MCar_WiFi` (no router); STATE `;WIFI=ON`,
+      `;BT=ON`, `;AUTOJOIN=ON`; OLED shows the AP IP `192.168.245.1`; saved router list
+      (`NETW;`) contains only `4WD4MCar_WiFi`; the boot/crash counters are `boot=1`,
+      `crash=0`; the crash record is dropped (`reset_reason` gone).
+- [ ] **U-108-2 — TIME;<epoch> + TIME? work.** With the car connected, the app sends
+      `TIME;<unixEpoch>` on every connect. Send `TIME?` (raw): reply `TIME;<now>;<configEpoch>`
+      where `now` = epoch + elapsed, and `configEpoch` = last config-write stamp. After a
+      `WIFICFG;<ssid>;<pass>` store, send `TIME?` again: `configEpoch` has advanced (non-zero,
+      greater than before).
+- [ ] **U-108-3 — config_epoch stamped on config writes.** Do each: toggle Wi-Fi OFF→ON,
+      toggle BT OFF→ON, toggle AUTOJOIN OFF→ON, `ROUTERS;ADD;X;pass`, `ROUTERS;USE;X`,
+      `ROUTERS;DEL;Y`, `ROUTERS;CLEAR`. After each, `TIME?` shows a new `configEpoch` (each
+      write advances the stamp). `WIFICFG;RESET` also stamps it.
+- [ ] **U-108-4 — app Reset car data button works.** In Remote screen → Settings (⚙) panel,
+      scroll to the bottom "Reset car data" red button. Tap → destructive confirm dialog
+      (`testID: reset-car-data`). Confirm: the car receives `FACTORY;RESET` (serial shows
+      `[FACTORY] botcfg namespace cleared`), the app clears all car AsyncStorage keys, and
+      shows "Car data reset — power cycle the car for a fresh start" success toast. The
+      Remote panel resets to defaults (both toggles ON, no router list, auto-join ON).
+- [ ] **U-108-5 — auto-join labels are clear.** In Remote settings panel: the CAR toggle
+      reads "Boot auto-join (car)" with `power` icon and caption "On power-up the CAR
+      rejoins its last router — off keeps it on its own hotspot." The APP toggle reads
+      "Auto-join saved router (app)" with `refresh-cw` icon and caption "When you open
+      the car, the APP switches it to the strongest saved router it hears." Distinct
+      accessibility labels present. CarProfileCard shows "Auto-join saved router (app)"
+      and cross-references the car setting.
+- [ ] **U-108-6 — on-connect epoch sync.** On every connect (SPP / BLE / WiFi), the app
+      sends `TIME;<epoch>` alongside `REQ_STATE` (capture serial: `TIME;1760000000`
+      followed by `REQ_STATE`). The car's `TIME?` reply reflects the adopted epoch.
+
 ## U-105 round — transport toggles ride, beacon never parked, one own-hotspot name (2026-10-13, firmware 1.3.5 — DEVICE VERIFY PENDING)
 
 > App half of this round (the Remote "Connectivity" panel: Wi-Fi / Bluetooth / auto-join toggles)

@@ -41,6 +41,14 @@ donor code found — all remaining paths are live. No app/DB/donor-repo changes.
 
 Gates: all green (webpage-js, relay-contract, firmware-syntax 10/10, compile PASS).
 
+## U-108 2026-10-13 — docs / DEVICE-TESTS rows / close-out (Phase 9)
+
+**DONE.** Added U-108 device rows to `TRACKS/DEVICE-TESTS.md` (U-108-1..6: FACTORY;RESET,
+TIME;epoch, config_epoch, Reset car data button, auto-join labels, on-connect epoch sync).
+Updated `TRACKS/DEVICE-TESTS.md` U-108 section. App `TESTING.md` U-108-1..4 added.
+`RESUME-HERE.md` and both PLAN files updated with close-out status.
+All repos at Phase 9 complete.
+
 ## U-107 2026-10-13 — OLED last-two-lines rule (1.3.6, UNFLASHED — owner flash target)
 
 Owner request: the OLED's last two rows must alternate BT ⇄ Wi-Fi info when both transports

@@ -120,10 +120,10 @@ this round produces (likely **1.3.6**); confirm at the Phase 1 bump.
 - **F-61**: green gates are NOT device evidence. Nothing is device-verified until the owner flashes.
 
 ## RESUME HERE
-> Car firmware **1.3.6** now carries Phases 1/2/5/7/8: crash-TIME evidence (U-106), the OLED
-> last-two-lines rule (U-107), the `4WD4MCar_WiFi` SSID case (Phase 5), fresh start + timestamps
-> (`FACTORY;RESET` / `TIME;<epoch>`, U-108 Phase 7a), and donor dead-code purge (Phase 8 —
-> effectively no-op, CS modes retained). **App Phases 7b DONE** (`resetCarData` + Remote button).
-> **DB Phase 7c PENDING** (additive migration in website repo). Remaining: **Phase 9**
-> (docs/DEVICE-TESTS rows/close-out). Nothing is device-verified until the owner flashes (F-61);
-> the PANIC itself is confirmed by the next tethered COM7 capture after that flash.
+> Car firmware **1.3.6** carries Phases 1/2/5/7/8: crash-TIME evidence (U-106), OLED
+> last-two-lines rule (U-107), `4WD4MCar_WiFi` SSID case (Phase 5), fresh start + timestamps
+> (`FACTORY;RESET` / `TIME;<epoch>`, U-108 Phase 7a), donor dead-code purge (Phase 8 — CS modes
+> retained). **App Phases 3/4/5/6/7b DONE** (Remote layout, restart prompt, SSID, auto-join labels,
+> `resetCarData` + Remote button). **DB Phase 7c PENDING** (owner runs migration in Supabase).
+> **Phase 9 DONE** (DEVICE-TESTS U-108 rows, TESTING.md, RESUME-HERE close-out).
+> Nothing device-verified until owner flashes 1.3.6 (F-61); COM7 capture after flash confirms.
