@@ -3,6 +3,28 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
 
+## U-109 round — the car's own hotspot comes up at boot (2026-10-14, firmware 1.3.6 — DEVICE VERIFY PENDING)
+
+> Flash **1.3.6** (supersedes 1.3.5 — never flashed). Benchtop capture with
+> `python tools/serial_capture.py COM7 20 <out.log>`. The bug: the boot softAP was
+> skipped (`[RADIO] skip-softAP/sta-busy`) and `/status` `ap` read `""`, so the phone
+> could neither join the hotspot nor be found by the app's discovery sweep.
+
+- [ ] **U-109-1 — ⭐ the own hotspot is actually up after boot.** Power-on 1.3.6, wait ~5 s:
+      in the phone's Wi-Fi list `4WD4MCar_WiFi` appears **without** the car ever having
+      joined a router. (No `[RADIO] skip-softAP/sta-busy` line at boot; the bring-up line
+      `Own AP active: 4WD4MCar_WiFi` prints.)
+- [ ] **U-109-2 — `/status` `ap` is non-empty.** GET `http://192.168.245.1/status` (phone on
+      the car's hotspot): `"ap":"4WD4MCar_WiFi"` — not `""`.
+- [ ] **U-109-3 — the app finds the car with no router involved.** Open the app's
+      Connect/Link screen with the phone on `4WD4MCar_WiFi`: the discovery sweep matches the
+      car by own-AP name.
+- [ ] **U-109-4 — boot log no longer prints the LEDC errors.** The `E ledc: LEDC is not
+      initialized` lines that followed `[BOOT] Restored mode=…` are gone (the motor guard).
+- [ ] **U-109-5 — a retired stored mode cannot boot the car into COMING SOON.** (Refit/testbed
+      only) with a donor-era `mode` in NVS, the boot log says
+      `[BOOT] Restored mode=… is not LIVE in v2 - keeping 4WD4M` and the OLED/panel shows 4WD4M.
+
 ## U-106 round — crash-TIME evidence survives a PANIC (2026-10-13, firmware 1.3.6 — DEVICE VERIFY PENDING)
 
 > Flash **1.3.6** (supersedes 1.3.5 — never flashed). The bench car is TETHERED on **COM7**;
