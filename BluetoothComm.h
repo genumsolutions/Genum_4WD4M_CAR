@@ -19,8 +19,9 @@ public:
   BluetoothComm& operator=(const BluetoothComm&) = delete;
 
   bool begin() override;
-  // U-79: power policy — deliberately take BT down while a web client is
-  // active. begin() is idempotent, so a later begin() brings it back.
+  // U-79 / U-105: the deliberate transport switch — take BT down only when the
+  // owner turns Bluetooth off. begin() is idempotent, so a later begin() brings
+  // it back.
   void stop();
   bool restart();
   // U-110: is SPP advertising right now? The .ino's transport-enforcement loop

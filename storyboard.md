@@ -35,7 +35,7 @@ Legacy alias: old controllers emit `BT` on the wire → normalised to
 +----------------------------------+
 |                                  |
 |           4WD4M Car              |
-|            v1.3.7                |
+|            v1.3.8                |
 |      GENUM SOLUTIONS PVT. LTD.   |
 |                                  |
 +----------------------------------+

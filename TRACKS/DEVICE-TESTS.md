@@ -3,6 +3,45 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## U-111 round — real Bluetooth pairing + a hotspot that joins + car↔app state round-trip (2026-10-14, firmware 1.3.8 — DEVICE VERIFY PENDING)
+
+> Flash **1.3.8** (supersedes 1.3.7 / 1.3.6 — never flashed). Third pass on the
+> owner's report: Bluetooth "appears but won't pair", the car's own hotspot
+> sometimes won't connect, flaky Wi-Fi with an occasional freeze — plus the
+> app↔car settings round-trip the owner asked for.
+>
+> **Before testing, forget the old `4WD CAR` bond AND any stale `4WD4MCar_WiFi`
+> profile** (Android caches both). Flashing 1.3.8 is a version change, so the car
+> wipes its saved routers + transport toggles on first boot (clean start, both
+> transports ON, auto-join ON).
+
+- [ ] **U-111-1 — ⭐ Bluetooth actually PAIRS now.** Forget `4WD CAR` in Android
+      Settings → Bluetooth. Power the car (1.3.8) and pair to `4WD4M Car`:
+      **no PIN is asked** (SSP "Just Works"); if a PIN is ever requested it is
+      `1234`. The bond completes and the app's Bluetooth link opens. The old build
+      answered Android's PIN request with an EMPTY PIN, so this never worked.
+- [ ] **U-111-2 — ⭐ the phone joins `4WD4MCar_WiFi` first try.** Forget/re-add the
+      network once (Android caches a stale profile against an open AP). The car's
+      hotspot appears within ~5 s of boot and the phone gets `192.168.245.x`;
+      `http://192.168.245.1/status` answers.
+- [ ] **U-111-3 — no AP retry storm in the log.** With no router saved (STA down),
+      the boot log shows the own AP come up once (`Own AP active: …`) and does NOT
+      repeat the softAP bring-up every pass.
+- [ ] **U-111-4 — ⭐ the app shows the car's settings on connect (the round-trip).**
+      Connect (BT or Wi-Fi) with a FRESH app profile: the Wi-Fi / Bluetooth /
+      Boot-auto-join toggles show the car's real values immediately (both ON by
+      default after the 1.3.8 flash) — the app no longer shows "don't know".
+- [ ] **U-111-5 — ⭐ a change round-trips and survives a power cycle.** Toggle
+      Boot-auto-join OFF in the app; the car confirms and the app shows OFF.
+      **Power-cycle the car** — it returns with auto-join OFF (persisted). Turn it
+      back ON. (Wi-Fi/Bluetooth likewise; both-off is clamped to Wi-Fi ON so the
+      car can never vanish.)
+- [ ] **U-111-6 — freeze: capture the reset reason + phase (STILL OPEN).** If the
+      car still freezes, reconnect and read the app/OLED restart reason, reset count
+      and **crash phase** (U-106 breadcrumb). This is the evidence that names the
+      cause; U-111 removes one plausible cause (the AP retry churn) but does NOT
+      claim the freeze fixed.
+
 ## U-110 round — OLED format + Bluetooth pairing + honest BT state (2026-10-14, firmware 1.3.7 — DEVICE VERIFY PENDING)
 
 > Flash **1.3.7** (supersedes 1.3.6 — never flashed). From the owner's post-flash

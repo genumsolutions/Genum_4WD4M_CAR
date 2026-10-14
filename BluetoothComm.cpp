@@ -18,7 +18,34 @@ bool BluetoothComm::begin() {
   TRANSPORT_POWER_EXIT_CRITICAL();
   
   if (alreadyStarted) return true;
-  
+
+  // U-111 (owner 2026-10-14: "it appears but doesn't pair"): configure pairing
+  // SECURITY here, because both settings are read once, inside
+  // BluetoothSerial::_init_bt(), and are silently ignored afterwards.
+  //
+  // THE DEFECT. The Arduino BluetoothSerial default is `_enableSSP = false` and
+  // `_pin_code_len = 0`, and this firmware changed neither. Pairing therefore
+  // ran as LEGACY pairing, where the car answers Android's PIN request with that
+  // ZERO-LENGTH PIN (BluetoothSerial.cpp: `esp_bt_gap_pin_reply(bda, true, 0,
+  // NULL)`). Authentication could never succeed: the phone listed the car (the
+  // radio was discoverable and connectable) and then failed the bond on every
+  // attempt. That is the whole symptom — the car was never "not advertising", it
+  // was advertising a pairing it was guaranteed to lose.
+  //
+  // enableSSP(false, false) selects IO capability NONE = SSP "Just Works": the
+  // phone bonds with no PIN and no on-car confirmation, which is the only sane
+  // choice for a car with no keypad. The library's bare enableSSP() would instead
+  // advertise IO capability IO (both input and output), which REQUIRES the sketch
+  // to answer the numeric-comparison callback — with no callback registered it
+  // actively REFUSES the bond (BluetoothSerial.cpp CFM_REQ), so it is
+  // deliberately not used here.
+  //
+  // setPin("1234") is the belt-and-braces legacy path: a remote that initiates
+  // LEGACY pairing still gets the documented PIN instead of an empty one. It is
+  // inert while SSP negotiates.
+  SerialBT.enableSSP(false, false);
+  SerialBT.setPin("1234", 4);
+
   // SerialBT.begin() can take time - do it outside critical section
   crashRtcMark("bt-begin");
   bool success = SerialBT.begin(BT_SPP_NAME);
@@ -31,10 +58,12 @@ bool BluetoothComm::begin() {
   return started_;
 }
 
-// U-79 (2026-10-03): deliberate power-down while a web client is active.
-// Owner ruling: one transport connected -> the other turns off to save
-// power. begin() brings it back; connected() reports false while stopped so
-// the rest of the system sees an honest "no BT client".
+// U-79 / U-105: the deliberate transport switch. Called ONLY when the owner
+// turns Bluetooth off (WIFICFG;BT;OFF) — the old "one transport connected
+// powers the OTHER down" power-save teardown is gone (U-105; both transports
+// stay up together when both are enabled). begin() brings it back; connected()
+// reports false while stopped so the rest of the system sees an honest "no BT
+// client".
 void BluetoothComm::stop() {
   TRANSPORT_POWER_ENTER_CRITICAL();
   if (!started_) {
@@ -47,7 +76,7 @@ void BluetoothComm::stop() {
   // SerialBT.end() can take time - do it outside critical section
   SerialBT.end();
   
-  Serial.println("[BT] stopped (power save - a web client is active)");
+  Serial.println("[BT] stopped (transport disabled)");
 }
 
 // T-7b recovery for a WEDGED BT stack (used only by the prolonged-disconnect

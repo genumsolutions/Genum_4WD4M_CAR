@@ -20,7 +20,7 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.7"  // see TRACKS/CHANGELOG.md
+#define FW_VERSION "1.3.8"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 // T-xx / U-107 (2026-10-13): the advertised Bluetooth SPP name, ONE source.
 // BluetoothComm::begin() passes it to SerialBT.begin(); the OLED's Bluetooth

@@ -34,6 +34,9 @@
 #define STA_MAX_RETRIES 6
 // FIN-40/D1: retry cadence for a softAP() that failed to start (radio busy).
 #define AP_RETRY_INTERVAL_MS 2000ul
+// U-111: how long the radio stays at the low boot-window power (see
+// startOwnAP()) before handle() restores a normal level once.
+#define WIFI_BOOT_SETTLE_MS 15000ul
 // D3 (U-68): the car-side nearby-network scan. SCAN_SETTLE_MS is the pause
 // between "the command asked" and "the radio may be asked" — the radio can
 // still be finishing an association, and scanning into that returns nothing.
@@ -588,6 +591,11 @@ private:
   // `apRunning_` = the softAP interface is up (the CLAIM, forced false in a few
   // places by FIN-40/D1). The old park flag that lived beside it was removed.
   bool apRunning_;
+  // U-111: true while the AP radio is still on the low boot-window power
+  // (startOwnAP() sets it; handle() raises to full power once, after the settle
+  // window — re-armed by every bring-up so a late softAP() also ends at full
+  // power).
+  bool apTxPowerLow_;
 
   ModeManager* modeManager;
 

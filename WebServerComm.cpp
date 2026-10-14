@@ -52,7 +52,7 @@ WebServerComm::WebServerComm()
   staRetryCount_(0), staGiveUpLogged_(false), lastApRetryMs_(0),
   mdnsRunning_(false), rejoinStep_(REJOIN_STEP_IDLE), modeWaitStartMs_(0), modeDropAttempts_(0), staConnectedAtMs_(0), staTimeoutMs_(WIFI_STA_TIMEOUT_MS), staRetryCap_(STA_MAX_RETRIES),
   scanPending_(false), scanBusy_(false), scanStartMs_(0), scanWaitMs_(0), scanCount_(0),
-    serverRunning(false), startedAsAP(false), apRunning_(false),
+    serverRunning(false), startedAsAP(false), apRunning_(false), apTxPowerLow_(false),
     modeManager(nullptr), pendingModeAtMs(0)
 {
   for (size_t i = 0; i < CMD_QUEUE_LEN; ++i) cmdQueue[i][0] = '\0';
@@ -1247,11 +1247,16 @@ void WebServerComm::startOwnAP() {
     // it mid-association is the very thing that destabilises the driver. Leave it.
     return;
   }
-  // U-96: use minimum AP power (WIFI_POWER_11dBm) to reduce the init current
-  // spike. The car's own hotspot only needs to reach a phone across a room —
-  // 11dBm (~12mW) is more than enough and draws noticeably less current than
-  // the default 20dBm during the vulnerable boot window.
+  // U-96 / U-111: the bring-up uses minimum AP power (WIFI_POWER_11dBm) to keep
+  // the init current spike small — the car's own hotspot only needs to reach a
+  // phone across a room and 11dBm (~12mW) draws noticeably less than the default
+  // 20dBm during the vulnerable boot window. It is a BOOT-WINDOW cap, not a
+  // permanent one: handle() restores a normal level once WIFI_BOOT_SETTLE_MS has
+  // passed, because a permanent ~8.5 dB handicap on top of BT coexistence
+  // time-slicing the antenna makes the association marginal (owner 2026-10-14:
+  // "the car's own hotspot won't connect").
   WiFi.setTxPower(WIFI_POWER_11dBm);
+  apTxPowerLow_ = true;  // handle() raises this once the boot window has passed
   const bool apOk = WiFi.softAP(apName.c_str(), /*passphrase=*/nullptr,
                                 apChannel, /*ssid_hidden=*/0,
                                 /*max_connection=*/4);
@@ -1503,10 +1508,14 @@ void WebServerComm::updateApPowerPolicy() {
   // of being reachable.
 
   if (!staUp) {
-    // Router gone or never joined: the beacon is the fallback, so make sure it
-    // is up. `startOwnAP()` is idempotent and already retried by handle().
+    // Router gone or never joined: the beacon is the fallback. Do NOT bring it
+    // up from here (U-111). This probe runs EVERY loop pass, so an ungated
+    // startOwnAP() here turns a softAP() that keeps failing into a per-pass
+    // radio churn (setSleep / setTxPower / softAP) that hammers the driver and
+    // starves loop() — the exact shape of the owner's "the car side freezes
+    // totally" report. handle() owns that retry with an AP_RETRY_INTERVAL_MS
+    // backoff and a staBusy() guard; nothing is lost by leaving it there.
     staConnectedAtMs_ = 0;
-    if (!apRunning_) startOwnAP();
     return;
   }
 
@@ -1848,6 +1857,7 @@ void WebServerComm::stop() {
   TRANSPORT_POWER_ENTER_CRITICAL();
   connectingPending_ = false;
   apRunning_ = false;
+  apTxPowerLow_ = false;  // U-111: a later startOwnAP() re-arms it
   staConnectedAtMs_ = 0;
   startedAsAP = false;
   queueClear();
@@ -2117,6 +2127,17 @@ void WebServerComm::handle() {
         startOwnAP();
       }
     }
+  }
+
+  // U-111: the bring-up capped the radio at 11 dBm for the boot window (U-96).
+  // Restore a normal level ONCE the settle window has passed, so the beacon
+  // reaches the phone the way any other 2.4 GHz AP does — with BT coexistence
+  // also time-slicing the antenna, a permanent ~8.5 dB handicap made the
+  // association marginal. `apTxPowerLow_` is re-armed by every startOwnAP(), so
+  // a bring-up that only succeeds late still ends at full power.
+  if (apTxPowerLow_ && millis() > WIFI_BOOT_SETTLE_MS) {
+    apTxPowerLow_ = false;
+    WiFi.setTxPower(WIFI_POWER_17dBm);
   }
 
   // U-98 Phase 2 (OLED "pronto"): the OLED's network/extra row refreshes on its

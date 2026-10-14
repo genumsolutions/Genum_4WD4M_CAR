@@ -1,4 +1,4 @@
-Version 1.3.6
+Version 1.3.8
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -20,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD4M Car`** (PIN 1234) — `Config.h` `BT_SPP_NAME` (U-110: renamed from `4WD CAR` so the phone list, the OLED and the app match; re-pair once after the change) |
 | Wi-Fi AP SSID | **`4WD4MCar_WiFi`** (open) — `Config.h` `WIFI_AP_NAME` (1.3.5: the ONE own-hotspot name fleet-wide; the donor `WirelessCar_Wifi` and the older `4WDCar_Wifi` are fully removed) |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.7` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.8` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -79,6 +79,21 @@ STATE) · `BluetoothComm` (SPP transport) · `WebServerComm` (AP/STA + HTTP/WS +
 gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
+
+- **1.3.8 (2026-10-14, U-111)** — **Bluetooth pairing actually completes, the own-hotspot
+  bring-up stops retrying every loop pass, and the 11 dBm AP cap becomes a boot-window
+  cap.** (a) `BluetoothSerial` defaults to `_enableSSP = false` / a zero-length PIN and the
+  firmware set neither, so pairing ran LEGACY and the car answered Android's PIN request with
+  an EMPTY PIN — the car listed fine and the bond failed every time (the owner's "appears but
+  doesn't pair"). `BluetoothComm::begin()` now calls `enableSSP(false, false)` (SSP "Just
+  Works", no PIN) + `setPin("1234", 4)` (legacy fallback) before `SerialBT.begin()`. (b)
+  `updateApPowerPolicy()` called `startOwnAP()` ungated every pass when the STA was down; a
+  repeatedly failing `softAP()` became a per-pass radio churn that starved `loop()` ("the car
+  side freezes totally"). The direct call is removed — `handle()`'s `AP_RETRY_INTERVAL_MS` +
+  `staBusy()` retry is the only bring-up retry. (c) The U-96 `WIFI_POWER_11dBm` cap now lasts
+  only `WIFI_BOOT_SETTLE_MS` (15 s); `handle()` then restores `WIFI_POWER_17dBm` once. 1.3.7
+  (U-110: OLED two-row transport frames, BT name `4WD CAR` → `4WD4M Car`, honest `btUp`) rides
+  in the same flash; full notes in `TRACKS/CHANGELOG.md`.
 
 - **1.3.6 (2026-10-13, U-106)** — **crash-TIME evidence that survives a PANIC, plus phase
   coverage on the reported paths.** The field crash table (`device_crash_reports`, board

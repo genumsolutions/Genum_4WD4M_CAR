@@ -1,4 +1,57 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-110: OLED format + Bluetooth pairing bring-up — 1.3.7 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-111: real BT pairing + AP retry storm removed + boot-window tx power — 1.3.8 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+
+## U-111 2026-10-14 — Bluetooth pairing that actually completes + a hotspot that joins + the car↔app settings round-trip (1.3.8, UNFLASHED — owner flash target)
+
+**What the owner reported (after the 1.3.7 build):** Bluetooth "appears but does not
+pair"; the car's own hotspot sometimes won't connect; flaky Wi-Fi with the car side
+occasionally freezing; and the app never showed the car's saved settings.
+
+**Fixes shipped in 1.3.8 (car):**
+
+1. **Bluetooth pairing could NEVER succeed — the real bug.** `BluetoothSerial`
+   defaults to `_enableSSP = false` and a zero-length PIN, and the firmware set
+   neither, so pairing ran LEGACY and the car answered Android's PIN request with an
+   EMPTY PIN (`esp_bt_gap_pin_reply(bda, true, 0, NULL)`). The car was discoverable
+   and listed, and the bond failed every single time — exactly "appears but doesn't
+   pair". `BluetoothComm::begin()` now calls `SerialBT.enableSSP(false, false)`
+   (SSP "Just Works": no PIN, no on-car confirm) + `SerialBT.setPin("1234", 4)`
+   (legacy fallback) BEFORE `SerialBT.begin()`; both are read once, inside
+   `BluetoothSerial::_init_bt()`.
+2. **AP retry storm removed.** `updateApPowerPolicy()` called `startOwnAP()` ungated
+   on EVERY loop pass while the STA was down; a repeatedly failing `softAP()` became a
+   per-pass radio churn (`setSleep`/`setTxPower`/`softAP`) that starved `loop()` —
+   the shape of "the car side freezes totally". `handle()`'s
+   `AP_RETRY_INTERVAL_MS` + `staBusy()` retry is now the ONLY bring-up retry.
+3. **The 11 dBm AP cap is now a boot-window cap only.** `startOwnAP()` still brings
+   the radio up at `WIFI_POWER_11dBm` (U-96 boot current-spike protection), but
+   `handle()` now restores `WIFI_POWER_17dBm` once after `WIFI_BOOT_SETTLE_MS`
+   (15 s) — a permanent ~8.5 dB handicap on top of BT coexistence made association
+   marginal.
+4. **Comment hygiene** — `BluetoothComm::stop()`'s doc/serial line no longer describe
+   the U-105-removed "one transport powers the OTHER down" policy.
+
+**Still OPEN — the freeze.** U-111 removes one plausible cause (the AP retry churn)
+but does NOT claim the freeze fixed. The bench `out.log` is still a PRE-U-109 PANIC
+capture. U-106's RTC breadcrumb records phase + task + heap at the crash; the first
+post-1.3.8 capture names it.
+
+**App half (U-111, 3.2.7 JS-only OTA):**
+- `useControlHub` now **adopts the car's transport settings** from the STATE line /
+  WS JSON (`wifi_enabled` / `bt_enabled` / `boot_autojoin`, parsed since U-105 but
+  never applied) the moment a link comes up, so the panel shows the car's real values
+  on connect instead of "don't know". Change-guarded with the same short optimistic
+  grace as the mode pick; persisted only on a real change.
+- The app's registry + help text renamed the car's Bluetooth from `4WD CAR` to
+  `4WD4M Car` (matching the firmware advertisement).
+
+**Gates:** `check-firmware-syntax.ps1` 10/10 · `check-webpage-js.mjs` PASS ·
+`check-relay-contract.mjs` all PASS · `mutate-gates.mjs` (clean tree). Source-level
+only — **F-61: nothing is device-verified until the owner flashes 1.3.8.**
+
+**Owner flash steps:** flash 1.3.8 → **forget the old `4WD CAR` bond** and re-pair to
+`4WD4M Car` (no PIN; `1234` only if asked) → **forget/re-add `4WD4MCar_WiFi`** (Android
+caches a stale profile against an open AP) → run the U-111 rows in
+`TRACKS/DEVICE-TESTS.md`, including the new settings round-trip.
 
 ## U-110 2026-10-14 — the owner's post-flash field report (1.3.7, UNFLASHED — owner flash target)
 

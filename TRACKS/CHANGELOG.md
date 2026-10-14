@@ -10,6 +10,77 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.8 (U-111, 2026-10-14): Bluetooth pairing actually completes + no AP retry storm + the 11 dBm cap becomes a boot-window cap
+
+**UNFLASHED (F-61).** Supersedes 1.3.7 (never flashed). Third pass on the owner's
+2026-10-14 report — Bluetooth "appears but does not pair", "the car's own hotspot
+won't connect", flaky Wi-Fi with the car side sometimes freezing — plus the app
+half of the state round-trip the owner asked for (below).
+
+> Flashing 1.3.8 counts as a firmware-version change, so
+> `wipeRoutersOnFreshFirmware()` clears every saved router, the transport toggles
+> (`t_wifi`/`t_bt`) and `boot_autojoin` on the first boot — a clean start (both
+> transports ON, auto-join ON). Re-join a router afterwards if wanted.
+
+### Fixed — Bluetooth pairing could NEVER succeed (the real "appears but doesn't pair")
+
+`BluetoothSerial`'s defaults are `_enableSSP = false` and `_pin_code_len = 0`, and
+this firmware called neither `enableSSP()` nor `setPin()`. Pairing therefore ran as
+LEGACY pairing, where the car answers Android's PIN request with a **zero-length**
+PIN (`BluetoothSerial.cpp`: `esp_bt_gap_pin_reply(bda, true, 0, NULL)`), so
+authentication could never complete: the car was discoverable and connectable, the
+phone listed it, and the bond failed every time. That is the whole symptom — the
+car was never failing to advertise, it was advertising a pairing it was guaranteed
+to lose.
+
+`BluetoothComm::begin()` now configures pairing **before** `SerialBT.begin()`:
+`SerialBT.enableSSP(false, false)` selects IO capability NONE = SSP **"Just Works"**
+(no PIN, no on-car confirmation — the only sane choice for a car with no keypad),
+and `SerialBT.setPin("1234", 4)` is the legacy fallback so a remote that starts
+legacy pairing gets the documented PIN instead of an empty one. Both settings are
+read once, inside `BluetoothSerial::_init_bt()`, which is why they must be set
+before `begin()` (and again after any `end()`/restart). The library's bare
+`enableSSP()` is deliberately NOT used: it advertises IO capability IO, which
+REQUIRES the sketch to answer the numeric-comparison callback and otherwise
+**refuses** the bond.
+
+### Fixed — the own-hotspot bring-up is no longer retried on EVERY loop pass
+
+`updateApPowerPolicy()` called `startOwnAP()` ungated whenever `!apRunning_ &&
+!staUp`. That probe runs every pass, so a `softAP()` that kept failing turned into
+a per-pass radio churn (`setSleep` / `setTxPower` / `softAP`) that hammers the
+driver and starves `loop()` — the shape of the owner's "the car side freezes
+totally" report. `handle()` already owns that retry with an `AP_RETRY_INTERVAL_MS`
+backoff and a `staBusy()` guard, so the direct call is removed.
+
+### Changed — the 11 dBm AP cap is now a BOOT-window cap only
+
+`startOwnAP()` still brings the radio up at `WIFI_POWER_11dBm` (U-96: keeps the
+boot current spike small), but that cap used to apply for the whole uptime — a
+permanent ~8.5 dB handicap that, on top of Bluetooth coexistence time-slicing the
+antenna, makes association marginal (owner: "the car's own hotspot won't
+connect"). `handle()` now restores `WIFI_POWER_17dBm` **once**, after
+`WIFI_BOOT_SETTLE_MS` (15 s).
+
+### Changed — comment hygiene
+
+`BluetoothComm::stop()`'s doc comment and its serial line still described the
+U-105-removed "one transport connected powers the OTHER down" power-save policy;
+both now say the truth (BT goes down only when the owner disables it).
+
+### App half (JS-only, OTA — no native change)
+
+- The car already broadcasts its three persisted transport settings on every STATE
+  line (`;WIFI=` / `;BT=` / `;AUTOJOIN=`) and in every WS JSON frame, and
+  `carProtocol` has parsed them since U-105 — but NOTHING applied them. A fresh
+  phone (or a cleared profile) showed "don't know" until the user queried each
+  toggle by hand. `useControlHub` now **adopts car truth** into the panel the
+  moment a link comes up (change-guarded, with the same short optimistic-commit
+  grace as the mode pick, so the car's echo of the pre-command frame cannot undo a
+  just-flipped toggle; persisted only on a real change).
+- The app's registry/help text still named the car's Bluetooth as `4WD CAR`; it now
+  says `4WD4M Car`, matching the renamed firmware advertisement.
+
 ## UNRELEASED — 1.3.7 (U-110, 2026-10-14): OLED format the owner asked for + Bluetooth pairing bring-up + honest BT state
 
 **UNFLASHED (F-61).** Supersedes 1.3.6 (never flashed). Second half of the
