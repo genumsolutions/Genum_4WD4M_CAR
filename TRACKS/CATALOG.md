@@ -7,9 +7,9 @@
 
 | Item | Value | Source |
 |---|---|---|
-| FW_NAME | `4WD4M Car` | `Config.h:9` |
-| FW_VERSION | `1.3.6` | `Config.h` |
-| Bluetooth SPP | `4WD CAR` (server, PIN 1234) | `BluetoothComm.cpp:13` |
+| FW_NAME | `4WD4M Car` | `Config.h` `FW_NAME` |
+| FW_VERSION | `1.3.7` | `Config.h` |
+| Bluetooth SPP | `4WD4M Car` (server, PIN 1234) — U-110 rename from `4WD CAR` | `Config.h` `BT_SPP_NAME` |
 | Wi-Fi AP | `4WD4MCar_WiFi`, open, channel 1, max 4 clients | `Config.h` `WIFI_AP_NAME` + `WebServerComm.cpp` |
 | AP subnet | **192.168.245.1/24** (O-1 adopted) | `WebServerComm.cpp` `startOwnAP()` |
 | Partition | `huge_app` REQUIRED | CI + Readme §6 |

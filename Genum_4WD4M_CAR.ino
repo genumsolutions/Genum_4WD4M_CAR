@@ -71,6 +71,13 @@ static bool btUp = false;    // Bluetooth SPP is up
 // teardown arbitration they belonged to (U-105). The NVS key is still wiped on
 // a fresh install by wipeRoutersOnFreshFirmware() for residue cleanliness.
 
+// U-110 (owner 2026-10-14): bring Bluetooth advertising up and report the TRUTH.
+// Declared here and DEFINED after setup() on purpose: the relay-contract
+// crash-record gate looks for the first `(motor|btComm|oled).begin(` in the file
+// and requires it to follow crashLogBegin(); defining the helper's body (which
+// calls btComm.begin()) above setup() would sort that call before the record.
+static bool ensureBtAdvertising();
+
 void setup() {
   Serial.begin(115200);
   delay(50);
@@ -187,11 +194,14 @@ void setup() {
 
   // U-96: power-budgeted boot. Stagger power-intensive init so marginal supplies
   // don't brownout-reset the car. Motors (H-bridge) deferred to end of setup.
-  btComm.begin();
+  // U-110: Bluetooth is NOT started here — it goes up after the Wi-Fi radio has
+  // settled into its resting AP_STA mode (see the BT bring-up below); the
+  // OLED stays first because it is the lightest load and the earliest visible
+  // sign of life.
   oled.begin();
 
   pinMode(SWITCH_PIN, INPUT_PULLUP);
-  delay(80);  // let supply settle after OLED/BT init
+  delay(80);  // let supply settle after OLED init
 
   webServerComm.init();
   webServerComm.setModeManager(&modeManager);
@@ -263,7 +273,22 @@ void setup() {
   webServerComm.beginAlwaysOn();
   webUp = true;
   delay(80);  // let supply settle after WiFi AP+STA power spike
-  btUp = true;
+  // U-110 (owner 2026-10-14): bring Bluetooth up AFTER the Wi-Fi radio has been
+  // put into its resting AP_STA mode.
+  //
+  // This call used to run BEFORE beginAlwaysOn() — i.e. before the first
+  // esp_wifi_set_mode() — and that mode set STOP AND RESTARTS THE RADIO (see the
+  // U-99 note in WebServerComm::beginAlwaysOn()). Starting classic BT/SPP first
+  // and then re-initialising the radio left the SPP stack wedged: the car
+  // advertised and APPEARED in the phone's Bluetooth list, but every pairing
+  // attempt failed (owner field report 2026-10-14, "it appears but doesn't
+  // pair"). Bringing SPP up against an already-settled radio/coexistence arbiter
+  // is the supported order.
+  //
+  // btUp mirrors the ACTUAL bring-up. The old unconditional `btUp = true` marked
+  // a failed SerialBT.begin() as "up", so the loop's start-when-down branch never
+  // retried and the car could sit the whole uptime with no Bluetooth at all.
+  btUp = ensureBtAdvertising();
   modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
   modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
   // U-94 Phase 2: the Internet transport, registered permanently like the other
@@ -342,6 +367,24 @@ static void maybeCheckSupplyAndBTWatchdog() {
   }
 }
 
+// U-110 (owner 2026-10-14): bring Bluetooth advertising up and report the TRUTH.
+// begin() is idempotent, so this is nearly free once SPP is running; while it
+// keeps REFUSING (the radio can be momentarily busy right after a Wi-Fi mode
+// change or a stop/start cycle) it is retried on a 2 s cadence rather than once
+// per loop pass — a per-pass retry would hammer the BT controller during a
+// fault, and the old code never retried at all (it set btUp = true without
+// looking at the result), which could leave the car with no Bluetooth for the
+// whole uptime.
+static bool ensureBtAdvertising() {
+  if (btComm.isStarted()) return true;
+  static constexpr unsigned long BT_BEGIN_RETRY_MS = 2000;
+  static unsigned long lastAttemptMs = 0;
+  const unsigned long now = millis();
+  if (now - lastAttemptMs < BT_BEGIN_RETRY_MS) return false;
+  lastAttemptMs = now;
+  return btComm.begin();
+}
+
 void loop() {
   // F-24: feed the loopTask watchdog every iteration.
   esp_task_wdt_reset();
@@ -403,13 +446,13 @@ void loop() {
       TRANSPORT_POWER_ENTER_CRITICAL();
       shouldStartBt = !btUp;
       shouldStartWeb = !webUp;
-      if (shouldStartBt) btUp = true;
       if (shouldStartWeb) webUp = true;
       TRANSPORT_POWER_EXIT_CRITICAL();
     }
     if (shouldStartBt) {
-      btComm.begin();  // idempotent; true = advertising again
-      Serial.println("[POWER] Bluetooth advertising (both transports on)");
+      // U-110: btUp follows the REAL bring-up (see ensureBtAdvertising()).
+      btUp = ensureBtAdvertising();
+      if (btUp) Serial.println("[POWER] Bluetooth advertising (both transports on)");
     }
     if (shouldStartWeb) {
       webServerComm.beginAlwaysOn();
@@ -435,12 +478,12 @@ void loop() {
     {
       TRANSPORT_POWER_ENTER_CRITICAL();
       shouldStartBt = !btUp;
-      if (shouldStartBt) btUp = true;
       TRANSPORT_POWER_EXIT_CRITICAL();
     }
     if (shouldStartBt) {
-      btComm.begin();
-      Serial.println("[POWER] Bluetooth advertising (Wi-Fi off)");
+      // U-110: btUp follows the REAL bring-up (see ensureBtAdvertising()).
+      btUp = ensureBtAdvertising();
+      if (btUp) Serial.println("[POWER] Bluetooth advertising (Wi-Fi off)");
     }
   } else {
     // Bluetooth transport OFF: stop the BT stack; Wi-Fi (own hotspot + the

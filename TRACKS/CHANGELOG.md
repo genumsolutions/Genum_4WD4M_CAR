@@ -10,6 +10,70 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.7 (U-110, 2026-10-14): OLED format the owner asked for + Bluetooth pairing bring-up + honest BT state
+
+**UNFLASHED (F-61).** Supersedes 1.3.6 (never flashed). Second half of the
+owner's 2026-10-13/14 field-fix round, from the post-flash report on the 1.3.x
+build: OLED last-two-lines layout, Bluetooth "appears but does not pair",
+flaky Wi-Fi with the car sometimes needing a manual restart, and a stale
+reconnect prompt in the app.
+
+### Changed — OLED last-two-rows format (owner 2026-10-14)
+
+The transport frames are now the exact two-row layout the owner specified:
+
+```
+Bluetooth frame              Wi-Fi frame
++----------------------+     +----------------------+
+| Bluetooth : <name>   |     | WiFi : <ssid>        |
+| Type : SPP           |     | IP : <car IP>        |
++----------------------+     +----------------------+
+```
+
+- The Bluetooth⇄Wi-Fi alternation (both toggles ON), and the single-frame
+  pinning (one toggle ON), are unchanged from U-107.
+- **The Wi-Fi frame's name⇄IP alternation is REMOVED** — the frame now carries
+  the network name on one row and the IP on the other, so both are always on
+  screen. `wifiInfoPhase` / `WIFI_INFO_INTERVAL_MS` are gone with it.
+- `<name>` is `BT_SPP_NAME` (see below); `<ssid>` is the joined router or the
+  car's own `4WD4MCar_WiFi`; `<car IP>` is `WIFI_AP_IP` (`192.168.245.1`) on its
+  own AP.
+- `storyboard.md` rewritten to current truth (header `4WD4M Car`, heading
+  `Mode : <display>`, the new frames; the retired ESP_SER/ESP_CLI rows dropped).
+
+### Changed — advertised Bluetooth name `4WD CAR` → `4WD4M Car`
+
+`Config.h` `BT_SPP_NAME` now matches the project identity, so the phone's
+pairing list, the OLED frame and the app all name the car the same thing (the
+owner could not match the "4WD CAR" the radio advertised to what the app
+showed). **A fresh pairing is needed on the first boot after this change** — the
+phone keeps the old bond against the previous name.
+
+### Fixed — Bluetooth bring-up order (owner: "it appears but doesn't pair")
+
+`btComm.begin()` ran BEFORE `WebServerComm::beginAlwaysOn()`, i.e. before the
+first `esp_wifi_set_mode()`. That mode set stops and restarts the radio (see the
+U-99 note), which left the just-started classic BT/SPP stack wedged: the car
+advertised and appeared in the phone's list, but pairing failed. Bluetooth now
+comes up AFTER the Wi-Fi radio has settled into its resting `AP_STA` mode.
+
+### Fixed — `btUp` no longer masks a failed `SerialBT.begin()`
+
+`setup()` and the transport-enforcement loop set `btUp = true` without looking
+at `begin()`'s result, so a refused bring-up was never retried and the car could
+sit the whole uptime with no Bluetooth. `btUp` now mirrors the real result via
+`ensureBtAdvertising()` (new `BluetoothComm::isStarted()`), which retries a
+refused begin on a 2 s cadence instead of hammering the controller every pass.
+
+### Known open — car "freezes totally" / Wi-Fi flakiness
+
+The owner's report includes the car freezing and needing a manual restart on
+Wi-Fi modes. The bench `out.log` is a PRE-U-109 capture (no own hotspot; 754
+PANICs recorded against board `1FB608`) and cannot name the cause of this
+report. U-106's RTC breadcrumb (shipped in 1.3.6/1.3.7) now records the
+**phase + task + heap** at the crash, so the first post-1.3.7 capture should
+name it. This is NOT claimed fixed here.
+
 ## UNRELEASED — 1.3.6 (U-106/U-107/U-108/U-109, 2026-10-13): crash-TIME evidence that survives a PANIC + the OLED last-two-lines rule + fresh start + the own-hotspot boot fix
 
 **UNFLASHED (F-61).** This batch supersedes 1.3.5 (never flashed) and is the first
@@ -66,7 +130,9 @@ idle/link state, per the owner's 2026-10-13 request:
 
 - **both toggles ON** → the Bluetooth frame ⇄ the Wi-Fi frame alternate ~1 s;
 - **one ON** → that frame is shown always (no alternation at all);
-- the **Wi-Fi frame's last line alternates the network name ⇄ the IP** ~1 s;
+- the **Wi-Fi frame's last line alternates the network name ⇄ the IP** ~1 s
+  (**superseded by U-110** in 1.3.7: the name and the IP are now shown on two
+  rows at once, so there is no alternation);
 - a **relay (Internet)** link keeps its own fixed frame (a third transport the
   toggles do not name).
 

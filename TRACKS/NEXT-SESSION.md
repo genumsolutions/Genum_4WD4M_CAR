@@ -1,4 +1,55 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-109: the own-hotspot boot fix — 1.3.6 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-110: OLED format + Bluetooth pairing bring-up — 1.3.7 UNFLASHED, owner flash target; app rides along as 3.2.7 JS-only OTA)
+
+## U-110 2026-10-14 — the owner's post-flash field report (1.3.7, UNFLASHED — owner flash target)
+
+**Owner report (after flashing the 1.3.x build):**
+1. The OLED's last two lines did not read the way he asked.
+2. Bluetooth: the car **appears** in the phone's list but **does not pair**.
+3. Wi-Fi is flaky in every mode, and the car side sometimes **freezes and needs a
+   manual restart**.
+4. The app shows a **stale "reconnect" prompt while the car is connected and
+   working**.
+
+**Fixes shipped in 1.3.7 (car):**
+
+1. **OLED last-two-rows format** (`Oled_1_3.cpp` / `OledDisplay.h`) — exactly the
+   owner's layout: Bluetooth frame `Bluetooth : <BT_SPP_NAME>` / `Type : SPP`;
+   Wi-Fi frame `WiFi : <ssid>` / `IP : <car IP>`. The intra-Wi-Fi-frame
+   name⇄IP alternation is removed (both rows are shown at once); the
+   Bluetooth⇄Wi-Fi rotation is unchanged. `wifiInfoPhase` /
+   `WIFI_INFO_INTERVAL_MS` deleted with it.
+2. **Advertised BT name `4WD CAR` → `4WD4M Car`** (`Config.h` `BT_SPP_NAME`) so
+   the phone list, the OLED and the app agree. Re-pair once after flashing.
+3. **BT bring-up order** (`.ino`) — Bluetooth now starts AFTER
+   `beginAlwaysOn()` puts the radio in its resting `AP_STA` mode. It used to
+   start before the first `esp_wifi_set_mode()`, which stops/restarts the radio
+   (U-99) and could leave the SPP stack wedged — the "appears but won't pair"
+   symptom.
+4. **Honest `btUp`** — `ensureBtAdvertising()` + new `BluetoothComm::isStarted()`
+   report the real begin() result and retry a refused one on a 2 s cadence
+   (previously `btUp = true` was set unconditionally, so a failed bring-up was
+   never retried).
+
+**Still OPEN — the freeze.** The bench `out.log` is a PRE-U-109 capture (no own
+hotspot; 754 PANICs on board `1FB608`) and cannot name this report's cause. U-106's
+RTC breadcrumb ships now and records the phase + task + heap at the crash; the
+first post-1.3.7 capture should name it. **Not claimed fixed.**
+
+**Gates:** `check-firmware-syntax.ps1` 10/10 · `check-webpage-js.mjs` PASS ·
+`check-relay-contract.mjs` all PASS · `mutate-gates.mjs` 69/69 byte-exact.
+Source-level only — **F-61: nothing is device-verified until the owner flashes
+1.3.7.** First post-flash reads: (a) does the OLED show the two-row BT/Wi-Fi
+frames; (b) does the phone pair to `4WD4M Car`; (c) if it still freezes, what
+does the app/OLED report as the reset reason + phase?
+
+**App half (U-110, 3.2.7 JS-only OTA):**
+- The "Connection lost / reconnect?" prompt is suppressed while ANY link is live
+  (`RemoteControlScreen` gates on `linked`; `useControlHub` raises it only when
+  neither `wifiService.isConnected` nor `bleService.isConnected`, and clears it on
+  link-up).
+- Both prompts (reconnect + car-restart) are now CENTERED transparent `Modal`
+  overlays — a dimmed card in the middle of the screen, not a bottom banner
+  (owner asked for a "separate screen" in the middle). Same actions/testIDs.
 
 ## U-109 2026-10-14 — the car came up with NO own hotspot ("no connection on any method") (1.3.6, UNFLASHED — owner flash target)
 

@@ -33,8 +33,10 @@ public:
   virtual void setLinkContext(const char* /*method*/, const char* /*type*/, bool /*connected*/) {}
   // U-107 (owner 2026-10-13): the last two rows follow the U-105 TRANSPORT
   // TOGGLES, not the link/idle state — both ON alternates the Bluetooth frame
-  // ⇄ the Wi-Fi frame (~1 s); one ON shows that transport's frame always; and
-  // the Wi-Fi frame's last line alternates the network name ⇄ the IP (~1 s).
+  // ⇄ the Wi-Fi frame (~1 s); one ON shows that transport's frame always.
+  // (U-110 dropped the Wi-Fi frame's name⇄IP alternation: that frame now carries
+  // the network name on one row and the IP on the other, so both are always on
+  // screen and there is nothing left to alternate.)
   // ModeManager pushes the live toggle state; a change repaints pronto.
   // Default no-op keeps other display classes source-compatible.
   virtual void setTransportToggles(bool /*wifiEnabled*/, bool /*btEnabled*/) {}
@@ -107,10 +109,6 @@ private:
   static constexpr uint32_t ROTATE_INTERVAL_MS = 1000;   // owner: ~1 s per frame
   uint32_t lastRotateMs = 0;
   bool rotatePhase = false;     // false = Bluetooth frame, true = Wi-Fi frame
-  // U-107: the Wi-Fi frame's last line alternates the network name ⇄ the IP.
-  static constexpr uint32_t WIFI_INFO_INTERVAL_MS = 1000;
-  uint32_t lastWifiInfoMs = 0;
-  bool wifiInfoPhase = false;   // false = network name, true = IP
   // U-107: the live U-105 toggles, pushed by ModeManager on change.
   bool wifiOn = true;
   bool btOn = true;
@@ -121,8 +119,8 @@ private:
   bool lastConnected = false;
 
   void safeCopy(char* dst, size_t dstLen, const char* src);
-  // U-107b: advance the frame/name-vs-IP phases. Returns true when the frame
-  // that is VISIBLE right now would change, so tick() only repaints on change.
+  // U-107b: advance the frame rotation. Returns true when the frame that is
+  // VISIBLE right now would change, so tick() only repaints on change.
   bool advanceRotationPhases(uint32_t nowMs);
   void redrawNow(int speed, bool connected);
 };

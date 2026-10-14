@@ -20,13 +20,19 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.6"  // see TRACKS/CHANGELOG.md
+#define FW_VERSION "1.3.7"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 // T-xx / U-107 (2026-10-13): the advertised Bluetooth SPP name, ONE source.
 // BluetoothComm::begin() passes it to SerialBT.begin(); the OLED's Bluetooth
 // frame shows it (the "real BT name", not a second hard-coded literal that can
 // drift from what the radio actually advertises). Keep in sync with CATALOG.md.
-#define BT_SPP_NAME "4WD CAR"
+// U-110 (owner 2026-10-14): renamed "4WD CAR" -> the project identity
+// "4WD4M Car", so the phone's pairing list, this OLED frame and the app's
+// Bluetooth picker name the car the same thing (the owner could not match the
+// "4WD CAR" the radio advertised to the "4WD4M Car" the app/OLED showed). The
+// first boot after this change needs a fresh pairing: the phone keeps the old
+// bond against the previous name.
+#define BT_SPP_NAME "4WD4M Car"
 
 // U-79: Transport power arbitration mutex - declared extern so it can be
 // shared between .ino and transport classes (WebServerComm, BluetoothComm)

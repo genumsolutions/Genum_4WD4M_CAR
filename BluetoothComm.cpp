@@ -9,8 +9,9 @@
 #include "CrashLog.h"   // U-106: crash-TIME breadcrumbs on the BT hot paths
 
 bool BluetoothComm::begin() {
-  // Advertised name matches the fleet docs/app test notes ("BT connect as
-  // 4WD CAR" — guide RESUME HERE). Keep in sync with CATALOG.md.
+  // Advertised name comes from BT_SPP_NAME (Config.h, ONE source) — since
+  // U-110 it is "4WD4M Car", matching the OLED frame and the app. Keep in sync
+  // with CATALOG.md.
   // U-79: idempotent — the transport power policy stops/starts this at will.
   TRANSPORT_POWER_ENTER_CRITICAL();
   bool alreadyStarted = started_;

@@ -23,6 +23,10 @@ public:
   // active. begin() is idempotent, so a later begin() brings it back.
   void stop();
   bool restart();
+  // U-110: is SPP advertising right now? The .ino's transport-enforcement loop
+  // uses this to keep `btUp` honest and to decide whether to retry a refused
+  // SerialBT.begin() — `connected()` is false with no client, so it cannot.
+  bool isStarted() const { return started_; }
   size_t available() override;
   int read() override;
   size_t readBytes(char* buf, size_t len, unsigned long timeoutMs = 0) override;

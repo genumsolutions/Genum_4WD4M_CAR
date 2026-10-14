@@ -1,7 +1,37 @@
 # DEVICE-TESTS — Genum_4WD4M_CAR
 
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
-> car, until O-3 (remote pairing update for `4WD CAR`) lands → app-first for round 1.
+> car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
+
+## U-110 round — OLED format + Bluetooth pairing + honest BT state (2026-10-14, firmware 1.3.7 — DEVICE VERIFY PENDING)
+
+> Flash **1.3.7** (supersedes 1.3.6 — never flashed). From the owner's post-flash
+> report: OLED last-two-lines layout, Bluetooth "appears but won't pair", flaky
+> Wi-Fi with an occasional manual-restart freeze, and a stale app reconnect
+> prompt.
+
+- [ ] **U-110-1 — ⭐ the OLED last-two-rows read exactly this.** With both
+      transports ON the two frames alternate ~1 s:
+      `Bluetooth : 4WD4M Car` / `Type : SPP`, then `WiFi : <ssid>` /
+      `IP : <car IP>`. With a single transport enabled only that frame shows.
+- [ ] **U-110-2 — ⭐ the phone pairs to `4WD4M Car`.** **FORGET the old `4WD CAR`
+      pairing first** (the name changed). The car appears in the BT list as
+      `4WD4M Car`; pairing succeeds (PIN 1234 if asked) and the app's Bluetooth
+      link opens.
+- [ ] **U-110-3 — the BT stack is up, or the log says so.** At boot, either
+      `[POWER] Bluetooth advertising…` prints, or `[BT] begin refused` followed
+      by a retry (the stack is genuinely up — not a masked failure).
+- [ ] **U-110-4 — Wi-Fi freeze: capture the reset reason + phase.** If the car
+      still freezes/restarts on Wi-Fi, reconnect and read the app/OLED restart
+      reason, reset count and **crash phase** (U-106 breadcrumb). This is the
+      evidence that names the cause — it is NOT claimed fixed in 1.3.7.
+- [ ] **U-110-5 — the app no longer nags while connected.** With the car live on
+      its Wi-Fi link, the "Connection lost / Reconnect to your car?" prompt does
+      NOT appear; if the link really drops it appears as a CENTERED modal
+      (dimmed backdrop in the middle of the screen), not a bottom banner.
+- [ ] **U-110-6 — the car-restart prompt is also centered.** After a real restart
+      the "Car restarted" prompt shows as a centered modal with
+      Reconnect / Leave / Cancel.
 
 ## U-109 round — the car's own hotspot comes up at boot (2026-10-14, firmware 1.3.6 — DEVICE VERIFY PENDING)
 

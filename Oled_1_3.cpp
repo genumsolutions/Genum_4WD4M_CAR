@@ -147,20 +147,10 @@ bool Oled_1_3::advanceRotationPhases(uint32_t nowMs) {
     lastRotateMs = nowMs;
   }
 
-  // U-107: the Wi-Fi frame's own last line alternates network name <=> IP ~1 s.
-  // Only advance while Wi-Fi can be shown, so a Bluetooth-only panel schedules
-  // no pointless repaints.
-  const bool prevWifiInfo = wifiInfoPhase;
-  if (wifiOn && (nowMs - lastWifiInfoMs >= WIFI_INFO_INTERVAL_MS)) {
-    wifiInfoPhase = !wifiInfoPhase;
-    lastWifiInfoMs = nowMs;
-  }
-
-  // A rotate flip always changes the visible frame; a name/IP flip changes it
-  // only while the Wi-Fi frame is the one on screen.
-  if (rotatePhase != prevRotate) return true;
-  if (wifiInfoPhase != prevWifiInfo && rotatePhase && !internetLink) return true;
-  return false;
+  // A rotate flip always changes the visible frame. (U-110 removed the Wi-Fi
+  // frame's name⇄IP alternation — that frame renders the name AND the IP at
+  // once now — so a flip is the only thing that can change the visible frame.)
+  return (rotatePhase != prevRotate);
 }
 
 void Oled_1_3::tick() {
@@ -335,9 +325,9 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   // actually on — joined SSID, or the AP-fallback broadcast id — not a generic
   // "Connected". extraInfo carries "pct,rssi,ip,<ssid>" (STA) or
   // "AP:<name>,<ip>". v1.2.4 (owner 2026-10-09): the IP comes from ipBuf so the
-  // OLED matches the app's "WiFi · <ip>". U-107 (owner 2026-10-13): the Wi-Fi
-  // frame's last row ALTERNATES that IP ⇄ the network name; the directed
-  // broadcast stays on /status + the page's Bcast row.
+  // OLED matches the app's "WiFi · <ip>". U-110 (owner 2026-10-14): the Wi-Fi
+  // frame shows the name on one row AND the IP on the other (both at once); the
+  // directed broadcast stays on /status + the page's Bcast row.
   char netBuf[33] = "";
   char ipBuf[32] = "";
   bool isApFallback = (strncmp(extraBuf, "AP:", 3) == 0);
@@ -393,15 +383,16 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
     snprintf(line3, sizeof(line3), "Internet : %s", linkTypeBuf);
     snprintf(line4, sizeof(line4), "IP : %s", ipText);
   } else if (rotatePhase) {
-    // Wi-Fi frame — the last line alternates the network name ⇄ the IP.
-    snprintf(line3, sizeof(line3), "Wifi");
-    if (wifiInfoPhase) snprintf(line4, sizeof(line4), "IP : %s", ipText);
-    else               snprintf(line4, sizeof(line4), "SSID : %s", ssidText);
+    // Wi-Fi frame (owner format 2026-10-14): the network name on the top row,
+    // the car's own IP on the bottom. Both at once — no name⇄IP alternation.
+    snprintf(line3, sizeof(line3), "WiFi : %s", ssidText);
+    snprintf(line4, sizeof(line4), "IP : %s", ipText);
   } else {
-    // Bluetooth frame — the REAL advertised name (BT_SPP_NAME), single-sourced
-    // in Config.h, not a second hard-coded literal that can drift from the radio.
-    snprintf(line3, sizeof(line3), "Bluetooth");
-    snprintf(line4, sizeof(line4), "%s", BT_SPP_NAME);
+    // Bluetooth frame (owner format 2026-10-14): the REAL advertised name
+    // (BT_SPP_NAME, single-sourced in Config.h — not a second hard-coded literal
+    // that can drift from the radio) plus the transport type.
+    snprintf(line3, sizeof(line3), "Bluetooth : %s", BT_SPP_NAME);
+    snprintf(line4, sizeof(line4), "Type : SPP");
   }
 
   // Always draw both lines (no blinking)
