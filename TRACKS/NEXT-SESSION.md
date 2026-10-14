@@ -50,6 +50,8 @@ change, so `wipeRoutersOnFreshFirmware()` clears saved routers + transport
 toggles on first boot (both transports ON, auto-join ON). Then the U-111 rows
 below **plus U-111-7** (the link surface never says Internet).
 
+Step-by-step for the owner's bench session: `TRACKS/RUNSHEET-1.3.9.md`.
+
 ## U-111 2026-10-14 — Bluetooth pairing that actually completes + a hotspot that joins + the car↔app settings round-trip (1.3.8, UNFLASHED — owner flash target)
 
 **What the owner reported (after the 1.3.7 build):** Bluetooth "appears but does not

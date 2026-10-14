@@ -80,6 +80,12 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.3.9 (2026-10-14, U-111b)** — **the Internet / cloud-relay method is removed.**
+  `RelayComm.cpp`/`.h` are deleted and every seam is unwired (sketch, `ModeManager`,
+  OLED, `WebServerComm`, `Config.h`): no `[RELAY]` log lines, no `RELAYCFG`, and the
+  OLED link rotation is back to the two live transports (Bluetooth / WiFi). CI job
+  `relay-contract` → `firmware-contract`, with the non-relay rules the rename had
+  dropped ported back in (mutate-gates 63/63). Full notes: `TRACKS/CHANGELOG.md`.
 - **1.3.8 (2026-10-14, U-111)** — **Bluetooth pairing actually completes, the own-hotspot
   bring-up stops retrying every loop pass, and the 11 dBm AP cap becomes a boot-window
   cap.** (a) `BluetoothSerial` defaults to `_enableSSP = false` / a zero-length PIN and the

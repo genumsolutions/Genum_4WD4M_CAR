@@ -8,6 +8,8 @@
 > Flash **1.3.9** (supersedes 1.3.8 / 1.3.7 / 1.3.6 — none flashed; 1.3.9 also
 > deletes the Internet/relay method, U-111b). Third pass on the
 > owner's report: Bluetooth "appears but won't pair", the car's own hotspot
+>
+> Step-by-step run sheet for this pass: `TRACKS/RUNSHEET-1.3.9.md`.
 > sometimes won't connect, flaky Wi-Fi with an occasional freeze — plus the
 > app↔car settings round-trip the owner asked for.
 >
