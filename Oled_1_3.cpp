@@ -127,16 +127,11 @@ bool Oled_1_3::advanceRotationPhases(uint32_t nowMs) {
   // U-107 (owner 2026-10-13): the last two rows follow the U-105 TRANSPORT
   // TOGGLES, not the idle/link state. Both ON -> alternate the Bluetooth frame
   // <=> the Wi-Fi frame; one ON -> that frame always; the U-105 clamp makes
-  // "both OFF" impossible. A live RELAY link (Internet) is a third transport
-  // the toggles do not name, so it keeps its own pinned frame.
-  const bool internetLink = (strcmp(linkMethodBuf, "Internet") == 0);
+  // "both OFF" impossible.
   const bool bothOn = wifiOn && btOn;
   const bool prevRotate = rotatePhase;
 
-  if (internetLink) {
-    rotatePhase = false;          // relay frame is rendered by the Internet branch
-    lastRotateMs = nowMs;
-  } else if (bothOn) {
+  if (bothOn) {
     if (nowMs - lastRotateMs >= ROTATE_INTERVAL_MS) {
       rotatePhase = !rotatePhase;
       lastRotateMs = nowMs;
@@ -371,7 +366,6 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   // tick() note in the header). Idempotent within an interval, so a content
   // redraw landing right after a tick does not double-step.
   advanceRotationPhases(nowMs);
-  const bool internetLink = (strcmp(linkMethodBuf, "Internet") == 0);
 
   // Build the last two rows.
   char line3[40] = "";
@@ -379,10 +373,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   const char* ssidText = (netBuf[0] != '\0') ? netBuf : WIFI_AP_NAME;
   const char* ipText = (ipBuf[0] != '\0') ? ipBuf : WIFI_AP_IP;
 
-  if (internetLink) {
-    snprintf(line3, sizeof(line3), "Internet : %s", linkTypeBuf);
-    snprintf(line4, sizeof(line4), "IP : %s", ipText);
-  } else if (rotatePhase) {
+  if (rotatePhase) {
     // Wi-Fi frame (owner format 2026-10-14): the network name on the top row,
     // the car's own IP on the bottom. Both at once — no name⇄IP alternation.
     snprintf(line3, sizeof(line3), "WiFi : %s", ssidText);

@@ -452,7 +452,7 @@ void advanceRejoinStep();
   // namespace for a clean slate. See TRACKS/RECORDS-INVENTORY.md.
   //
   // `FACTORY;RESET` clears EVERY `botcfg` key (routers, credentials, toggles,
-  // mode/speed, relay token, crash counters), restores the RAM defaults and
+  // mode/speed, crash counters), restores the RAM defaults and
   // replies `FACTORY;CLEARED`. The next power cycle then boots a genuinely fresh
   // car (there is deliberately NO mid-command reboot: the reply must reach the
   // app first, and a reboot would drop the very link that carries it).

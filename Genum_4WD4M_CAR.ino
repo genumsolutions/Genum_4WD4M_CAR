@@ -13,7 +13,6 @@
 #include "BluetoothComm.h"
 #include "OledDisplay.h"
 #include "ModeManager.h"
-#include "RelayComm.h"       // U-94 Phase 2: Internet transport
 #include "WebServerComm.h"
 #include "esp_task_wdt.h"
 #include <esp_system.h>  // U-70: esp_reset_reason(). U-96's brownout register write was removed — the threshold is Kconfig-baked and not settable from a sketch (see setup()).
@@ -26,10 +25,6 @@ L298NControl motor;
 BluetoothComm btComm;
 Oled_1_3 oled;
 WebServerComm webServerComm;
-// U-94 Phase 2: exactly one RelayComm. The WebSockets event callback is a plain
-// function pointer, so the instance has to be reachable statically; the gate
-// asserts this is the only one in the sketch.
-RelayComm relayComm;
 ModeManager modeManager(&motor, &btComm, &oled);
 
 static ModeManager::Mode lastMode = ModeManager::Mode::BT;
@@ -72,8 +67,8 @@ static bool btUp = false;    // Bluetooth SPP is up
 // a fresh install by wipeRoutersOnFreshFirmware() for residue cleanliness.
 
 // U-110 (owner 2026-10-14): bring Bluetooth advertising up and report the TRUTH.
-// Declared here and DEFINED after setup() on purpose: the relay-contract
-// crash-record gate looks for the first `(motor|btComm|oled).begin(` in the file
+// Declared here and DEFINED after setup() on purpose: the crash-record gate
+// looks for the first `(motor|btComm|oled).begin(` in the file
 // and requires it to follow crashLogBegin(); defining the helper's body (which
 // calls btComm.begin()) above setup() would sort that call before the record.
 static bool ensureBtAdvertising();
@@ -233,17 +228,11 @@ void setup() {
   modeManager.setSystemCommandHook([](const char* cmd) -> bool {
     const bool isRouterCmd = webServerComm.handleRouterCommand(cmd);
     const bool isWifiCmd = webServerComm.handleWifiConfigCommand(cmd);
-    // U-94 Phase 2: RELAYCFG rides the SAME single system-command entry point as
-    // ROUTERS/WIFICFG. It is not a drive command and must never reach
-    // handleCommand(); and it is the only way a relay token gets onto a car,
-    // which is why it is deliberately reachable over Bluetooth AND the page -
-    // the owner can always get at it without re-flashing.
-    const bool isRelayCmd = relayComm.handleRelayConfigCommand(cmd);
     // U-108 Phase 7: FACTORY;RESET (fresh start) + TIME;<epoch> (the app's clock)
     // ride the SAME single system-command entry point — they are not drive
     // commands and must work in every mode over every transport.
     const bool isFactoryCmd = webServerComm.handleFactoryCommand(cmd);
-    if (!isRouterCmd && !isWifiCmd && !isRelayCmd && !isFactoryCmd) return false;
+    if (!isRouterCmd && !isWifiCmd && !isFactoryCmd) return false;
     if (webServerComm.lastWifiReply().length() > 0) {
       modeManager.queueReply(webServerComm.lastWifiReply().c_str());
       // T-35/T-63: fan the reply out over EVERY connected transport (STATE
@@ -251,14 +240,6 @@ void setup() {
       // permanent, so the confirmation always reaches the app.
       modeManager.sendState();
       webServerComm.clearLastWifiReply();
-    }
-    // Every RELAYCFG reply is a fixed literal — "STORED", "CLEARED", "SET",
-    // "NOT_SET" — and never contains the token, so queueing it wholesale is
-    // safe on every transport including STATE.
-    if (isRelayCmd && relayComm.lastReply()[0] != '\0') {
-      modeManager.queueReply(relayComm.lastReply());
-      modeManager.sendState();
-      relayComm.clearLastReply();
     }
     return true;
   });
@@ -291,13 +272,6 @@ void setup() {
   btUp = ensureBtAdvertising();
   modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
   modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
-  // U-94 Phase 2: the Internet transport, registered permanently like the other
-  // two. begin() returns false when RELAY_HOST is unset or no token is stored,
-  // which is the DEFAULT build - the relay is therefore inert unless someone
-  // deliberately turned it on and provisioned it. handle() still runs every
-  // loop and no-ops when !started_, so this line is safe on a donor car.
-  relayComm.begin();
-  modeManager.setRelayComm(&relayComm);
   // U-98: a power-up ALWAYS returns to the last-switched router when one is
   // stored AND the auto-join setting is ON (U-105 `botcfg/boot_autojoin`,
   // default ON) — the owner's rule: *"the car should always go to the last
@@ -309,7 +283,7 @@ void setup() {
   webServerComm.armBootAutoJoin();
   // U-96: motors deferred to end of setup — the H-bridge is the biggest
   // non-comms power load and the car is reachable before it loads.
-  delay(500);  // give the supply time to stabilize after WiFi+Bluetooth+relay
+  delay(500);  // give the supply time to stabilize after WiFi+Bluetooth
   motor.begin();
 
   lastMode = modeManager.getMode();
@@ -417,13 +391,6 @@ void loop() {
   crashRtcMark("web");
   webServerComm.handle();
 
-  // U-94 Phase 2: pump the relay client. Like the web layer this is
-  // unconditional every loop and a no-op when the transport is not started -
-  // the WebSockets library does its socket I/O and its reconnection from
-  // loop(), so skipping this is the same as not having a relay at all.
-  crashRtcMark("relay");
-  relayComm.handle();
-
   // ===== U-79 / U-105: transport availability enforcement =============
   // The two persisted toggles (WIFICFG;WIFI / WIFICFG;BT) decide what may
   // broadcast; this loop forces reality to match every pass. A transport that
@@ -461,7 +428,7 @@ void loop() {
     }
   } else if (btEn) {
     // Wi-Fi transport OFF: the whole web layer is a deliberate stop (any live
-    // WS/HTTP/relay client was dropped by the owner's own switch, not by a
+    // WS/HTTP client was dropped by the owner's own switch, not by a
     // fault), while Bluetooth is the only transport and must be up.
     bool shouldStopWeb = false;
     {
@@ -508,8 +475,8 @@ void loop() {
     }
   }
 
-  // U-95/F-79: back to idle. The phase markers set above (http-root,
-  // relay-tls) are cleared HERE, at the end of a full loop pass, not at the end
+  // U-95/F-79: back to idle. The phase marker set above (http-root) is cleared
+  // HERE, at the end of a full loop pass, not at the end
   // of the operation. That ordering is deliberate: if the car dies in the
   // middle of any single pass, the record still names the operation it was in,
   // and clearing early would let a later hang inside the SAME pass be reported

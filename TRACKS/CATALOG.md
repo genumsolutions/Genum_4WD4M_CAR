@@ -8,7 +8,7 @@
 | Item | Value | Source |
 |---|---|---|
 | FW_NAME | `4WD4M Car` | `Config.h` `FW_NAME` |
-| FW_VERSION | `1.3.8` | `Config.h` |
+| FW_VERSION | `1.3.9` | `Config.h` |
 | Bluetooth SPP | `4WD4M Car` (server, PIN 1234) — U-110 rename from `4WD CAR` | `Config.h` `BT_SPP_NAME` |
 | Wi-Fi AP | `4WD4MCar_WiFi`, open, channel 1, max 4 clients | `Config.h` `WIFI_AP_NAME` + `WebServerComm.cpp` |
 | AP subnet | **192.168.245.1/24** (O-1 adopted) | `WebServerComm.cpp` `startOwnAP()` |
@@ -48,7 +48,7 @@ carries the corrected CAPS string.
 
 Line-oriented `\n`, 128-byte buffer, `\r` skipped, 20 ms read. In: `F B L R S` · `SPD<n>`
 · `MODE_<token>` · `REQ_STATE` · `REQ_NETW` · `WIFICFG;<ssid>;<pass>` (+`?`/`RESET`) ·
-`ROUTERS;LIST|ADD|USE|DEL|CLEAR` · `RELAYCFG`. Out: `STATE;…` · `CAPS;…` · `NACK;…` ·
+`ROUTERS;LIST|ADD|USE|DEL|CLEAR`. Out: `STATE;…` · `CAPS;…` · `NACK;…` ·
 `NETW;…` · `TEL;…`; WS JSON status/telemetry dialect kept.
 **There is no `ESTOP`** in the firmware — see FAILSAFE #11. Safe stop is `S` /
 `SPD0` / disconnect.

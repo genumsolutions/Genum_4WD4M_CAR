@@ -79,7 +79,7 @@ function run(cmd, args, opts = {}) {
   }
 }
 
-const gateContract = () => run(process.execPath, [rel("tools/check-relay-contract.mjs")]);
+const gateContract = () => run(process.execPath, [rel("tools/check-firmware-contract.mjs")]);
 const gatePage = () => run(process.execPath, [rel("tools/check-webpage-js.mjs")]);
 
 
@@ -159,7 +159,6 @@ const CRASH = "CrashLog.cpp";
 const WSC = "WebServerComm.cpp";
 const WSH = "WebServerComm.h";
 const INO = "Genum_4WD4M_CAR.ino";
-const RELAY = "RelayComm.cpp";
 const MM = "ModeManager.cpp";
 
 const mutants = [
@@ -264,46 +263,6 @@ const mutants = [
   { id: "M15", rule: "wdt-budget", file: INO,
     find: ".timeout_ms = LOOP_TASK_WDT_TIMEOUT_MS,", repl: ".timeout_ms = 5000,",
     why: "the sketch reverts to a bare literal, so the static_assert guards a number the hardware no longer uses" },
-
-  // ---- relay (F-84 / Phase 1e) ----
-  { id: "M16", rule: "inert-by-default", file: RELAY,
-    find: "  if (RELAY_HOST[0] == '\\0') {\n    FW_LOG(\"[RELAY] RELAY_HOST is empty - the relay transport stays off (see Config.h)\");\n    return false;\n  }\n\n",
-    repl: "",
-    why: "the empty-RELAY_HOST guard is gone, so an unconfigured car with a token re-attempts a doomed dial every retry interval" },
-
-  { id: "M17", rule: "inert-by-default", file: RELAY,
-    find: "  if (RELAY_HOST[0] == '\\0') {", repl: "  if (RELAY_HOST[0] == 'z') {",
-    why: "the guard exists but can never fire: the empty-host case is not actually tested" },
-
-  { id: "M18", rule: "armed-handshake", file: RELAY,
-    find: "xTaskCreate(taskTrampoline", repl: "spawnWorker(taskTrampoline",
-    also: [{ file: "Config.h", find: '#define RELAY_HOST ""', repl: '#define RELAY_HOST "xyzcompany.supabase.co"' }],
-    why: "the relay is armed with the dial back on the loop task (the task is gone) — the 120 s handshake is unbounded again; the interlock must refuse this" },
-
-  // U-94 Phase 2: connected() must gate on the socket fact the relay task
-  // PUBLISHES (socketUp_), and that flag must be fed from client_.isConnected().
-  // A second source of truth about the socket is the F-82 drift this rule
-  // exists to prevent, so severing the feed must go red.
-  { id: "M63", rule: "enrolment", file: RELAY,
-    find: "socketUp_ = client_.isConnected();", repl: "socketUp_ = true;",
-    why: "the relay task stops publishing the real socket state — connected() reads a flag hard-coded true, so a refused or half-open car would read as connected and switch the safe-stop off" },
-
-  // U-94 Phase 2: a control frame BEGINS with the prefix's NUL, so parsing the
-  // body must start at frame + kControlPrefixLen. Searching the whole frame is
-  // strstr on an empty string — it matches nothing, silently, and the car never
-  // sees `paired`. This is the exact bug control-parse exists to catch.
-  { id: "M64", rule: "control-parse", file: RELAY,
-    find: "  return strstr(frame + kControlPrefixLen, needle) != nullptr;",
-    repl: "  return strstr(frame, needle) != nullptr;",
-    why: "control-event parsing searches the whole frame, whose first byte is the prefix's NUL - strstr sees an empty string, so `paired` (and every other control event) never matches and the car never enrols" },
-
-  // The inbound guard must be len >= kLineLen, not len > kLineLen: a line of
-  // exactly kLineLen bytes cannot be stored with its terminator, so queuePush()
-  // truncates the last byte instead of the frame being refused.
-  { id: "M65", rule: "inbound-fit", file: RELAY,
-    find: "  if (len >= kLineLen) {",
-    repl: "  if (len > kLineLen) {",
-    why: "an inbound line of exactly kLineLen bytes passes the check but only kLineLen-1 survive with the NUL terminator, so queuePush() silently truncates the last byte instead of dropping the frame" },
 
   // ---- WebSocket pump vs the watchdog (U-95 1b/1c) ----
   { id: "M19", rule: "ws-loop-feed", file: WSC,

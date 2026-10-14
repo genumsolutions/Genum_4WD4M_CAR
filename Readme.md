@@ -130,7 +130,7 @@ gitignored, never committed; the sketch compiles without it).
   a saved router actually removes it instead of answering "Not saved" while the router survived the
   power cycle. `/status` JSON + STATE keys rename to `wifi_enabled`/`bt_enabled`/`boot_autojoin`; the
   boot auto-join is gated on `bootAutojoin_`. App 3.2.7 rides along (same-version JS-only OTA). Gates:
-  syntax 10/10 + the rewritten `check-webpage-js.mjs` transport-toggle contract + `check-relay-contract.mjs`.
+  syntax 10/10 + the rewritten `check-webpage-js.mjs` transport-toggle contract + `check-firmware-contract.mjs`.
   UNFLASHED (car-side OTA pending owner).
 - **1.3.4 (2026-10-13, U-104)** — **watchdog feed before the `sendState()` WS fan-out.**
   `WebServerComm::write()` — the delivery path `ModeManager::sendStateOn()` uses for STATE / CAPS /
@@ -189,7 +189,7 @@ gitignored, never committed; the sketch compiles without it).
   TU), and the `SCAN_MAX_RESULTS` cap applies ONCE, after the sort (it used to apply before the
   loop and at insert — first-N-in-radio-order, not strongest-first). Gate rules
   `switch-teardown`/`wifi-persistent`/`retry-split`/`scan-honest`/`scan-quality` in
-  `check-relay-contract.mjs`, mutants M23-M42 (20 new), all mutation-proven both directions.
+  `check-firmware-contract.mjs`, mutants M23-M42 (20 new), all mutation-proven both directions.
   Still UNFLASHED.
 - **1.2.1 (2026-10-06, U-95 Phase 1b/1c)** — the two remaining WebSocket watchdog races:
   `ws.loop()`'s partial-frame read (up to 5000 ms, untunable — the library reads its timeout in

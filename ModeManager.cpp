@@ -102,7 +102,6 @@ ModeManager::ModeManager(MotorControl* motor, CommInterface* primaryComm, OledDi
   : motor_(motor),
     comm_(primaryComm),
     auxComm_(nullptr),
-    relayComm_(nullptr),
     oled_(oled),
     currentMode_(Mode::BT),
     lastCommandTimeMs_(0),
@@ -137,13 +136,6 @@ ModeManager::LinkInfo ModeManager::currentLink() const {
   WebServerComm* ws = WebServerComm::instance();
   const bool wsClients = ws && ws->hasWsClients();
   const bool staJoined = ws && ws->isStaJoined();
-  // U-94 Phase 2: the relay sits directly under a LAN controller and ABOVE
-  // Bluetooth. Above BT because a phone driving the car over the Internet is
-  // still driving it over the Internet, and a panel that says "Bluetooth" while
-  // the commands arrive from a phone three time zones away is telling the owner
-  // something false. Under WS because a page on this network is a more local
-  // truth than a cloud link, and both cannot be "the" link.
-  const bool relayUp = relayComm_ && relayComm_->connected();
   // M3 (owner 2026-10-13): with BOTH transport toggles enabled (U-105) the U-79
   // loop keeps BOTH transports up, so the CURRENT live link is BOTH at once —
   // reporting only the web client would be the old "panel lies when a second
@@ -153,7 +145,6 @@ ModeManager::LinkInfo ModeManager::currentLink() const {
     return {"Parallel", "BT+WiFi", true};
   }
   if (wsClients) return {"WiFi", "WebServer", true};
-  if (relayUp) return {"Internet", "WSS", true};
   if (btUp) return {"Bluetooth", "SPP", true};
   if (staJoined) return {"WiFi", "WiFi", true};
   if (ws && (ws->apBroadcastId()[0] != '\0')) return {"None", "AP ready", false};
@@ -209,16 +200,6 @@ void ModeManager::setComm(CommInterface* newComm) {
 
 void ModeManager::setAuxComm(CommInterface* aux) {
   auxComm_ = aux;
-}
-
-void ModeManager::setRelayComm(CommInterface* relay) {
-  relayComm_ = relay;
-  // A transport that is registered but absent from isConnectedNow() does not
-  // count as connected, and a link that does not count as connected leaves the
-  // 2 s safe-stop armed. That is the safe direction, so there is nothing to
-  // force here - but the OLED is told immediately, because "Internet" appearing
-  // only on the next status change would leave the panel lying for up to a tick.
-  if (oled_) oled_->setLinkContext(currentLink().method, currentLink().type, true);
 }
 
 void ModeManager::setExtraInfo(const char* info) {
@@ -351,9 +332,9 @@ void ModeManager::handleCommand(const char* cmdC, CmdSource src) {
   }
 
   // U-95 Phase 3: the mode-walk tokens. cycleMode() was reachable ONLY from
-  // the GPIO switch (.ino) — no token existed, so the page, the app and the
-  // relay could each have grown their own implementation and all three would
-  // have drifted. One hook, one walk, ±1 with wrap (MAN's registry token is
+  // the GPIO switch (.ino) — no token existed, so the page and the app could
+  // each have grown their own implementation and both would have drifted. One
+  // hook, one walk, ±1 with wrap (MAN's registry token is
   // MAN — the walk visits it like any other row; stub rows stay gated by
   // setMode()'s own rules, unchanged here). Gate rule: `mode-cycle`.
   if (strcmp(cmdBuf, "MODECYCLE") == 0 || strcmp(cmdBuf, "MODENEXT") == 0) {
@@ -526,13 +507,6 @@ void ModeManager::sendState() {
   }
   if (auxComm_ && auxComm_ != comm_ && auxComm_->connected()) {
     sendStateOn(*auxComm_);
-  }
-  // U-94 Phase 2: and the relay, from the SAME line. A phone on the Internet
-  // must not need a second, differently-shaped status feed - and it must not
-  // get one, because two status feeds on one car is exactly how the app and the
-  // panel end up disagreeing about whether the car is stopped.
-  if (relayComm_ && relayComm_ != comm_ && relayComm_ != auxComm_ && relayComm_->connected()) {
-    sendStateOn(*relayComm_);
   }
 }
 
@@ -799,27 +773,12 @@ void ModeManager::run() {
     if (n > 0) handleCommand(cmdBuf, CmdSource::WIRE);
   }
 
-  // U-94 Phase 2: the relay drains LAST, so the local transports always win a
-  // loop iteration. A command from the owner's hands on this network must not be
-  // queued behind a phone on the Internet, and the relay is also the slowest
-  // path - if it is ever going to be the one that misses a tick, it is the one
-  // that should. Same ONE parse: handleCommand, CmdSource::WIRE, because from
-  // here on the relay IS a wire. There is no relay-specific handling anywhere
-  // in this function, and there must never be any.
-  if (relayComm_ != nullptr && relayComm_->available()) {
-    size_t n = readLineFromComm(relayComm_, cmdBuf, sizeof(cmdBuf), 20);
-    if (n > 0) handleCommand(cmdBuf, CmdSource::WIRE);
-  }
-
   // F-22: periodic STATE broadcast keeps the remote's mode/speed mirror fresh
   // (prevents the remote's stale-telemetry safe-stop while connected).
   // v2: the tick fires when EITHER transport is live — the app can sit on a
   // WebSocket to the car's own AP while the BT remote is also connected.
-  // U-94: ...or when the relay is live, which is the whole reason a phone
-  // driving the car over the Internet sees a moving speed.
   bool anyConnected = (comm_ != nullptr && comm_->connected()) ||
-                      (auxComm_ != nullptr && auxComm_->connected()) ||
-                      (relayComm_ != nullptr && relayComm_->connected());
+                      (auxComm_ != nullptr && auxComm_->connected());
 
   // v1.0.1 (owner OLED directive): refresh the Link/Type context every loop
   // (cheap; the OLED change-gates on the string so no repaint storms).
@@ -848,15 +807,7 @@ bool ModeManager::isConnectedNow() const {
   // v2: "connected" = ANY transport link up — Bluetooth (auxComm_) or the
   // always-on web transport (comm_: joined STA network OR a live WS client).
   // Mode-independent by design: the web layer is not a mode anymore.
-  // U-94 Phase 2: or the relay. This is the load-bearing line of the whole
-  // feature: isConnectedNow() is what arms and disarms the 2 s safe-stop, and a
-  // relay link that does not count as "connected" would leave the car stopping
-  // itself every 2 s while being driven over the Internet — a failure that looks
-  // like a flaky relay and is actually the failsafe working correctly.
   if (auxComm_ && auxComm_ != comm_ && auxComm_->connected()) return true;
-  if (relayComm_ && relayComm_ != comm_ && relayComm_ != auxComm_ && relayComm_->connected()) {
-    return true;
-  }
   return comm_ ? comm_->connected() : false;
 }
 

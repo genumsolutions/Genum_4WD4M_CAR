@@ -292,8 +292,8 @@ bool WebServerComm::handleFactoryCommand(const char* cmd) {
   const char* arg = cmd + 7;  // "" | "?" | ";RESET"
   if (strncasecmp(arg, ";RESET", 6) == 0) {
     // 1) Clear the WHOLE namespace. `Preferences::clear()` removes every key in
-    //    "botcfg": routers, credentials, last-good, toggles, mode/speed, relay
-    //    token, fw_mark and the crash counters. Arduino flashing does NOT erase
+    //    "botcfg": routers, credentials, last-good, toggles, mode/speed,
+    //    fw_mark and the crash counters. Arduino flashing does NOT erase
     //    NVS, so this is the only way to get a virgin board without a re-flash.
     Preferences p;
     if (p.begin("botcfg", false)) {
@@ -414,7 +414,7 @@ void WebServerComm::loadStoredWifi() {
 // mismatch (absent on a virgin board too) means a fresh install, so every
 // router-related key is erased and the new mark written. Power cycles with the
 // SAME firmware keep the saved routers (U-84: they must survive a power cycle)
-// — only a firmware (re-)install resets them. Mode/speed/relay prefs share the
+// — only a firmware (re-)install resets them. Mode/speed prefs share the
 // namespace but are deliberately NOT touched: this is the router surface only.
 bool WebServerComm::wipeRoutersOnFreshFirmware() {
   Preferences prefs;
@@ -2560,7 +2560,7 @@ void WebServerComm::broadcastStatus() {
   // SILENT — snprintf truncates and the client receives malformed JSON, which
   // the browser reports as a parse error and the owner reports as "the page is
   // not working properly". A silently truncated diagnostic is worse than no
-  // diagnostic. tools/check-relay-contract.mjs asserts this buffer is larger
+  // diagnostic. tools/check-firmware-contract.mjs asserts this buffer is larger
   // than the sum of the fragment buffers it has to hold, so the next person to
   // add a field without growing it fails CI instead of shipping a broken page.
   // U-95 Phase 3: static, and 3584 not 1536 — see the matching line in

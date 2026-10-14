@@ -65,7 +65,7 @@ public:
   void setMode(Mode newMode);
   /** One implementation of the mode walk for every caller: the GPIO switch
    *  (.ino) uses the default +1, and MODECYCLE/MODENEXT/MODEPREV (U-95 Phase 3
-   *  tokens) pass ±1 so the page, app and relay all get the SAME behaviour.
+   *  tokens) pass ±1 so the page and app all get the SAME behaviour.
    *  Wraps both directions: +1 past the last registry row returns to 0, -1
    *  below 0 lands on MODE_COUNT-1. */
   void cycleMode(int delta = 1);
@@ -75,15 +75,6 @@ public:
   void resetFailsafe();
   void setComm(CommInterface* newComm);
   void setAuxComm(CommInterface* aux);
-  /** U-94 Phase 2: the Internet transport. A THIRD slot, not a replacement for
-   *  either of the others: the relay is a pipe like Bluetooth and the web page,
-   *  and it is how a car gets driven from a phone that is not on this network.
-   *
-   *  It is a separate pointer rather than an assignment to comm_/auxComm_ on
-   *  purpose. Those two are the U-79 power-policy pair, and swapping the relay
-   *  into either would take the Wi-Fi AP down whenever a phone joined over the
-   *  Internet - i.e. exactly when the relay is most needed. */
-  void setRelayComm(CommInterface* relay);
   void setExtraInfo(const char* info);
 
   // v1.0.1 (owner OLED directive 2026-09-28): the dashboard must ALWAYS show
@@ -190,7 +181,6 @@ private:
   MotorControl* motor_;
   CommInterface* comm_;
   CommInterface* auxComm_;
-  CommInterface* relayComm_;  // U-94 Phase 2. Null unless setRelayComm() ran.
   OledDisplay* oled_;
 
   Mode currentMode_;

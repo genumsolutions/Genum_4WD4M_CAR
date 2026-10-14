@@ -1,0 +1,17 @@
+etóRÕ¹  ¸’‚Š6 Â:²&gÓSH¨Hr³—‚ÂÅ 	õ]•ROê%UÍETJ	½½t:ÂÅ³BšÁI_†P*Õ%1SHŸ¨êŠUj
+coË¥Íiğ'‚b‚SĞR¥‚Â•eŠ,këEÉÙi0x‚,ñÉÙ:0ø‚b"}‘Év:°Á°iÍÁ_d.‚ÂÁ°‰‘}dr¶'ÂA0,}‘rvºÂÁ0
+[K•iDÉŠ±½k äZ—Š
+ë…‘:0ø&––‚š0,«¹é48·SHë‚‚táZŠ2 ®ëµA4!ë+‘é0x4°ºÂ‚0°‰•¹:1¶M&¦Èì+‘i0x‚Â‚4°bb•n:³M‚j
+e‹Éå 0ø‚Â05,ÓHø[CRASH] boot=1020 crash=757 reason=PANIC heap=176264 lastphase=''
+[CRASH] rtc: marks=0 phase='' task='loopTask' heap=9560 minHeap=9432 atMs=40442
+[BOOT] reset reason: PANIC
+[BOOT] *** UNSOLICITED RESTART #757 - last was PANIC, phase '', heap 176272 ***
+[BOOT] *** TASK_WDT means loop() blocked; PANIC means a crash ***
+[BOOT] *** also on the OLED header and in /status JSON ***
+[BOOT] Restored mode=PATH is not LIVE in v2 - keeping 4WD4M.
+[BOOT] Restored speed=255
+[RADIO] softAPConfig
+[MDNS] advertising genum-car.local (http:80 ws:81)
+Own AP active: 4WD4MCar_WiFi
+[V2] Web layer always-on: AP=4WD4MCar_WiFi ip=192.168.245.1 http=:80 ws=:81
+[RELAY] RELAY_HOST is empty - the relay transport stays off (see Config.h)
