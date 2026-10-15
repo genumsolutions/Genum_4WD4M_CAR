@@ -55,8 +55,57 @@ anchor was re-sewn after the stall-abort moved the lines it matched.
 
 **VERIFY — source only.** `check-firmware-syntax.ps1` **9/9** TUs ·
 `check-webpage-js.mjs` PASS · `check-firmware-contract.mjs` 0 failures
-(44 rules incl. 5x heap-guard) · `mutate-gates.mjs` **69/69 caught by their
-intended rule**.
+(45 rules incl. 5x heap-guard + tele-params) · `TSH/test_config_integrity.py` PASS ·
+`mutate-gates.mjs` **74/74 caught by their intended rule**.
+
+### Also in 1.3.10 — T66: the `tele.parameters` config surface on `/status`
+
+`Config.h` carries ONE `CONFIG_TELEMETRY_PARAMETERS` line
+(`tele.parameters,frequency,1600,vysexcvr,0`) consumed in **two directions**:
+`TSH/test_suites/test_config_integrity.py` parses it as TEXT (both keys present;
+the shaping key appears exactly once repo-wide), and
+`WebServerComm::buildStatusJson()` assigns the same line to a `const char*` and
+reports it as `"tele_params":"freq=1600, vyse=0"`. Additive — nothing else in the
+repo reads it yet.
+
+### Fixed — U-114: 1.3.10 did not compile at HEAD, and its `/status` lied
+
+Commit `79e6d26` ("add CONFIG.telemetry.parameters surface … and wire it into
+status JSON") landed a surface that broke the build and mis-wired the JSON. Three
+defects, and only the first one was loud:
+
+1. **No build.** The macro was a BARE token list, so
+   `const char* teleParams = CONFIG_TELEMETRY_PARAMETERS;` expanded to
+   `const char* teleParams = tele.parameters,frequency,1600,vysexcvr,0;` — `tele`
+   is undeclared. `check-firmware-syntax.ps1` failed **1 / 9** TUs (`Config.h:40:
+   'tele' was not declared in this scope`). The contract and page gates stayed
+   green the whole time because neither compiles anything — the F-61 shape.
+2. **`/status` reported the wrong values.** The format string puts the
+   `tele_params` `%s` slots BETWEEN `scan` and `wifi_enabled`, but `freqBuf` /
+   `vyseBuf` were appended AFTER `boot_autojoin_`. Every field from `tele_params`
+   onward was fed by its neighbour's argument, so `wifi_enabled`, `bt_enabled` and
+   `boot_autojoin` reported garbage — and **the app ADOPTS those on connect**
+   (U-111): a silent settings-corruption bug, not a cosmetic one. GCC cannot catch
+   it: `%s` against `char[]` / `const char*` is pointer-to-pointer, so the types
+   match and only the ORDER is wrong (exactly what the new rule pins).
+3. **Undefined behaviour + an empty last field.** `strchr(p, ',') + 1` added 1 to
+   a NULL result the moment a field was missing, and the LAST field was read with
+   `strchr(value, ',')` — NULL for a surface with no trailing comma — so the
+   shaping value came out `""` instead of `0`.
+
+Fixed by making the surface ONE string literal and reading it through a new
+bounded, NULL-safe `teleSurfaceField(surface, idx, out, dst)` that indexes fields
+by NUMBER (so re-ordering the surface cannot slide a value into the wrong slot)
+and treats the last field as the remainder of the string.
+
+**Gate + mutants.** New `tele-params` rule in `check-firmware-contract.mjs`
+(5 assertions: the surface is one string literal · the `tele_params` slot exists ·
+`freqBuf`/`vyseBuf` sit in that slot's argument position · the surface is read
+through the helper with both field indices · no `strchr(...) + 1` chain is back).
+Mutants **M76-M80**, one per assertion. A 1.3.11 was considered (the surface is a
+behaviour change to an already-labelled body) and rejected: 1.3.10 has never been
+flashed, so no device reports a version the fix would make ambiguous — see
+`TRACKS/NEXT-SESSION.md`.
 
 ## 1.3.9 (U-111b, 2026-10-14, ON THE OWNER'S CAR): the Internet method (cloud relay) removed + the firmware-contract gate completed
 

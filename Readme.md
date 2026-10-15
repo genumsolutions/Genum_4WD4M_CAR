@@ -89,6 +89,13 @@ gitignored, never committed; the sketch compiles without it).
   app link. New `heap-guard` gate rule + mutants M70-M75; mutation also
   re-pinned `scan-honest`'s in-flight refusal BY TEXT (the new floor's extra
   `return false` had propped its count up). mutate-gates **69/69**.
+  Also **U-114**: a `CONFIG_TELEMETRY_PARAMETERS` surface added to this same
+  unreleased body shipped unquoted (the sketch did not compile — syntax gate
+  **1/9** at HEAD) and with its `/status` `%s` slots fed by the wrong snprintf
+  arguments, so `wifi_enabled`/`bt_enabled`/`boot_autojoin` — which the app
+  ADOPTS — reported neighbours' values. The surface is now one string literal
+  read through a bounded, NULL-safe `teleSurfaceField()`; new `tele-params`
+  rule + mutants M76-M80; syntax 9/9, mutate-gates **74/74**.
 
 - **1.3.9 (2026-10-14, U-111b)** — **the Internet / cloud-relay method is removed.**
   `RelayComm.cpp`/`.h` are deleted and every seam is unwired (sketch, `ModeManager`,

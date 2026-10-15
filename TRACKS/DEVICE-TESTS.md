@@ -40,6 +40,14 @@
       event, and report the `[CRASH] rtc: …` line (phase + task + heap) from
       the next boot. That line names the operation; without it the freeze
       cannot be pinned (every historical capture predates the breadcrumb).
+- [ ] **U-114-1 — `/status` reports the truth (the U-114 fix).** Open
+      `http://<car-ip>/status` and read `tele_params` — it must be
+      `freq=1600, vyse=0` (not `freq=0`/empty). Then toggle Wi-Fi / Bluetooth /
+      boot-auto-join in the app and reload `/status`: `wifi_enabled`,
+      `bt_enabled` and `boot_autojoin` must match what you toggled. Before this
+      fix they reported a neighbour's value (`1600`/`0`), which the app then
+      ADOPTED — so also confirm the app's Connectivity panel still shows the
+      toggles you set, not flipped ones.
 
 ## U-111 round — real Bluetooth pairing + a hotspot that joins + car↔app state round-trip (2026-10-14, firmware 1.3.9 — DEVICE VERIFY PENDING)
 

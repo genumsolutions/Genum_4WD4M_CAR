@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-14, U-112: heap floor + page stall-abort for the post-1.3.9 reset/freeze report — **1.3.10 UNFLASHED, owner flash target**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, U-114: fixed a build-breaking, JSON-miswiring `tele.parameters` surface at HEAD — **1.3.10 still UNFLASHED, owner flash target**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
@@ -8,6 +8,48 @@
 > are app-side. App mirror:
 > `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`. Phase 0 evidence
 > captures (E2/E5 + serial logs while the owner tests 1.3.10) are still owed.
+
+## U-114 2026-10-15 — HEAD did not compile, and `/status` reported its neighbours' values (1.3.10, UNFLASHED — owner flash target)
+
+**Found by running the gates before touching anything.** `check-firmware-syntax.ps1`
+was **1 / 9** TUs at HEAD: `Config.h:40: 'tele' was not declared in this scope`.
+The commit that introduced it, `79e6d26` *"P1: add CONFIG.telemetry.parameters
+surface … and wire it into status JSON"* (co-authored Codebuff), is unrelated to
+the round's P1 (which is app-only, app-side) and shipped three defects at once:
+
+1. **No build.** `CONFIG_TELEMETRY_PARAMETERS` was a BARE token list
+   (`tele.parameters,frequency,1600,vysexcvr,0`), so the C++ line
+   `const char* teleParams = CONFIG_TELEMETRY_PARAMETERS;` became
+   `= tele.parameters, …` — an undeclared `tele`. The contract + page gates were
+   green throughout: **neither compiles anything** (the F-61 shape).
+2. **`/status` lied, in a way the app consumes.** The format string puts the
+   `tele_params` `%s` slots between `scan` and `wifi_enabled`; the arguments
+   `freqBuf`/`vyseBuf` were appended after `boot_autojoin_`. snprintf feeds each
+   `%s` from the next argument, so `wifi_enabled`, `bt_enabled` and
+   `boot_autojoin` reported a neighbour's value — and **the app adopts those three
+   on connect** (U-111). GCC cannot see it: every `%s` here is a pointer.
+3. **UB + an empty last field.** `strchr(p, ',') + 1` is UB when a field is
+   missing; the LAST field was read with `strchr(value, ',')`, NULL when the
+   surface has no trailing comma, so `vyse` came out `""` not `0`.
+
+**Fix:** the surface is now ONE string literal (so `const char*` works and the TSH
+gate still parses the same row), read through a bounded, NULL-safe
+`teleSurfaceField(surface, idx, out, dst)` that indexes fields by NUMBER and
+treats the last field as the remainder of the string; the two buffers moved into
+the `tele_params` slot's argument position.
+
+**Version — why 1.3.10 and not 1.3.11.** 1.3.10 has never been flashed (no device
+reports it), so folding the fix into the same unreleased body leaves nothing
+ambiguous. A bump would only be required once a 1.3.10 binary is ON the car.
+
+**Gates (source only — F-61):** new `tele-params` rule (5 assertions) + mutants
+**M76-M80**; `check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` PASS ·
+`check-firmware-contract.mjs` 0 failures · `TSH/test_config_integrity.py` PASS ·
+`mutate-gates.mjs` **74/74**. **No device evidence** — this is a compile/wiring
+fix, not a claim about the radio.
+
+**Owner note:** flashing 1.3.10 now also carries `"tele_params":"freq=1600,
+vyse=0"` on `/status` (additive). Nothing else reads it yet.
 
 ## U-112 2026-10-14 — the reset while pairing BT + own hotspot, and the freeze while using the page with the app connected (1.3.10, UNFLASHED — owner flash target)
 

@@ -18,6 +18,7 @@ The bench car is on an older build. One flash of `main` brings all of it:
 | U-111 (1.3.8) | **Bluetooth pairing completes** (SSP "Just Works" — no PIN; `1234` only as legacy fallback); the own hotspot no longer re-runs `softAP()` every loop pass (the freeze-shaped radio churn); the 11 dBm AP cap is boot-window only — 17 dBm again after 15 s |
 | U-111b (1.3.9, ON THE CAR) | **The Internet / cloud-relay method is gone** — no `[RELAY]` log lines, no `RELAYCFG`, the OLED link row only ever reads Bluetooth / WiFi |
 | **U-112 (1.3.10)** | **The reset-while-pairing and freeze-while-page-open round.** The status broadcast defers below a 49 kB heap floor (time-boxed 4 s); scans refuse below 65 kB with an honest BUSY; the page send aborts a reader that stops draining, so the app link keeps running while a page is open. Serial grows `[HEAP] …` and `[SCAN] refused` lines — that is the evidence this flash exists to produce |
+| **U-114 (1.3.10)** | **Build/wiring fix (no new radio behaviour).** HEAD did not compile and `/status` reported its neighbours' values for `wifi_enabled`/`bt_enabled`/`boot_autojoin` (the app adopts those). `/status` now also carries `tele_params":"freq=1600, vyse=0"` (additive, nothing reads it yet) |
 | app U-110 | the "Connection lost / reconnect?" prompt appears only when **no** link is live, and both prompts are centered dialogs |
 | app U-111 | the app adopts the car's Wi-Fi / Bluetooth / boot-auto-join settings on connect |
 | app U-112 | **exactly TWO methods** — Bluetooth · WiFi (LAN); no Internet pill or card anywhere |
@@ -74,7 +75,9 @@ once, re-join. Expect an `192.168.245.x` address, then open:
     http://192.168.245.1/status
 
 Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.10`, and the crash
-fields (`crash_count`, `reset_reason`, the phase). The page's mode dropdown and
+fields (`crash_count`, `reset_reason`, the phase). Also check `tele_params` reads
+`freq=1600, vyse=0` (U-114) and that `wifi_enabled`/`bt_enabled`/`boot_autojoin`
+report your actual toggles, not `1600`/`0`. The page's mode dropdown and
 router table must work.
 
 → rows: car **U-111-2**, **U-111-7**, **U-109-1..3**.
