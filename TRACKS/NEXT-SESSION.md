@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P4 steps 1+2: the six-stage `[HEAPW]` heap-waterfall breadcrumb AND the diet's first step — classic-BT-only bring-up — are in; **the E1 capture + the U-112 floor re-tune are still owed; the owner flash target is 1.3.11**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **the E1 capture + E3/E4 + the U-112 floor re-tune are still owed; the owner flash target is 1.3.11**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
@@ -7,10 +7,62 @@
 > table). **Car-side P4 (the BT heap diet, THE main issue) has landed its first two
 > bullets: the six-stage `[HEAPW]` heap-waterfall breadcrumb AND the diet's first step
 > (Bluetooth now comes up classic-BT-only, releasing the unused BLE memory) — gates green.
-> The E1 capture (RUNSHEET step 6b) and the floor re-tune are still owed from the bench.**
+> **Car-side P5 (issues 7 + 9) has landed too, gates green:** `WIFICFG;WIFI;OFF` really
+> hides everything now — `stop()` drops the beacon unconditionally, `startOwnAP()` refuses
+> while the transport is off, and `handle()`'s AP retry no longer re-creates the hotspot
+> ~2 s after the switch. Issue 9 needed no new fix (U-105 already removed the beacon park);
+> it is now pinned by a gate. **E1 (step 6b), E3/E4 (step 6c) and the floor re-tune are
+> still owed from the bench.**
 > P2/P3 are app-side. App mirror:
 > `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`. Phase 0 evidence
 > captures (E1 + E2/E5 + serial logs while the owner tests 1.3.11) are still owed.
+
+## P5 · 2026-10-15 — issues 7 + 9: the Wi-Fi transport switch, made honest (1.3.11, UNFLASHED)
+
+**Issue 7 ("Wi-Fi OFF must hide everything — the phone still sees the hotspot AND
+its webpage") is fixed in source.** The plan offered three candidate causes and said
+E3 would pick one; reading the code named it without a capture, and the cause is
+structural rather than a timing coincidence:
+
+> **No own-hotspot bring-up path ever consulted the Wi-Fi transport switch.**
+
+Two defects stacked:
+
+1. **`stop()` trusted the wrong flag.** It dropped the beacon only
+   `if (apRunning_)` — and `apRunning_` is a *believed* flag that this same file
+   **force-writes false** across an `AP_STA`↔`AP` mode bounce (`GIVEUP_AP`,
+   `REJOIN_STEP_AP`, both commented *"forced false, not trusted"*), precisely
+   because it goes stale there.
+2. **`handle()` resurrected it.** The FIN-40/D1 retry tested only `!apRunning_`, so
+   the pass after `stop()` — which had *just cleared that flag* — called
+   `startOwnAP()` again ~2 s later (`AP_RETRY_INTERVAL_MS`). And `stop()` runs only
+   while `webUp` is true, which the U-79 loop clears as it calls it, so the
+   re-created beacon was **never taken down a second time**. `updateApPowerPolicy()`
+   correctly no-ops when `!wifiEnabled_`, so nothing else could.
+
+**Fix — three guards.** `stop()`: `WiFi.softAPdisconnect(true)` is now
+**UNCONDITIONAL** (idempotent when nothing is up; this path wants the radio down
+either way). `startOwnAP()`: **refuses while `!wifiEnabled_`** — stated at the one
+function that actually raises the beacon, so it covers the boot bring-up, the rejoin
+and give-up machines *and* the retry, not only the retry. `handle()`: the retry is
+**gated on `wifiEnabled_`**.
+
+**Issue 9 ("page always up when Wi-Fi is on") needed no new fix** — U-105 already
+removed the power-save *park*, and neither `handleRoot()` nor `serveRootBounded()`
+gates on a connected client. It needed a gate so it cannot silently regress.
+
+**Gates (source only — F-61):** two new rules in `check-firmware-contract.mjs` —
+`wifi-off-hides-ap` (unconditional teardown · `startOwnAP()` refuses · retry gated ·
+`server.stop()` + `serverRunning=false`) and `page-always-on` (no `hasWsClients()`
+gate on the route or the send path · `updateApPowerPolicy()` never parks the beacon ·
+still returns on a disabled transport) — plus mutants **M91-M95**.
+`check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` PASS ·
+`check-firmware-contract.mjs` **0 failures** · `TSH` PASS (flag key still x1) ·
+`mutate-gates.mjs` **89/89 caught by their intended rule**.
+
+**Still owed from the bench:** **E3** — does the SSID really vanish, and *stay* gone
+for >= 1 min after `WIFICFG;WIFI;OFF`? — and **E4** — does the page render with the
+app closed? RUNSHEET **step 6c**, rows **U-113-9 / U-113-10 / U-113-11**.
 
 ## P4 step 2 · 2026-10-15 — the BT heap diet's first step: classic-BT-only bring-up (issue 6)
 

@@ -3,6 +3,39 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## U-113 round — the 2026-10-15 rectification round, car-side rows (issues 6, 7, 9 — firmware 1.3.11 — DEVICE VERIFY PENDING)
+
+> The 14-issue list lives in `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md`.
+> The **app-side** rows (U-113-1..7, U-113-16) are in the app's
+> `mobile/TESTING.md`; the **car-side** rows that the app cannot answer are here.
+> Flash **1.3.11** — it carries the P4 heap diet (classic-BT-only), the P4 `[HEAPW]`
+> waterfall and the P5 Wi-Fi-switch fix. Watch the serial for the six
+> `[HEAPW] <stage> free=… max=…` lines: they are what this flash exists to produce.
+
+- [ ] **U-113-8 — ⭐ P4 acceptance: both links live, the heap holds (issue 6).**
+      Pair BT, join `4WD4MCar_WiFi`, open the page, drive over both links —
+      10 min soak. The car does not reset; the U-112 guards may still defer under
+      load but telemetry returns within 4 s. **Capture the six `[HEAPW]` lines**
+      from one cold boot spanning pair → page → both links (RUNSHEET step 6b):
+      they give the post-diet `free`/`max` per stage, which re-tunes the
+      49152 B / 65536 B floors before P4 is closed.
+- [ ] **U-113-9 — ⭐ issue 7: Wi-Fi OFF hides everything.** With BT ON, send
+      `WIFICFG;WIFI;OFF` (app Connectivity panel or the page console). Within
+      ~3 s the phone's Wi-Fi scan no longer lists `4WD4MCar_WiFi`, an already-open
+      page stops serving (`http://192.168.245.1` unreachable), and the serial shows
+      the web layer stopping. **Leave it OFF for >= 1 min and re-scan**: the SSID
+      must NOT come back (before this fix `handle()`'s retry re-created the
+      hotspot ~2 s after the switch). `WIFICFG;WIFI;ON` brings it all back.
+- [ ] **U-113-10 — issue 9: the page is up with NO app attached.** Wi-Fi ON, BT
+      ON, and the app either closed or disconnected. From the phone's browser,
+      `http://192.168.245.1` renders the page fully — no blank, no hang, no wait
+      for the app to connect first. The own hotspot must be visible the whole
+      time (never parked).
+- [ ] **U-113-11 — issue 7b: both ON ⇒ both offered.** With both toggles ON and
+      no client attached: the phone's scan sees `4WD4MCar_WiFi`, that page is
+      browsable, AND Android's Bluetooth device list shows `4WD4M Car`
+      advertising — all three simultaneously, for >= 1 min.
+
 ## U-112 round — reset while pairing BT + own hotspot · freeze using the page with the app connected (2026-10-14, firmware 1.3.11 — DEVICE VERIFY PENDING)
 
 > Flash **1.3.11** (supersedes 1.3.9, which IS on the owner's car). Root-cause

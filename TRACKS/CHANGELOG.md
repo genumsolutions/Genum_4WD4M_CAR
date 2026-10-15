@@ -10,7 +10,7 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
-## UNRELEASED — 1.3.11 (U-112 + U-114 + T66 + P4/E1, 2026-10-15): heap floor for status/scan + the page stall-abort + the tele surface + the E1 heap waterfall (the post-1.3.9 reset/freeze report)
+## UNRELEASED — 1.3.11 (U-112 + U-114 + T66 + P4/E1 + P5, 2026-10-15): heap floor for status/scan + the page stall-abort + the tele surface + the E1 heap waterfall + Wi-Fi OFF that actually hides everything (the post-1.3.9 reset/freeze report)
 
 **UNFLASHED (F-61).** Owner flash target. The owner flashed 1.3.9 and reported:
 the car **resets while connecting Bluetooth + the own hotspot together**, and
@@ -179,6 +179,58 @@ dropped (back to the library default) and the argument flipped to `false`.
 failures** (incl. 5x heap-guard + tele-params + heap-waterfall + bt-heap) · TSH
 PASS (flag key still x1) · `mutate-gates.mjs` **84/84 caught by their intended
 rule**.
+
+### Fixed — P5/U-113 #7: Wi-Fi OFF now hides everything (the beacon was resurrecting itself)
+
+Owner report: *"Wi-Fi OFF … the phone still sees the hotspot AND its webpage."*
+The plan listed three candidate causes and said **E3** would pick one. Reading the
+source picked it — the defect is unambiguous and needed no capture to name:
+
+> **No own-hotspot bring-up path ever consulted the Wi-Fi transport switch.**
+
+Two defects stacked:
+
+1. `stop()` took the beacon down only `if (apRunning_)` (`WebServerComm.cpp`) —
+   and `apRunning_` is a *believed* flag that the code itself **force-writes
+   false** across an `AP_STA`↔`AP` mode bounce (`GIVEUP_AP`, `REJOIN_STEP_AP`:
+   *"forced false, not trusted"*), precisely because it goes stale there. Gating
+   the shutdown on a flag the rest of the file distrusts is how a switch that
+   claims "hidden" leaves the radio broadcasting.
+2. `handle()`'s FIN-40/D1 retry (`if (!apRunning_ && … >= AP_RETRY_INTERVAL_MS)`)
+   then **re-created the hotspot ~2 s** after `WIFICFG;WIFI;OFF`, because it
+   tested `!apRunning_` and nothing else — and `stop()` had just cleared that
+   flag. `stop()` only runs while `webUp` is true, and the U-79 loop clears
+   `webUp` as it calls it, so the resurrected beacon was **never taken down
+   again**. `updateApPowerPolicy()` correctly no-ops when `!wifiEnabled_` and so
+   never parks it either.
+
+**The fix** (three one-line guards):
+
+- `stop()`: `WiFi.softAPdisconnect(true)` is now **UNCONDITIONAL** (it is
+  idempotent when nothing is up, and this path wants the radio down either way).
+- `startOwnAP()`: **refuses while `!wifiEnabled_`** — the invariant, stated at the
+  one function that actually raises the beacon. It covers every caller (boot
+  bring-up, the rejoin and give-up machines, the retry), which the retry guard
+  alone would not.
+- `handle()`: the AP retry is **gated on `wifiEnabled_`**.
+
+**Issue 9 (#9, "page always up when Wi-Fi is on") needs no new fix** — U-105
+already removed the power-save *park*, and `handleRoot()`/`serveRootBounded()`
+serve the page with no client gate. What it needed was for the property to be
+**regress-proof**, so `page-always-on` now asserts it (no `hasWsClients()` gate
+on the route; `updateApPowerPolicy()` never parks the beacon). The device half of
+issues 7 and 9 is **E3/E4** on the owner's bench (F-61).
+
+**Gate + mutants.** Two new rules in `check-firmware-contract.mjs`:
+`wifi-off-hides-ap` (unconditional teardown · `startOwnAP()` refuses · the retry
+is gated · the HTTP server is stopped) and `page-always-on` (no client gate on the
+route or the send path · the beacon is never parked · the policy still returns on
+a disabled transport). Mutants **M91-M95**.
+
+**VERIFY — source only.** syntax **9/9** TUs · webpage-js PASS · contract **0
+failures** (incl. 5x heap-guard + tele-params + heap-waterfall + bt-heap +
+wifi-off-hides-ap + page-always-on) · TSH PASS (flag key still x1) ·
+`mutate-gates.mjs` **89/89 caught by their intended rule**.
 
 ### Version — 1.3.10 → 1.3.11 (2026-10-15, owner ruling)
 

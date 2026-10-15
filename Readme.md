@@ -80,7 +80,7 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
-- **1.3.11 (2026-10-15, U-112 + U-114 + T66 + P4/E1)** — **heap floor for
+- **1.3.11 (2026-10-15, U-112 + U-114 + T66 + P4/E1 + P5)** — **heap floor for
   status/scan + the page
   stall-abort** (the post-1.3.9 report: reset while pairing BT + the own
   hotspot; freeze using the page with the app connected; field heap 13-18 kB).
@@ -106,6 +106,15 @@ gitignored, never committed; the sketch compiles without it).
   car never uses is released — the waterfall then measures what remains. New
   `heap-waterfall` + `bt-heap` rules; mutants M81-M88, M89/M90; syntax 9/9,
   mutate-gates **84/84**.
+  Also **P5 (issues 7 + 9)**: `WIFICFG;WIFI;OFF` now actually hides
+  everything — `stop()` drops the beacon unconditionally, `startOwnAP()` refuses
+  while the Wi-Fi transport is off, and `handle()`'s AP retry is gated on
+  `wifiEnabled_`. It was worse than a skipped teardown: the retry tested only
+  `!apRunning_`, which `stop()` had just cleared, so the hotspot came back ~2 s
+  after the switch and was never taken down again. Issue 9 needed no new fix
+  (U-105 already removed the beacon park) and is now pinned by a gate. New
+  `wifi-off-hides-ap` + `page-always-on` rules; mutants M91-M95; syntax 9/9,
+  mutate-gates **89/89**.
 
 - **1.3.9 (2026-10-14, U-111b)** — **the Internet / cloud-relay method is removed.**
   `RelayComm.cpp`/`.h` are deleted and every seam is unwired (sketch, `ModeManager`,

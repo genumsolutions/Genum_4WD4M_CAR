@@ -131,6 +131,33 @@ whether the car reset anywhere inside the window.
 A missing stage means the waterfall has a hole; say which one is absent rather
 than filling it in.
 
+### 6c · E3 + E4 — the Wi-Fi switch, both ways (P5, issues 7 + 9)
+
+P5 fixed issue 7 **in source**: `WIFICFG;WIFI;OFF` used to leave the own hotspot
+broadcasting, because `stop()` dropped the beacon only `if (apRunning_)` — and
+`handle()`'s AP retry then re-created the whole thing ~2 s later, having only
+tested `!apRunning_`. The fix is in this flash, and **E3 is the proof it holds on
+a real radio** (source gates cannot show this — F-61).
+
+- **E3 — issue 7: OFF hides everything.** With BT ON, send `WIFICFG;WIFI;OFF`
+  (app Connectivity panel, or the page console) and keep the phone's Wi-Fi scan
+  open on the same phone. Capture the serial for ~60 s:
+  `python tools/serial_capture.py COM<port> 60 e3-wifi-off.log`
+  Within a few seconds the scan must stop listing `4WD4MCar_WiFi` and
+  `http://192.168.245.1` must become unreachable. **Leave it OFF for >= 1 min and
+  re-scan**: the SSID must NOT come back. Report whether the serial printed the
+  web-layer stop, and whether the hotspot reappeared. `WIFICFG;WIFI;ON` brings
+  everything back.
+- **E4 — issue 9: the page with nobody attached.** Wi-Fi ON and the **app
+  closed**. From the phone's browser open `http://192.168.245.1`: the page must
+  render fully — no blank, no hang, no waiting for the app to connect first.
+  Report **renders / blank / hangs**.
+- While both toggles are ON and no client is attached, confirm the third
+  condition of issue 7b too: hotspot visible, page browsable, `4WD4M Car`
+  advertising — all at once (row **U-113-11**).
+
+→ rows **U-113-9** (E3) and **U-113-10** (E4) in `TRACKS/DEVICE-TESTS.md`.
+
 ## 7 · Settings round-trip + the two-method panel
 
 App → Remote → Settings: Wi-Fi / Bluetooth / Boot auto-join show the car's
@@ -159,8 +186,13 @@ them can name this report's cause. If the car freezes:
 - **The BT heap diet (P4, issue 6) is IN this flash — its first step.** Bluetooth
   comes up classic-BT-only (`SerialBT.begin(..., true)`), releasing the unused BLE
   memory; this 1.3.11 body ALSO measures the rest (step 6b). Once those six
-  `[HEAPW]` numbers are in, the U-112 floors are re-tuned against them; P5 rides
-  this same 1.3.11 flash.
+  `[HEAPW]` numbers are in, the U-112 floors are re-tuned against them.
+- **P5 (issues 7 + 9) is IN this flash too.** `WIFICFG;WIFI;OFF` now actually hides
+  everything: `stop()` drops the beacon unconditionally, `startOwnAP()` refuses
+  while the transport is off, and `handle()`'s AP retry no longer resurrects the
+  hotspot ~2 s after the switch. Step **6c** (E3/E4) is what proves that on the
+  radio. Issue 9 needed no new fix — U-105 already removed the beacon park — so
+  its check is a regression guard plus the E4 render.
 - **DB Phase 7c migration** — owner runs
   `genumsolutions-website/supabase/migrations/20261013120000_phase7c_fresh_start_cleanup.sql`
   in the Supabase SQL editor (replace `owner_user_id` first).

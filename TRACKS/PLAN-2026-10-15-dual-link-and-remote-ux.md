@@ -187,18 +187,32 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
 
 ### P5 — Issues 7, 9: transport policy made honest (car firmware → rides the 1.3.11 flash)
 
-- **Wi-Fi OFF hides everything:** `WIFICFG;WIFI;OFF` → the U-79 loop calls `stop()`
-  (`WebServerComm.cpp` L1849) which drops the beacon only `if (apRunning_)` (L1871). E3 proves
-  which failure it is: `apRunning_` desync (silently skips `softAPdisconnect`), `stop()` never
-  reached (`webUp` already false), or the phone showing a cached scan. Fix the cause; gate it
-  (`wifi-off-hides-ap` rule + mutants: beacon must drop, page must 404/refuse).
-- **Page always up (issue 9):** Wi-Fi ON with NO client attached must serve the page
-  (`beginAlwaysOn` path) — E4 gives the current truth; fix whatever waits for the app; gate it
-  (`page-always-on`).
+- **✅ Wi-Fi OFF hides everything (issue 7) — SOURCE FIXED + gated (2026-10-15).** The plan's
+  own hint (`stop()` drops the beacon only `if (apRunning_)`) turned out to be half of the
+  cause, and reading the source named the whole thing without needing E3 first:
+  1. `stop()` gated the beacon teardown on `apRunning_` — a *believed* flag the code itself
+     force-writes false across an `AP_STA`↔`AP` mode bounce (`GIVEUP_AP`, `REJOIN_STEP_AP`), so
+     a stale value silently skipped `softAPdisconnect()`;
+  2. `handle()`'s FIN-40/D1 retry (`if (!apRunning_ && … >= AP_RETRY_INTERVAL_MS)`) then
+     **re-created the hotspot ~2 s after `WIFICFG;WIFI;OFF`** — `stop()` had just cleared that
+     flag, and `stop()` only runs while `webUp` is true, which the U-79 loop clears as it calls
+     it, so the resurrected beacon was **never taken down again**. `updateApPowerPolicy()`
+     correctly no-ops when `!wifiEnabled_`, so nothing else could.
+
+  Fix (three guards): `WiFi.softAPdisconnect(true)` unconditional · `startOwnAP()` refuses while
+  `!wifiEnabled_` (covers boot/rejoin/give-up, not just the retry) · the `handle()` retry is gated
+  on `wifiEnabled_`. **E3 is now the device confirmation, not the diagnosis.** Gated by
+  `wifi-off-hides-ap` + mutants **M91-M93**.
+- **Page always up (issue 9) — no new fix needed; now regress-proof + gated.** U-105 removed the
+  power-save *park*, and neither `handleRoot()` nor `serveRootBounded()` gates on a connected
+  client, so the page is already served with NO app attached. Gated by `page-always-on` (+ mutants
+  **M94/M95**); **E4** remains the device proof.
 - **Both ON ⇒ both offered (issue 7b):** verify the U-79 "both enabled" branch end-to-end on
   device: hotspot visible + page browsable + BT advertising, simultaneously.
 - Acceptance: device rows U-113-9..11; `check-webpage-js` / `check-firmware-contract` green with
-  the new rules.
+  the new rules. ✅ **Gates green** (syntax 9/9 · contract 0 failures · webpage-js PASS · TSH PASS ·
+  mutate-gates **89/89**). **Still owed:** the E3/E4 captures + rows U-113-9..11 from the owner's
+  bench (F-61).
 
 ### P6 — Issue 1: dual BT+Wi-Fi link, end to end (app + car)
 
