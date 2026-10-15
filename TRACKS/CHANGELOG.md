@@ -136,8 +136,9 @@ the capture reads six lines and not one per loop pass:
 fragment the heap — the largest contiguous block shrinks — without moving the
 TOTAL, and free heap alone cannot see that (P4 prime suspect (c)).
 
-**No behaviour change.** No U-112 floor was re-tuned and no allocator was
-touched; the diet itself still waits on this capture.
+**No behaviour change at this step.** No U-112 floor was re-tuned and no
+allocator was touched. (The diet's first step landed in the same version — see
+*Fixed — P4/issue 6* below.)
 
 **Gate + mutants.** New `heap-waterfall` rule in `check-firmware-contract.mjs`
 (the wire format · `max` present · one call per stage, in the file that owns that
@@ -145,8 +146,39 @@ stage). Mutants **M81-M88**: one per stage, plus one that drops `max=` from the
 format and one that prints `max` from the free value.
 
 **VERIFY — source only.** syntax **9/9** TUs · webpage-js PASS · contract **0
-failures (46 rules)** · TSH PASS (flag key still x1) ·
-`mutate-gates.mjs` **82/82 caught by their intended rule**.
+failures** (incl. 5x heap-guard + tele-params + heap-waterfall) · TSH PASS (flag
+key still x1) · `mutate-gates.mjs` **82/82 caught by their intended rule**.
+
+### Fixed — P4/issue 6: the BT heap diet (classic-BT-only bring-up)
+
+The `[HEAPW]` breadcrumb above exists to size this fix; the fix itself is now in
+the tree, because the largest cause turned out to be plain in the source and did
+not need the capture to name: `BluetoothSerial::begin()`'s third argument is
+`disableBLE`, and it **defaults to false** (`BluetoothSerial.h:43`). The bare
+`begin(BT_SPP_NAME)` this used to call therefore ran the controller in **BTDM**
+mode — BLE *and* classic — allocating BLE controller + host memory that this car
+never touches (it speaks Classic SPP only, and the app's BLE path is an explicit
+placeholder).
+
+`BluetoothComm::begin()` now calls `SerialBT.begin(BT_SPP_NAME, false, true)`.
+`disableBLE=true` asks for `ESP_BT_MODE_CLASSIC_BT`, and core 3.3.12 releases the
+BLE half before the controller starts: `btStartMode()` calls
+`btMemRelease(BT_MODE_BLE)` (`esp32-hal-bt.c`), so this is the library's **own
+supported path** — not a hand-rolled `esp_bt_controller_mem_release()` call, which
+would have to be sequenced against the controller init itself.
+
+This is the diet's **first step, not the whole diet**: the `[HEAPW]` waterfall
+still reports whatever BT cost remains, so the U-112 floor re-tune stays
+measurement-driven. **UNFLASHED (F-61)** — all of the above is source-level.
+
+**Gate + mutants.** New `bt-heap` rule in `check-firmware-contract.mjs` (the THIRD
+argument of `SerialBT.begin()` must be `true`). Mutants **M89/M90**: the argument
+dropped (back to the library default) and the argument flipped to `false`.
+
+**VERIFY — source only.** syntax **9/9** TUs · webpage-js PASS · contract **0
+failures** (incl. 5x heap-guard + tele-params + heap-waterfall + bt-heap) · TSH
+PASS (flag key still x1) · `mutate-gates.mjs` **84/84 caught by their intended
+rule**.
 
 ### Version — 1.3.10 → 1.3.11 (2026-10-15, owner ruling)
 
@@ -155,9 +187,12 @@ This body carried its U-112/U-114/T66/P4-E1 work under the label **1.3.10** whil
 the version **bumped to 1.3.11**: a 1.3.10 binary may already have been put on the
 car (or bench-flashed) for the U-112 pass, and a body that adds the U-114
 compile/wiring fix and the P4/E1 breadcrumb must never be confusable with a
-pre-fix 1.3.10 report in `device_crash_reports`. **The bench + E1 flash is
-1.3.11.** P4's actual diet — and P5 riding it — will ship as **1.3.12**, so every
-flashed body keeps its own version.
+pre-fix 1.3.10 report in `device_crash_reports`. **The bench, E1 and diet flash is
+1.3.11.** The diet (classic-BT-only, above) was folded into 1.3.11 rather than
+held back for a separate 1.3.12: nothing had been flashed yet, so there is no
+pre-diet binary to confuse it with, and the waterfall the owner captures (step 6b)
+is then the **post-diet** figure the floor re-tune actually needs. **P5 rides
+1.3.11**; there is no 1.3.12.
 
 ## 1.3.9 (U-111b, 2026-10-14, ON THE OWNER'S CAR): the Internet method (cloud relay) removed + the firmware-contract gate completed
 

@@ -19,7 +19,7 @@ The bench car is on an older build. One flash of `main` brings all of it:
 | U-111b (1.3.9, ON THE CAR) | **The Internet / cloud-relay method is gone** — no `[RELAY]` log lines, no `RELAYCFG`, the OLED link row only ever reads Bluetooth / WiFi |
 | **U-112 (1.3.11)** | **The reset-while-pairing and freeze-while-page-open round.** The status broadcast defers below a 49 kB heap floor (time-boxed 4 s); scans refuse below 65 kB with an honest BUSY; the page send aborts a reader that stops draining, so the app link keeps running while a page is open. Serial grows `[HEAP] …` and `[SCAN] refused` lines — that is the evidence this flash exists to produce |
 | **U-114 (1.3.11)** | **Build/wiring fix (no new radio behaviour).** HEAD did not compile and `/status` reported its neighbours' values for `wifi_enabled`/`bt_enabled`/`boot_autojoin` (the app adopts those). `/status` now also carries `tele_params":"freq=1600, vyse=0"` (additive, nothing reads it yet) |
-| **P4/E1 (1.3.11)** | **Measurement only — the BT heap waterfall (issue 6).** Serial gains one `[HEAPW] <stage> free=… max=…` line per radio stage: `boot`, `bt-stack`, `spp-connected`, `wifi-ap`, `page-served`, `both-links`. Nothing about behaviour changes — those six numbers are what the BT heap diet gets designed from (step **6b**) |
+| **P4/E1 + diet (1.3.11)** | **The BT heap work (issue 6).** Serial gains one `[HEAPW] <stage> free=… max=…` line per radio stage: `boot`, `bt-stack`, `spp-connected`, `wifi-ap`, `page-served`, `both-links`. The diet's first step is also in: Bluetooth now comes up **classic-BT-only**, releasing the BLE controller/host memory this SPP-only car never uses. The six numbers (step **6b**) are therefore the **post-diet** figures the floor re-tune is read from |
 | app U-110 | the "Connection lost / reconnect?" prompt appears only when **no** link is live, and both prompts are centered dialogs |
 | app U-111 | the app adopts the car's Wi-Fi / Bluetooth / boot-auto-join settings on connect |
 | app U-112 | **exactly TWO methods** — Bluetooth · WiFi (LAN); no Internet pill or card anywhere |
@@ -102,9 +102,11 @@ the `[CRASH] rtc: …` line from the next boot; it names phase + task + heap.
 ### 6b · E1 — capture the BT heap waterfall (P4, issue 6)
 
 Issue 6 is *"Bluetooth ON collapses free heap 110 KB → ~10 KB; BT+Wi-Fi together
-sometimes < 14 KB → the car resets"*. The diet is designed **from a measurement**,
-so this build emits one breadcrumb per stage — take the run in ONE uninterrupted
-window, from a cold boot:
+sometimes < 14 KB → the car resets"*. This build carries the diet's first step
+(Bluetooth comes up **classic-BT-only**, so the unused BLE memory is released) AND
+emits one breadcrumb per stage — so these are the **post-diet** numbers, and they
+are what the floor re-tune is read from. Take the run in ONE uninterrupted window,
+from a cold boot:
 
     python tools/serial_capture.py COM<port> 60 e1-heap-waterfall.log
 
@@ -154,10 +156,11 @@ them can name this report's cause. If the car freezes:
 
 ## 9 · Still open after the pass
 
-- **The BT heap diet (P4, issue 6) is NOT in this flash — it ships as 1.3.12.**
-  This 1.3.11 body only *measures* (step 6b). Once the six `[HEAPW]` numbers are
-  in, the diet + P5 land and the owner flashes **1.3.12** — a separate version on
-  purpose, so a 1.3.11 report can never be confused with a post-diet one.
+- **The BT heap diet (P4, issue 6) is IN this flash — its first step.** Bluetooth
+  comes up classic-BT-only (`SerialBT.begin(..., true)`), releasing the unused BLE
+  memory; this 1.3.11 body ALSO measures the rest (step 6b). Once those six
+  `[HEAPW]` numbers are in, the U-112 floors are re-tuned against them; P5 rides
+  this same 1.3.11 flash.
 - **DB Phase 7c migration** — owner runs
   `genumsolutions-website/supabase/migrations/20261013120000_phase7c_fresh_start_cleanup.sql`
   in the Supabase SQL editor (replace `owner_user_id` first).

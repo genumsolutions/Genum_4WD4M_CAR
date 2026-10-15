@@ -1,17 +1,53 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P4 step 1: the six-stage `[HEAPW]` heap-waterfall breadcrumb is in — **the E1 capture itself is still owed; the owner flash target is now 1.3.11 (bumped from 1.3.10 by owner ruling)**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P4 steps 1+2: the six-stage `[HEAPW]` heap-waterfall breadcrumb AND the diet's first step — classic-BT-only bring-up — are in; **the E1 capture + the U-112 floor re-tune are still owed; the owner flash target is 1.3.11**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
 > mode-rotate: the cycle used to send the car's GONE tokens ESP_SER/ESP_CLI → NACK
 > UNKNOWN_MODE → app rolled back to 4WD4M; the app now skips GONE tokens from the CAPS
-> table). **Car-side P4 (the BT heap diet → 1.3.12, THE main issue) has STARTED at its first
-> bullet — the six-stage `[HEAPW]` heap-waterfall breadcrumb is landed, gates green — but the
-> E1 capture is still owed from the bench (RUNSHEET step 6b) and the diet waits on it.** P2/P3
-> are app-side. App mirror:
+> table). **Car-side P4 (the BT heap diet, THE main issue) has landed its first two
+> bullets: the six-stage `[HEAPW]` heap-waterfall breadcrumb AND the diet's first step
+> (Bluetooth now comes up classic-BT-only, releasing the unused BLE memory) — gates green.
+> The E1 capture (RUNSHEET step 6b) and the floor re-tune are still owed from the bench.**
+> P2/P3 are app-side. App mirror:
 > `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`. Phase 0 evidence
 > captures (E1 + E2/E5 + serial logs while the owner tests 1.3.11) are still owed.
 
-## P4 step 1 · 2026-10-15 — the E1 heap-waterfall breadcrumb (measurement only; issue 6 is NOT fixed)
+## P4 step 2 · 2026-10-15 — the BT heap diet's first step: classic-BT-only bring-up (issue 6)
+
+**The largest cause of issue 6 was visible in source, not in a capture.** The car
+called `SerialBT.begin(BT_SPP_NAME)`; `BluetoothSerial::begin()`'s third argument
+is `disableBLE`, and it **defaults to false** (`BluetoothSerial.h:43`), so that
+call ran the controller in **BTDM** mode — BLE *and* classic — allocating BLE
+controller + host memory this car never touches. It speaks Classic SPP only, and
+the app's BLE path is an explicit placeholder (`navigation/types.ts`), so the BLE
+half was pure waste: prime suspect (a) from the plan, confirmed in the core.
+
+**Fix:** `BluetoothComm::begin()` now calls
+`SerialBT.begin(BT_SPP_NAME, false, true)`. `disableBLE=true` selects
+`ESP_BT_MODE_CLASSIC_BT`, and core 3.3.12's `btStartMode()` releases the BLE half
+for us — `btMemRelease(BT_MODE_BLE)` before `esp_bt_controller_init()`
+(`esp32-hal-bt.c`). That is the library's own supported path, so no hand-rolled
+`esp_bt_controller_mem_release()` call (and none of its init-ordering hazards) was
+needed. The T-7b restart path (`SerialBT.end()` → `begin()`) re-requests
+classic-only; the core tracks the released state, so the second release is a no-op.
+
+**This is step 1 of the diet, not the whole diet.** The E1 waterfall still reports
+whatever BT cost remains, so the floor re-tune stays measurement-driven — if the
+post-diet `bt-stack` line is still low, suspects (b) ACL buffers and (c) T-7b
+fragmentation remain.
+
+**Gates (source only — F-61):** new `bt-heap` rule (`SerialBT.begin()`'s THIRD
+argument must be `true`) + mutants **M89** (argument dropped → library default) and
+**M90** (argument flipped to `false`); `check-firmware-syntax.ps1` **9/9** ·
+`check-webpage-js.mjs` PASS · `check-firmware-contract.mjs` **0 failures** ·
+`TSH/test_config_integrity.py` PASS (flag key still exactly 1) ·
+`mutate-gates.mjs` **84/84 caught by their intended rule**.
+
+**Version:** folded into **1.3.11** rather than held back for a 1.3.12 body: nothing
+had been flashed, so the E1 capture the owner takes is the post-diet figure the
+floor re-tune needs.
+
+## P4 step 1 · 2026-10-15 — the E1 heap-waterfall breadcrumb (measurement only)
 
 **Started P4 (issue 6 — "THE main issue": BT ON collapses free heap ~110 KB →
 ~10 KB, BT+Wi-Fi below 14 KB resets the car) at its first bullet, which the plan
@@ -48,22 +84,25 @@ read the `free`/`max` pair for exactly that reason.
 present · one call per stage in the file that owns that stage) + mutants
 **M81-M88** (six stages, the format, the `getMaxAllocHeap` argument);
 `check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` PASS ·
-`check-firmware-contract.mjs` **0 failures (46 rules)** ·
+`check-firmware-contract.mjs` **0 failures** ·
 `TSH/test_config_integrity.py` PASS (flag key still exactly 1) ·
 `mutate-gates.mjs` **82/82 caught by their intended rule**.
 
 **STILL OWED FROM THE BENCH: E1 itself.** `TRACKS/RUNSHEET.md` **step 6b** — 60 s
 from a cold boot spanning pair → page → both links, then the six `free=`/`max=`
-pairs. **Nothing about issue 6 is fixed yet**: no U-112 floor re-tuned, no
-allocator touched, no `esp_bt_controller_mem_release(ESP_BT_MODE_BLE)`. P4's fix,
-and P5 riding it, and P6 gated on its headroom, all wait on those numbers.
+pairs. The diet's first step is landed (see *P4 step 2* above), but **no U-112
+floor is re-tuned yet** — the floors are re-read from this post-diet capture. P4's
+floor re-tune, P5 riding it, and P6 gated on its headroom, all wait on those
+numbers.
 
 **Version: bumped 1.3.10 → 1.3.11 (owner ruling, 2026-10-15).** The breadcrumb —
 and the earlier U-112/U-114/T66 work — had shipped under **1.3.10** on the
 reasoning that 1.3.10 was never flashed. The owner ruled the label **bumped to
 1.3.11** so that a 1.3.10 binary (possibly already on the car for the U-112 pass)
-can never be confused with this pre-diet body. **1.3.11 is the bench + E1 flash.**
-P4's diet, and P5 riding it, ship as **1.3.12**.
+can never be confused with this body. **1.3.11 is the bench + E1 + diet flash.**
+The diet (step 2 above) was folded into 1.3.11 rather than held back for a 1.3.12
+— nothing was flashed, so the E1 capture is the post-diet figure the floor re-tune
+needs. P5 rides it.
 
 ## U-114 2026-10-15 — HEAD did not compile, and `/status` reported its neighbours' values (1.3.11, UNFLASHED — owner flash target)
 

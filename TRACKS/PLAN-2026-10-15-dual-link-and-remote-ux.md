@@ -1,11 +1,12 @@
 # PLAN 2026-10-15 — dual link + remote-screen UX + BT heap (CAR half, master)
 
-Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) · P4 STEP 1 LANDED — the E1
-heap-waterfall breadcrumb is now in the firmware (source-only, gates green); P4's diet is next
-and is WAITING on the owner's E1 capture.** Phase 0 captures (E1 + E2/E5/E6 + the P3 audit log)
-are still owed from the owner's 1.3.11 bench pass; P1 did not need them (source-level root
-cause, see below). **Versions: the current car body — U-112 + U-114 + T66 + P4/E1 — is 1.3.11
-(the owner's bench + E1 flash); P4's diet and P5 ship as 1.3.12.** The app half is
+Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) · P4 STEP 1 + STEP 2 LANDED — the E1
+heap-waterfall breadcrumb **and** the diet's first step (classic-BT-only bring-up, so the
+never-used BLE memory is released) are now in the firmware (source-only, gates green). The E1
+capture is still owed from the bench.** Phase 0 captures (E1 + E2/E5/E6 + the P3 audit log) are
+still owed from the owner's 1.3.11 bench pass; P1 did not need them (source-level root cause, see
+below). **Version: the current car body — U-112 + U-114 + T66 + P4/E1 + the P4 diet — is 1.3.11
+(the owner's bench + E1 flash); P5 rides the same flash.** The app half is
 mirrored in `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`;
 cross-repo round log stays in the root `RESUME-HERE.md`.
 
@@ -154,31 +155,37 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
   reconnect/restart prompts, floating button drag. Fix the failures.
 - Acceptance: TESTING.md checklist + device rows U-113-5..7; vitest green.
 
-### P4 — Issue 6: BT heap diet (car firmware → 1.3.12) — THE main thing
+### P4 — Issue 6: BT heap diet (car firmware → 1.3.11) — THE main thing
 
-- **◑ STEP 1 LANDED 2026-10-15 — the breadcrumb exists; the CAPTURE (E1) is still owed.**
+- **✔ STEP 1 LANDED 2026-10-15 — the breadcrumb exists; the CAPTURE (E1) is still owed.**
   `heapWaterfall(stage)` (`Config.h`) plus six edge-gated call sites now print
   `[HEAPW] <stage> free=… max=…` for exactly the stages named below (boot → BT controller up →
   SPP connected → own AP up → page served → both links), with `max` =
   `ESP.getMaxAllocHeap()` so fragmentation shows without moving the `free` total. New
-  `heap-waterfall` contract rule + mutants **M81-M88 (82/82)**; syntax 9/9 · webpage-js PASS ·
-  contract 0 failures (46 rules) · TSH PASS. **The owner captures it as RUNSHEET step 6b.**
-  The fix and the floor re-tune below are still untouched — they wait on that number.
-  Spec for the measurement itself: A ~100 KB drop for classic BT is far above
-  the usual 40-70 KB: prime suspects are (a) BLE controller/host memory allocated but never used
-  (the car speaks SPP — `esp_bt_controller_mem_release(ESP_BT_MODE_BLE)` BEFORE controller init
-  reclaims it), (b) default ACL/bt config buffers, (c) the T-7b BT-restart watchdog causing
-  heap fragmentation (check `ESP.getMaxAllocHeap()`, not just free heap).
-- **Fix per measurement**, guarded by a new contract rule (`bt-heap`) + mutants in
-  `tools/mutate-gates.mjs`, so a future refactor can't silently re-inflate BT.
-- **Re-tune the U-112 floors with the new numbers:** at 10-14 KB the 49152 B status floor defers
-  telemetry to 1 attempt/4 s AND the 65536 B scan floor refuses EVERY scan (`ROUTERS;SCAN;BUSY`)
-  — i.e. today, BT ON ≈ router list permanently busy. After the diet, re-measure steady-state and
-  adjust the floors (or make them relative) so both guards still bite where they should.
+  `heap-waterfall` contract rule + mutants **M81-M88**; syntax 9/9 · webpage-js PASS ·
+  contract 0 failures · TSH PASS. **The owner captures it as RUNSHEET step 6b.**
+- **✔ STEP 2 LANDED 2026-10-15 — the diet's first step: classic-BT-only bring-up.**
+  Prime suspect (a) turned out to be source-visible: `BluetoothSerial::begin()`'s `disableBLE`
+  argument defaults to false (`BluetoothSerial.h:43`), so the old bare `begin(name)` ran the
+  controller in **BTDM** mode and allocated BLE controller + host memory the SPP-only car never
+  uses. `BluetoothComm::begin()` now calls `SerialBT.begin(BT_SPP_NAME, false, true)` →
+  `ESP_BT_MODE_CLASSIC_BT` → core 3.3.12's `btStartMode()` releases the BLE half for us
+  (`btMemRelease(BT_MODE_BLE)`, `esp32-hal-bt.c`). New `bt-heap` contract rule + mutants
+  **M89/M90 (84/84)**. Folded into 1.3.11 rather than a separate body: nothing was flashed, so
+  the E1 capture the owner takes is the **post-diet** figure the floor re-tune below needs.
+- Spec for the rest of the measurement (still owed): a ~100 KB drop for classic BT is far above
+  the usual 40-70 KB, so if the post-diet `bt-stack` line is still low the remaining suspects are
+  (b) default ACL/bt config buffers and (c) the T-7b BT-restart watchdog causing heap
+  fragmentation (check `ESP.getMaxAllocHeap()`, not just free heap).
+- **Re-tune the U-112 floors with the new numbers (STILL OWED):** at 10-14 KB the 49152 B status
+  floor defers telemetry to 1 attempt/4 s AND the 65536 B scan floor refuses EVERY scan
+  (`ROUTERS;SCAN;BUSY`) — i.e. today, BT ON ≈ router list permanently busy. After the diet,
+  re-measure steady-state and adjust the floors (or make them relative) so both guards still bite
+  where they should.
 - Acceptance: soak 10 min with BT+Wi-Fi+page+both links live, free heap sustained ≥ agreed floor,
-  zero resets; serial evidence; device row U-113-8. Flash 1.3.12.
+  zero resets; serial evidence; device row U-113-8. Flash 1.3.11.
 
-### P5 — Issues 7, 9: transport policy made honest (car firmware → rides the 1.3.12 flash)
+### P5 — Issues 7, 9: transport policy made honest (car firmware → rides the 1.3.11 flash)
 
 - **Wi-Fi OFF hides everything:** `WIFICFG;WIFI;OFF` → the U-79 loop calls `stop()`
   (`WebServerComm.cpp` L1849) which drops the beacon only `if (apRunning_)` (L1871). E3 proves
@@ -220,8 +227,8 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
   clean-tree run with new mutants**) + app (vitest, typecheck, lint).
 - Ledgers + records updated: `TRACKS/CHANGELOG.md`, `TRACKS/DEVICE-TESTS.md` (U-113-1..16),
   app `mobile/TESTING.md`, both `TRACKS/NEXT-SESSION.md`, root `RESUME-HERE.md`, `Readme.md`,
-  `TRACKS/RUNSHEET.md` (flash 1.3.12 step).
-- Ship: owner flashes 1.3.12 (huge_app, 115200), app pushes the JS-only OTA (3.2.7/60 unchanged),
+  `TRACKS/RUNSHEET.md` (flash 1.3.11 step).
+- Ship: owner flashes 1.3.11 (huge_app, 115200), app pushes the JS-only OTA (3.2.7/60 unchanged),
   Arduino CI + app CI verified green on both repos, `backup` branches re-snapshotted.
 
 ## Open questions for the owner (defaults chosen — say the word to change them)
@@ -238,6 +245,6 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
 ## Definition of done (issue 13)
 
 All 14 issues closed with device evidence attached to their U-113 rows; every phase's gates green
-including mutation proof; both repos pushed with clean trees; CI green on both; 1.3.12 flashed and
+including mutation proof; both repos pushed with clean trees; CI green on both; 1.3.11 flashed and
 the app OTA published; `backup` updated. F-61 style honesty applies: device-verified = the owner's
 own captures, not our gates.
