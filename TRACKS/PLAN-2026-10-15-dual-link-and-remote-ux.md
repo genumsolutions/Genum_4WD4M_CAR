@@ -1,11 +1,12 @@
 # PLAN 2026-10-15 — dual link + remote-screen UX + BT heap (CAR half, master)
 
-Status: **PHASE 0 ONLY — plan written, NO code yet.** The owner is flashing 1.3.10 and running
-the U-112 device rows right now; this plan is what we execute next, one phase at a time. The app
-half is mirrored in `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`;
+Status: **P1 DONE (2026-10-15) — P2 NEXT.** Phase 0 captures (E2/E5/E6 + the P3 audit log)
+are still owed from the owner's 1.3.10 bench pass; P1 did not need them (source-level root
+cause, see below). The app half is mirrored in `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`;
 cross-repo round log stays in the root `RESUME-HERE.md`.
 
-Owner request (2026-10-15, pasted text, verbatim intent — 13 issues):
+Owner request (2026-10-15, pasted text, verbatim intent — 14 issues; #14 was missed in this
+plan's first pass and added on the 2026-10-15 re-read of the same pasted text):
 
 1. **Dual link** — app+car connected over Bluetooth AND Wi-Fi at the same time. Connecting both
    fails today; owner asks whether it is possible on the ESP32 at all.
@@ -34,6 +35,9 @@ Owner request (2026-10-15, pasted text, verbatim intent — 13 issues):
     working, and audit EVERY other control on that panel; fix whatever doesn't work.
 13. **Finish both projects** — every issue closed with device evidence, gates green, both repos
     pushed, CI green.
+14. **Reconnect dialog unreadable** — the network reconnect dialog "merges with background
+    text" and says nothing useful about the connection itself; make it a proper alert dialog
+    with an opaque, easy-to-read background.
 
 ## Feasibility answer (owner asked this for issue 1)
 
@@ -51,9 +55,9 @@ Owner request (2026-10-15, pasted text, verbatim intent — 13 issues):
 
 ## Traceability — issue → phase
 
-| Issue | 1 dual | 2 merge | 3 cond-disc | 4 phone-chip | 5 width | 6 heap | 7 wifi-off | 8 sync | 9 page-up | 10 IP-link | 11 rotate | 12 settings | 13 finish |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Phase | P6 | P2 | P2 | P2 | P3 | P4 | P5 | P7 | P5 | P2 | P1 | P3 | P8 |
+| Issue | 1 dual | 2 merge | 3 cond-disc | 4 phone-chip | 5 width | 6 heap | 7 wifi-off | 8 sync | 9 page-up | 10 IP-link | 11 rotate | 12 settings | 13 finish | 14 dialog |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Phase | P6 | P2 | P2 | P2 | P3 | P4 | P5 | P7 | P5 | P2 | P1 | P3 | P8 | P2 |
 
 ## Phase 0 — evidence from the owner's current flash + device test (NO code)
 
@@ -73,15 +77,24 @@ before any code is touched. `python tools/serial_capture.py COMx <secs> <out.log
 
 ### P1 — Issue 11: mode rotate cycles again (app, JS-only OTA; car only if evidence says so)
 
-- Suspect **H1 (routing drops the token):** `selectMode` calls `setActiveMode(m)` then
-  `sendCommand(m.token)` (`useControlHub.ts` L3253) — `sendCommand`'s closure still holds the OLD
-  `activeMode`, so the token is routed by the OLD mode's `transport` list; if that list excludes
-  the live radio, `routeCommand` returns neither bt nor ws and the token is silently dropped
-  (L2617-2646).
-- Suspect **H2 (echo revert):** the A-37 commit-grace window flips the optimistic pick back on a
-  stale MODE echo; or the car NACKs (`NACK;E=UNKNOWN_MODE`).
-- E2 decides the suspect. Fix, add/extend the vitest (`roboCarCatalog.test.ts` /
-  `carProtocol.test.ts` already cover `nextRemoteModeToken`), device row U-113-1.
+**✅ DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE. Root cause = H2 in a variant the plan did not
+name: the NACK rollback.**
+
+- **H1 ruled out** for this symptom: mode tokens are not in `EVERY_LINK_COMMANDS`, but the
+  OLD `activeMode`'s transports for 4WD4M list BOTH radios, so the token did leave the app.
+- **Actual cause:** `cycleMode` walked the full `REMOTE_MODE_ORDER` and sent the next token per
+  R-10 ("planned/CS stay cyclable — the car will NACK if it rejects it"). But U-79 REMOVED
+  `ESP_SER`/`ESP_CLI` from this car's registry — absent from CAPS = `GONE` (U-81). So every tap:
+  4WD4M → ESP_SER → car answers `NACK;E=UNKNOWN_MODE` → `handleNack` rolls the optimistic pick
+  back to car truth (4WD4M). "Seems like resetting to the same 4wd4m." The dropdown rows already
+  refused GONE tokens (U-81); `cycleMode` was never taught the exception.
+- **Fix (app `roboCarCatalog.ts` + `useControlHub.ts`):** new pure `nextCyclableToken(token,
+  isUnavailable)` skips only what the caller marks; `cycleMode` marks
+  `modeAvailStatus(...) === "GONE"` — WIP/CS stay cyclable (R-10 intact), no CAPS table ⇒ old
+  behaviour. Tests + F-83 source-wiring pin (`cycleModeGone.test.ts`), mutate-proven both ways;
+  tsc 0 · vitest 701/701 · prettier clean. Device row U-113-1 owed (F-61).
+- E2 still useful for the ledger (does the NACK line appear when the app SENDS a retired token
+  from other paths?), but did not gate this fix.
 
 ### P2 — Issues 2, 3, 4, 10: Remote screen chrome rebuilt (app, JS-only OTA)
 
@@ -103,9 +116,14 @@ All in `RemoteControlScreen.tsx`:
   tappable link (`handleOpenWebPage`); the long `deckLinkLabel` (L570-577) collapses to the short
   form (`BT+WiFi` / `Bluetooth` / `WiFi` + IP), and the duplicate page-link chip in the tabs row
   (L940-966) is removed. Keep the one link-status dot (U-108 ruling: ONE status).
+- **Reconnect dialog (issue 14):** `renderPromptShell`'s transparent card lets the screen text
+  show through (owner: "merges with background text"). Both prompts (reconnect + car-restart)
+  get an OPAQUE, high-contrast surface (solid theme background + border, zero transparency) and
+  copy that names the real connection state (which link dropped, which link is still up) instead
+  of a generic "Connection lost". Device row U-113-16.
 - Acceptance: one row below Back; chips only for live methods and each disconnects just itself;
-  no phone-net chip; IP chip opens the page; no duplicate link below; device rows U-113-2..4 with
-  before/after screenshots.
+  no phone-net chip; IP chip opens the page; no duplicate link below; device rows U-113-2..4 +
+  U-113-16 with before/after screenshots.
 
 ### P3 — Issues 5, 12: Settings panel widened + fully audited (app, JS-only OTA)
 
@@ -181,7 +199,7 @@ All in `RemoteControlScreen.tsx`:
 
 - All gates green: car (syntax, webpage-js, firmware-contract incl. new rules, **mutate-gates
   clean-tree run with new mutants**) + app (vitest, typecheck, lint).
-- Ledgers + records updated: `TRACKS/CHANGELOG.md`, `TRACKS/DEVICE-TESTS.md` (U-113-1..15),
+- Ledgers + records updated: `TRACKS/CHANGELOG.md`, `TRACKS/DEVICE-TESTS.md` (U-113-1..16),
   app `mobile/TESTING.md`, both `TRACKS/NEXT-SESSION.md`, root `RESUME-HERE.md`, `Readme.md`,
   `TRACKS/RUNSHEET.md` (flash 1.3.11 step).
 - Ship: owner flashes 1.3.11 (huge_app, 115200), app pushes the JS-only OTA (3.2.7/60 unchanged),
@@ -200,7 +218,7 @@ All in `RemoteControlScreen.tsx`:
 
 ## Definition of done (issue 13)
 
-All 13 issues closed with device evidence attached to their U-113 rows; every phase's gates green
+All 14 issues closed with device evidence attached to their U-113 rows; every phase's gates green
 including mutation proof; both repos pushed with clean trees; CI green on both; 1.3.11 flashed and
 the app OTA published; `backup` updated. F-61 style honesty applies: device-verified = the owner's
 own captures, not our gates.

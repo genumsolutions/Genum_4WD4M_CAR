@@ -33,5 +33,13 @@ live drive mode (4WD4M) over BOTH Bluetooth and Wi-Fi, unique on-air identity.
 - The command protocol grammar is IDENTICAL across generations — never forked.
 
 ## Where the plan lives
-`guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md` (phases, gates, rulings R-1..R-10,
-open decisions O-1..O-4).
+- **Current round (2026-10-15, PLANNED, no code yet):** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md`
+  (master; app mirror in `genumsolutions-app\TRACKS\`). The owner's 14-issue list: dual BT+Wi-Fi
+  link, Remote-screen line merge, conditional disconnect chips, drop the phone-net chip, wider
+  settings panel, the BT heap diet (110 KB → ~10 KB when BT on — the MAIN issue), Wi-Fi-off must
+  hide the hotspot + page, settings sync "pronto", page always up when Wi-Fi on, IP-chip-as-link +
+  de-duplicated chrome, dead mode-rotate button, auto-join toggle cleanup + settings audit,
+  close-out, and the opaque reconnect dialog. **Owner directive: plan and notes only this round —
+  no code until the phases are executed one at a time.**
+- Baseline design plan: `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md` (phases, gates,
+  rulings R-1..R-10, open decisions O-1..O-4).
