@@ -2864,6 +2864,40 @@ void WebServerComm::handleNotFound() {
   server.send(404, "text/plain", "Not found");
 }
 
+// ---- U-114: the ONLY parser of the CONFIG.telemetry.parameters surface ----
+// The surface (Config.h) is one comma-separated string literal so the TSH gate
+// can assert a single source of truth AND the C++ can read the same bytes. This
+// helper indexes fields BY NUMBER, so re-ordering or extending the surface can
+// never silently slide a value into the wrong slot the way a hand-rolled
+// `strchr` chain does.
+//   - a missing field yields "" — never a wild pointer: the old chain added 1
+//     to a NULL strchr result, which is UB the moment the surface is shortened;
+//   - the LAST field is the remainder of the surface (no trailing comma), so
+//     the shaping field yields its own value rather than "";
+//   - the copy is bounded by dstSize, so a longer-than-expected value truncates
+//     into the caller's buffer instead of overrunning it.
+static void teleSurfaceField(const char* surface, uint8_t idx,
+                             char* out, size_t dstSize) {
+  if (!out || dstSize == 0) return;
+  out[0] = '\0';
+  if (!surface) return;
+  const char* p = surface;
+  for (uint8_t i = 0; i < idx; ++i) {
+    p = strchr(p, ',');
+    if (!p) return;          // fewer fields than asked for -> leave ""
+    ++p;
+  }
+  const char* end = strchr(p, ',');
+  size_t len = end ? static_cast<size_t>(end - p) : strlen(p);
+  if (len >= dstSize) len = dstSize - 1;
+  memcpy(out, p, len);
+  out[len] = '\0';
+}
+// Field layout of that surface, counted from 0 (see Config.h):
+//   0 <surface> | 1 frequency | 2 <Hz> | 3 <flag-key> | 4 <shaping>
+static const uint8_t TELE_FREQ_FIELD = 2;
+static const uint8_t TELE_VYSE_FIELD = 4;
+
 void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   if (!buf || bufLen == 0) return;
   // F-23: protocol values only — mode = canonical token (registry-driven),
@@ -2931,35 +2965,23 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // AP broadcast id — the app deck shows both. T-64: when nothing is stored,
   // the car's OWN network (4WD4MCar_WiFi) IS the network — the compile-time
   // secrets.h fallback is never joined nor named.
-  // T66 (round-9): the single config surface the car reads. `frequency` is the
-  // update cadence (Hz) and this shaping flag is the 1|0 value. Both live on
-  // the CONFIG.telemetry.parameters surface only (Config.h) — nothing else in
-  // this file defines them.
-  const char* teleParams = CONFIG_TELEMETRY_PARAMETERS;
-  const char* freqTok = strchr(teleParams, ',') + 1;
-  const char* freqVal = strchr(freqTok, ',') + 1;
-  const char* vyseTok = strchr(freqVal, ',') + 1;
-  const char* vyseVal = strchr(vyseTok, ',') + 1;
-  const char* freqEnd = strchr(freqVal, ',');
-  const char* vyseEnd = strchr(vyseVal, ',');
+  // T66 (round-9) · U-114: the telemetry-parameter surface, surfaced on /status
+  // as `tele_params`. `frequency` is the update cadence (Hz) and the shaping
+  // flag is the 1|0 value; both live ONLY on the CONFIG.telemetry.parameters
+  // surface in Config.h — nothing else in this file defines them.
+  //
+  // Read through teleSurfaceField() rather than the earlier `strchr(p, ',') + 1`
+  // chain, which was three defects stacked: the macro was an UNQUOTED token list
+  // (so this did not compile at all), every `strchr(...) + 1` added 1 to a NULL
+  // result whenever the surface was shortened (undefined behaviour), and the
+  // LAST field was read with `strchr(value, ',')`, which is NULL for a surface
+  // with no trailing comma — so the shaping value came out EMPTY instead of "0".
   char freqBuf[16];
   char vyseBuf[8];
-  if (freqEnd) {
-    size_t flen = static_cast<size_t>(freqEnd - freqVal);
-    if (flen >= sizeof(freqBuf)) flen = sizeof(freqBuf) - 1;
-    memcpy(freqBuf, freqVal, flen);
-    freqBuf[flen] = '\0';
-  } else {
-    freqBuf[0] = '\0';
-  }
-  if (vyseEnd) {
-    size_t vlen = static_cast<size_t>(vyseEnd - vyseVal);
-    if (vlen >= sizeof(vyseBuf)) vlen = sizeof(vyseBuf) - 1;
-    memcpy(vyseBuf, vyseVal, vlen);
-    vyseBuf[vlen] = '\0';
-  } else {
-    vyseBuf[0] = '\0';
-  }
+  teleSurfaceField(CONFIG_TELEMETRY_PARAMETERS, TELE_FREQ_FIELD, freqBuf,
+                   sizeof(freqBuf));
+  teleSurfaceField(CONFIG_TELEMETRY_PARAMETERS, TELE_VYSE_FIELD, vyseBuf,
+                   sizeof(vyseBuf));
   // U-70 (2026-10-02): the JSON `ssid` is the network the car is ACTUALLY on.
   // It used to be the stored target, which is written the moment `ROUTERS;USE`
   // stores the pair and BEFORE any association is attempted — so a failed switch
@@ -3086,10 +3108,15 @@ snprintf(buf, bufLen,
       FW_VERSION,
       networks,
       scanJson,
+      // U-114: these two MUST sit where the format string's tele_params %s
+      // slots are (between `scan` and `wifi_enabled`). They were appended after
+      // bootAutojoin_, which left every value from `tele_params` onward fed by
+      // the wrong argument — wifi_enabled/bt_enabled/boot_autojoin are ADOPTED
+      // by the app (U-111), so the mis-ordering silently corrupted settings.
+      freqBuf,
+      vyseBuf,
       wifiEnabled_ ? "true" : "false",
       btEnabled_ ? "true" : "false",
-      bootAutojoin_ ? "true" : "false",
-      freqBuf,
-      vyseBuf
+      bootAutojoin_ ? "true" : "false"
   );
 }

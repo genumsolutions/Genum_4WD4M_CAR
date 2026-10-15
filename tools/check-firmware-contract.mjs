@@ -273,6 +273,31 @@ if (!/\\"fw\\":\\"%s\\"/.test(stJson)) {
   pass("status-fw", "status JSON carries fw, fed from FW_VERSION in its argument position");
 }
 
+// (f2) U-114: the telemetry-parameter surface. It is read in TWO directions by
+// one line of Config.h — the TSH gate parses it as TEXT, the C++ assigns it to
+// a `const char*` — so the shape of that line, the slot it feeds on /status and
+// the ARGUMENT POSITION of that slot are all one contract. Commit 79e6d26 broke
+// all three at once (unquoted macro = no build; `strchr(x,',')+1` = UB; the two
+// buffers appended after bootAutojoin_ = wifi_enabled/bt_enabled/boot_autojoin
+// fed by the wrong argument, which the app ADOPTS).
+const teleMacroLine = cfg.match(/^\s*#define\s+CONFIG_TELEMETRY_PARAMETERS\s+(\S.*)$/m)?.[1]?.trim() ?? "";
+if (!/^"[\s\S]*"$/.test(teleMacroLine)) {
+  fail("tele-params", `the config surface is not one string literal (got: ${teleMacroLine || "<missing>"}) - it is assigned to a const char*, so the bare token list does not compile`);
+} else if (!/\\"tele_params\\":\\"freq=%s, vyse=%s\\"/.test(stJson)) {
+  fail("tele-params", "status JSON has no tele_params freq=%s, vyse=%s slot - the surface exists but nothing reports it");
+} else if (!/scanJson\s*,\s*freqBuf\s*,\s*vyseBuf\s*,\s*wifiEnabled_/.test(code(stJson))) {
+  fail("tele-params", "freqBuf/vyseBuf are not the arguments at the tele_params slot position - snprintf order is the contract, so every field after them reports a neighbour's value");
+} else if (!/teleSurfaceField\(\s*CONFIG_TELEMETRY_PARAMETERS\s*,\s*TELE_FREQ_FIELD\s*,\s*freqBuf/.test(code(wsc)) ||
+           !/teleSurfaceField\(\s*CONFIG_TELEMETRY_PARAMETERS\s*,\s*TELE_VYSE_FIELD\s*,\s*vyseBuf/.test(code(wsc))) {
+  fail("tele-params", "the surface is not read through teleSurfaceField() with both field indices - a direct parse brings the NULL-unsafe chain back");
+} else if (/strchr\s*\([^)]*\)\s*\+\s*1/.test(code(wsc))) {
+  fail("tele-params", "a `strchr(...) + 1` chain is back in WebServerComm.cpp - strchr returns NULL when a field is missing, so +1 is undefined behaviour");
+} else if (!/if\s*\(\s*!p\s*\)\s*return;/.test(code(body(wsc, "static void teleSurfaceField") ?? ""))) {
+  fail("tele-params", "teleSurfaceField does not stop on a missing field - the bounds guard on the helper is gone, so a shortened surface reads past its own end");
+} else {
+  pass("tele-params", "surface is one literal, tele_params is fed in slot order, and the parser is the NULL-safe bounded helper");
+}
+
 // ---- 7. the page-send loop cannot starve the watchdog (U-95/F-77) -------
 // The sketch's REAL watchdog config must be the same number the header declares.
 

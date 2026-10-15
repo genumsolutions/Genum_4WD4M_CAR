@@ -552,6 +552,34 @@ const mutants = [
     find: "    stallRetries = 0;  // progress: a moving reader keeps the full budget",
     repl: "    // stall counter no longer reset on progress",
     why: "the stall counter never resets when bytes flow — one slow moment would end EVERY later page pass, so slow-but-alive readers can no longer finish a page" },
+
+  // U-114: the telemetry-parameter surface. Five mutants, one per direction the
+  // `tele-params` rule polices. Before this rule the tree carried all of the
+  // first two at once and the gate was green.
+  { id: "M76", rule: "tele-params", file: "Config.h",
+    find: '#define CONFIG_TELEMETRY_PARAMETERS   "tele.parameters,frequency,1600,vysexcvr,0"',
+    repl: "#define CONFIG_TELEMETRY_PARAMETERS   tele.parameters,frequency,1600,vysexcvr,0",
+    why: "the surface goes back to a bare token list — `const char* x = tele.parameters, …` is an undeclared identifier, i.e. the sketch does not build (this is the exact HEAD-broken state 79e6d26 shipped)" },
+
+  { id: "M77", rule: "tele-params", file: WSC,
+    find: '"\\"tele_params\\":\\"freq=%s, vyse=%s\\",',
+    repl: '"\\"tele_prm\\":\\"freq=%s, vyse=%s\\",',
+    why: "the status key is renamed — the surface is still read, still parsed, and the client never sees it (an unreferenced value is the same as no value)" },
+
+  { id: "M78", rule: "tele-params", file: WSC,
+    find: "      freqBuf,\n      vyseBuf,\n      wifiEnabled_ ? \"true\" : \"false\",",
+    repl: "      wifiEnabled_ ? \"true\" : \"false\",\n      freqBuf,\n      vyseBuf,",
+    why: "the two surface buffers move off the tele_params slot — snprintf feeds each %s from the NEXT argument, so wifi_enabled/bt_enabled/boot_autojoin report their neighbours' values and the app ADOPTS them (U-111)" },
+
+  { id: "M79", rule: "tele-params", file: WSC,
+    find: "  teleSurfaceField(CONFIG_TELEMETRY_PARAMETERS, TELE_FREQ_FIELD, freqBuf,\n                   sizeof(freqBuf));\n  teleSurfaceField(CONFIG_TELEMETRY_PARAMETERS, TELE_VYSE_FIELD, vyseBuf,\n                   sizeof(vyseBuf));",
+    repl: "  const char* teleP = CONFIG_TELEMETRY_PARAMETERS;\n  strcpy(freqBuf, strchr(teleP, ',') + 1);\n  strcpy(vyseBuf, strchr(teleP, ',') + 1);",
+    why: "the surface is parsed by hand again with `strchr(...) + 1`, which adds 1 to a NULL result the moment a field is missing — undefined behaviour, and it drops the last-field-as-remainder rule too" },
+
+  { id: "M80", rule: "tele-params", file: WSC,
+    find: "    p = strchr(p, ',');\n    if (!p) return;          // fewer fields than asked for -> leave \"\"\n    ++p;",
+    repl: "    p = strchr(p, ',');\n    ++p;",
+    why: "the helper's missing-field bail-out is deleted — a surface with fewer fields than asked for walks `p` past its own NUL terminator" },
 ];
 
 // ---- runner -------------------------------------------------------------

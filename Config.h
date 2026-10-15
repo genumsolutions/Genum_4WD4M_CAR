@@ -21,23 +21,33 @@
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
 #define FW_VERSION "1.3.10"  // see TRACKS/CHANGELOG.md
-#define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."// T66 (round-9): the single config surface the car firmware and the TSH gate
-// read from. Every scalar product of `tele.parameters` must live here — no other
-// place in this repo re-ships the same `frequency` / shaping values; that surface
-// is the only source of truth.
+#define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
+
+// ---- T66 (round-9) · U-114: the telemetry-parameter config surface ----
+// The car firmware and the TSH gate BOTH read this one line. Every scalar
+// product of `tele.parameters` must live here — no other place in this repo
+// re-ships the same `frequency` / shaping values; that surface is the only
+// source of truth (TSH/test_suites/test_config_integrity.py fails otherwise).
 //
-// The wire format the TSH parses from this file is a CSV row:
-//   tele.parameters,frequency,<Hz>,<shaping>
-// `frequency` is the update cadence (Hz); the second CSV field is the shaping
-// flag. One source of truth: if either key is missing, or if either key appears
-// anywhere else in this repo, TSH/test_config_integrity.py fails.
+// THE SURFACE IS ONE STRING LITERAL, and that is load-bearing in BOTH
+// directions (U-114):
+//   - the TSH gate reads this file as TEXT and needs the CSV row
+//       tele.parameters,frequency,<Hz>,<flag-key>,<shaping>
+//     with `frequency` AND the flag key present, and that flag key occurring
+//     EXACTLY ONCE across every .cpp/.h/.ino in the repo. The gate counts that
+//     key, so this comment deliberately does not spell it out a second time.
+//   - WebServerComm::buildStatusJson assigns the same macro to a `const char*`,
+//     so it MUST be a quoted literal. The bare-token form compiled to
+//     `const char* x = <first token>, …` — an undeclared identifier — and the
+//     sketch did not build at all (check-firmware-syntax.ps1 caught it at HEAD).
 //
-// Values choose the shaping contract for the balance loop:
+// Fields, counted from 0 by WebServerComm's teleSurfaceField():
+//   0 <surface> | 1 frequency | 2 <Hz> | 3 <flag-key> | 4 <shaping>
 //   frequency — update cadence the tele loop runs at (Hz).
-//   the shaping flag — 1 = single-slot model (faster, one product feed), 0 = dual-slot
+//   shaping   — 1 = single-slot model (faster, one product feed), 0 = dual-slot
 //               model (two independent feeds). Set it once here; the tele loop
 //               branches on this value.
-#define CONFIG_TELEMETRY_PARAMETERS   tele.parameters,frequency,1600,vysexcvr,0
+#define CONFIG_TELEMETRY_PARAMETERS   "tele.parameters,frequency,1600,vysexcvr,0"
 
 // T-xx / U-107 (2026-10-13): the advertised Bluetooth SPP name, ONE source.
 // BluetoothComm::begin() passes it to SerialBT.begin(); the OLED's Bluetooth
