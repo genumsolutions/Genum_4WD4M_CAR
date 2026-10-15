@@ -36,8 +36,20 @@ ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
     arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app .
     arduino-cli upload  --fqbn esp32:esp32:esp32:PartitionScheme=huge_app -p COM<port> --upload-property upload.speed=115200 .
 
+> **If `arduino-cli` answers `Platform 'esp32:esp32' not found`:** on this box it
+> defaults its data dir to `%TEMP%\opencode\tools\data` while the real install
+> is in `%LOCALAPPDATA%\Arduino15` (esp32 core 3.3.12). Add
+> `--config-file <file>` to both commands, with that file carrying
+> `directories.data: C:\Users\caspe\AppData\Local\Arduino15`.
+> **DONE (2026-10-15, COM8, CH340):** compiled 1820766 B (57%), hash-verified
+> upload, post-flash reset `POWERON_RESET`, no new crash (same historical RTC
+> `[CRASH]` record as before the flash), router store cleared by the
+> version-change wipe, `AP=4WD4MCar_WiFi` non-empty. See the bench log in
+> `TRACKS/DEVICE-TESTS.md`.
+
 (1.3.9 is already on the car if you flashed it — 1.3.11 is a normal upgrade
-step, another version-change wipe of saved routers.)
+step, another version-change wipe of saved routers.
+**Now flashed: 1.3.11 is ON THE CAR** — 1.3.9 is superseded.)
 
 Capture the first boot while you are at it (~15 s, resets the board):
 
@@ -112,14 +124,31 @@ from a cold boot:
 
 While it runs: wait for the boot to finish → pair/connect Bluetooth → open the
 car's own page in a browser → keep the app connected over Wi-Fi too. **Expect
-exactly six lines, once each, in this order:**
+exactly six lines, once each:**
 
-    [HEAPW] boot free=… max=…
-    [HEAPW] bt-stack free=… max=…          ← usually the big drop
+    [HEAPW] boot        free=… max=…
+    [HEAPW] wifi-ap     free=… max=…
+    [HEAPW] bt-stack    free=… max=…
     [HEAPW] spp-connected free=… max=…
-    [HEAPW] wifi-ap free=… max=…
     [HEAPW] page-served free=… max=…
-    [HEAPW] both-links free=… max=…        ← the state issue 6 is about
+    [HEAPW] both-links  free=… max=…        ← the state issue 6 is about
+
+**Read them in the order the car prints them, which is NOT the order
+`Config.h:143` claims:** on 1.3.11 the own AP comes up *before* the BT stack
+(`btComm.begin()` runs after the always-on web layer in `setup()`), so the real
+sequence is `boot → wifi-ap → bt-stack → spp-connected → …`, and `page-served`
+lands wherever the first browser hit happens. Six is the count that matters,
+the order is not pinned by any gate.
+
+**Already captured (2026-10-15, source-agent cold boot, NO phone attached):**
+4 of the 6 — `boot free=181884 max=110580`, `wifi-ap free=123568 max=110580`,
+`bt-stack free=23216 max=12276`, `both-links free=21716 max=10228`. **Still owed
+from the owner's phone: `spp-connected` and `page-served`** (plus the live
+`both-links` figure with the app connected over Wi-Fi) — without those two the
+re-tune is reading a waterfall with a hole in it. Also visible in that log:
+`[HEAP] status broadcast deferred (free=21716, floor=49152)` — the 49152 B floor
+is unreachable once BT is up, so the broadcast is deferred by design of the
+current constants, not by a new failure.
 
 **Send back all six `free=` / `max=` pairs.** `max` is the largest contiguous
 free block: if `free` stays high while `max` collapses, the problem is

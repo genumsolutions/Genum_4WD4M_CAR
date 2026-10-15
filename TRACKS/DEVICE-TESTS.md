@@ -12,6 +12,65 @@
 > waterfall and the P5 Wi-Fi-switch fix. Watch the serial for the six
 > `[HEAPW] <stage> free=… max=…` lines: they are what this flash exists to produce.
 
+### Bench log — 1.3.11 flashed + first-boot verified (2026-10-15, COM8)
+
+> Source-agent pass (car on `COM8`, CH340 `USB-SERIAL CH340 (COM8)`, huge_app,
+> 115200). This is the **flash itself**, not the row evidence below — nothing
+> here closes a row (F-61: source gates and a boot log are not device proof of
+> the app-side behaviour).
+
+- **Flash clean:** `arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app .`
+  → 1820766 B (57%) of program storage; upload hash verified, 1820912 B written
+  (1190833 compressed) in 110.9 s. Post-flash reset reason `POWERON_RESET`.
+- **No new crash:** `[CRASH] boot=29 crash=7 reason=PANIC … phase='' task='loopTask' heap=11924 minHeap=11924 atMs=104819`
+  is the **same historical RTC record** as before the flash (`boot=27 crash=7`,
+  identical `atMs`) — the record is from an older firmware and 1.3.11 does not
+  reproduce it. The unsolicited-restart counter stayed at 7 (a clean upload
+  reset, not a crash).
+- **Version-change wipe happened (RUNSHEET step 0):** this boot has **no**
+  `Stored router available - join via ROUTERS;USE / WIFICFG` line and **no**
+  `[WIFICFG] boot: returning to last-switched router "Esp" (full budget)` —
+  both were present on the pre-flash boot (1.3.10). The router store was cleared
+  by the fresh-`FW_VERSION` install, exactly as documented.
+- **U-109 holds on the device:** `[V2] Web layer always-on: AP=4WD4MCar_WiFi ip=192.168.245.1 http=:80 ws=:81`
+  — `AP=` is **not** empty.
+- **E1 partial — 4 of the 6 `[HEAPW]` stages, one cold boot, no phone attached:**
+
+      [HEAPW] boot        free=181884 max=110580
+      [HEAPW] wifi-ap     free=123568 max=110580
+      [HEAPW] bt-stack    free=  23216 max= 12276
+      [HEAPW] both-links  free=  21716 max= 10228
+
+  **The hole is named, not filled:** `spp-connected` and `page-served` are absent
+  because nothing was paired and no browser loaded the page in this window
+  (source-agent pass, phone-side actions are the owner's). Deltas that are
+  already readable: `boot → bt-stack` **free −158668 B (−155 KB), max −98304 B
+  (−96 KB)** — the classic-only diet leaves a real but much smaller BT cost than
+  the BTDM ~100 KB `free` collapse, and `max` (largest contiguous block) drops to
+  12276 B. `wifi-ap → both-links`: free −101852 B, max 110580 → 10228 (−100352 B).
+- **U-112 symptom is LIVE on the bench, not theoretical:**
+  `[HEAP] status broadcast deferred (free=21716, floor=49152)` fires at
+  both-links and the broadcast thrashes deferred → resumed → deferred as free
+  hovers ~22 KB — the 49152 B floor is unreachable after BT starts, so the
+  status broadcast is permanently deferred. Same for the 65536 B scan floor
+  (fully above the observed `max`). The re-tune needs the full 6/6 run; this
+  partial already shows the floors are ordered wrong.
+- **Order discrepancy (doc vs device):** the stages fired
+  `boot → wifi-ap → bt-stack → both-links`, i.e. **the own AP comes up BEFORE
+  the BT stack** (`btComm.begin()` runs after the always-on web layer in
+  `setup()`). `Config.h:143` and RUNSHEET step 6b both list
+  `boot → bt-stack → … → wifi-ap → …`. No gate pins the order
+  (`check-firmware-contract.mjs` `heap-waterfall` checks presence, format and
+  call site only), so this is a **comment/expectation** correction, not a code
+  bug — but E1 must be read in the order the car actually prints.
+- **Tooling note (cost this pass ~10 min):** on this machine `arduino-cli` (1.5.2-rc.1
+  at `C:\Users\caspe\arduino-cli\arduino-cli.exe`) resolves `directories.data`
+  to `%TEMP%\opencode\tools\data` and reports
+  `Platform 'esp32:esp32' not found`, while the real install lives in
+  `%LOCALAPPDATA%\Arduino15` (esp32 core **3.3.12**). Fix: pass
+  `--config-file` to a file whose `directories.data` is
+  `C:\Users\caspe\AppData\Local\Arduino15`.
+
 - [ ] **U-113-8 — ⭐ P4 acceptance: both links live, the heap holds (issue 6).**
       Pair BT, join `4WD4MCar_WiFi`, open the page, drive over both links —
       10 min soak. The car does not reset; the U-112 guards may still defer under

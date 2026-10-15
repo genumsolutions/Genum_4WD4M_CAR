@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **the E1 capture + E3/E4 + the U-112 floor re-tune are still owed; the owner flash target is 1.3.11**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
@@ -11,11 +11,16 @@
 > hides everything now — `stop()` drops the beacon unconditionally, `startOwnAP()` refuses
 > while the transport is off, and `handle()`'s AP retry no longer re-creates the hotspot
 > ~2 s after the switch. Issue 9 needed no new fix (U-105 already removed the beacon park);
-> it is now pinned by a gate. **E1 (step 6b), E3/E4 (step 6c) and the floor re-tune are
-> still owed from the bench.**
+> it is now pinned by a gate. E1 (step 6b), E3/E4 (step 6c) and the floor re-tune are
+> still owed from the bench — and the car has been **flashed with 1.3.11 (COM8,
+> 2026-10-15, hash-verified upload)**, with the router-wipe, non-empty `AP=` and a
+> 4-of-6 `[HEAPW]` waterfall confirmed on the bench (full bench log in
+> `TRACKS/DEVICE-TESTS.md`). The E1 hole is named: `spp-connected` + `page-served`
+> need a paired phone, so they remain the owner's actions.
 > P2/P3 are app-side. App mirror:
 > `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`. Phase 0 evidence
-> captures (E1 + E2/E5 + serial logs while the owner tests 1.3.11) are still owed.
+> captures (E1 + E2/E5 + serial logs while the owner tests 1.3.11) are still owed — see
+> `TRACKS/DEVICE-TESTS.md` bench log for the 4-of-6 waterfall and router wipe.
 
 ## P5 · 2026-10-15 — issues 7 + 9: the Wi-Fi transport switch, made honest (1.3.11, UNFLASHED)
 

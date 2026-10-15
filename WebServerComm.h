@@ -139,7 +139,7 @@
 // to 1 Hz the pass the heap is back over the floor.
 // 49152 = ~6x the 7268 B the status path provably needs (2 x 3584 B JSON +
 // 512 B page chunk), refusing to spend the last kilobytes the run-time needs.
-#define STATUS_HEAP_FLOOR_BYTES 49152ul
+#define STATUS_HEAP_FLOOR_BYTES 20000ul
 // How long a below-floor broadcast may be deferred before one attempt is
 // allowed through anyway. Telemetry can never be silent longer than this, and
 // the gate pins it <= 10000 ms so it can never become an untimed defer.

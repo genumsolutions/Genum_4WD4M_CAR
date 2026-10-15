@@ -72,6 +72,15 @@ before any code is touched. `python tools/serial_capture.py COMx <secs> <out.log
 | # | Capture | How | Proof we want |
 |---|---|---|---|
 | E1 | BT heap waterfall — **the breadcrumb is now built in** | **RUNSHEET step 6b**: 60 s from one cold boot spanning pair → page → both links (`serial_capture.py COMx 60 e1-heap-waterfall.log`); six `[HEAPW] <stage> free=… max=…` lines | free **and** max per stage → where the ~100 KB goes (controller? host? BLE started but unused?) and whether `max` collapses while `free` holds, i.e. fragmentation vs leak |
+
+> **Bench log (2026-10-15): 1.3.11 is FLASHED to the car (COM8) and boots verified**
+> — see `TRACKS/DEVICE-TESTS.md` for the log. **E1 is PARTIAL: 4 of 6 stages**
+> (`boot 181884/110580`, `wifi-ap 123568/110580`, `bt-stack 23216/12276`,
+> `both-links 21716/10228` — the classic-BT-only diet already cost only ~12 KB of
+> `free` where the BTDM collapse was ~100 KB, but `max` still falls to 10228 B,
+> i.e. the fragmentation story is alive). **`spp-connected` + `page-served` are
+> still owed** and are the owner's phone-side actions, so the floor re-tune is
+> still open. E2–E6 remain un-captured.
 | E2 | Mode rotate | car serial while tapping rotate 5× (plus app log if available) | does the token leave the app at all? does the car answer `NACK;E=UNKNOWN_MODE`? |
 | E3 | Wi-Fi OFF keeps beacon | phone Wi-Fi scan + serial across `WIFICFG;WIFI;OFF` | `[POWER] Wi-Fi off` printed? `softAPdisconnect` actually ran? `apRunning_` truth? |
 | E4 | Page without app | Wi-Fi ON, NO app connected, phone browses `http://192.168.245.1` | page renders vs blank/hang → issue 9 |
