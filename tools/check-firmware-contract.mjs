@@ -298,6 +298,36 @@ if (!/^"[\s\S]*"$/.test(teleMacroLine)) {
   pass("tele-params", "surface is one literal, tele_params is fed in slot order, and the parser is the NULL-safe bounded helper");
 }
 
+// (f3) P4 (issue 6, 2026-10-15): the E1 heap waterfall. Issue 6 is fixed by
+// MEASUREMENT, so the tree must emit one breadcrumb per radio lifecycle stage
+// before anyone guesses at the diet. This rule pins BOTH halves: the helper's
+// wire format (free AND max, so fragmentation is visible) and one call site per
+// stage, in the file that owns that stage. A breadcrumb that stops being
+// emitted, or that loses its maxAllocHeap, silently turns the E1 capture into a
+// flat line where the ~100 KB BT collapse should be.
+const hwFmt = /\[HEAPW\]\s+%s free=%u max=%u\\n/.test(cfg);
+const hwMax = /getMaxAllocHeap\s*\(\s*\)/.test(cfg);
+const hwSites = [
+  ["BOOT", inoCode, "the sketch's setup()"],
+  ["BT", code(raw("BluetoothComm.cpp")), "BluetoothComm::begin"],
+  ["SPP", inoCode, "the sketch's SPP-connect edge"],
+  ["AP", wscCode, "WebServerComm::startOwnAP"],
+  ["PAGE", wscCode, "WebServerComm::handleRoot"],
+  ["BOTH", inoCode, "the sketch's both-transports-up branch"],
+];
+const hwMissing = hwSites
+  .filter(([tok, src]) => !new RegExp(`heapWaterfall\\(\\s*HEAPW_STAGE_${tok}\\b`).test(src))
+  .map(([tok, , where]) => `${tok} (${where})`);
+if (!hwFmt) {
+  fail("heap-waterfall", "Config.h has no `[HEAPW] <stage> free=%u max=%u` format - the E1 capture has nothing to key on");
+} else if (!hwMax) {
+  fail("heap-waterfall", "the breadcrumb prints free heap but NOT getMaxAllocHeap() - BT-restart fragmentation (largest block) is invisible in the total (P4 suspect (c))");
+} else if (hwMissing.length) {
+  fail("heap-waterfall", `no breadcrumb emitted at ${hwMissing.join(", ")} - the waterfall has a hole exactly where the heap story is`);
+} else {
+  pass("heap-waterfall", "all 6 stages emit one [HEAPW] free+max breadcrumb (boot/bt/spp/ap/page/both)");
+}
+
 // ---- 7. the page-send loop cannot starve the watchdog (U-95/F-77) -------
 // The sketch's REAL watchdog config must be the same number the header declares.
 

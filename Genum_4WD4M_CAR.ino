@@ -101,6 +101,10 @@ void setup() {
   // reboot loop is a number instead of a feeling. Call it FIRST: the heap it
   // records is the boot heap only if nothing has allocated yet.
   crashLogBegin();
+  // P4/E1 (heap waterfall 1/6): the boot heap, taken BEFORE the [BOOT] block
+  // below prints and allocates. crashLogBegin() has already recorded heapAtBoot,
+  // so this is the same number the crash record carries.
+  heapWaterfall(HEAPW_STAGE_BOOT);
   {
     const CrashInfo& ci = crashLogInfo();
     Serial.printf("[BOOT] reset reason: %s\n", ci.label);
@@ -328,6 +332,10 @@ static void maybeCheckSupplyAndBTWatchdog() {
   // not a wedged stack, and must never trigger a restart that would undo it.
   if (btUp) {
     if (btComm.connected()) {
+      // P4/E1 (heap waterfall 3/6): a real SPP client just attached. Logged on
+      // the false->true edge only (btEverConnected), so the line appears once per
+      // fresh pairing, not once per loop pass.
+      if (!btEverConnected) heapWaterfall(HEAPW_STAGE_SPP);
       btEverConnected = true;
       btLastConnectedOkMs = 0;
     } else if (btEverConnected) {
@@ -472,6 +480,22 @@ void loop() {
       webServerComm.beginAlwaysOn();
       webServerComm.armBootAutoJoin();  // own hotspot stays up
       Serial.println("[POWER] Wi-Fi up (Bluetooth off)");
+    }
+  }
+
+  // P4/E1 (heap waterfall 6/6): BOTH transports are up at once - the state
+  // issue 6 (the <14 KB BT+Wi-Fi reset) is about. Logged on the false->true
+  // edge, so the line appears when the second transport finishes bring-up, not
+  // every loop pass.
+  if (wifiEn && btEn) {
+    static bool heapwBothArmed = false;
+    if (btUp && webUp) {
+      if (!heapwBothArmed) {
+        heapWaterfall(HEAPW_STAGE_BOTH);
+        heapwBothArmed = true;
+      }
+    } else {
+      heapwBothArmed = false;
     }
   }
 

@@ -1286,6 +1286,9 @@ void WebServerComm::startOwnAP() {
   }
   apRunning_ = true;
   apName_ = apName;
+  // P4/E1 (heap waterfall 4/6): the own softAP is up. startOwnAP() early-returns
+  // while apRunning_, so this fires exactly on the transition, not every retry.
+  heapWaterfall(HEAPW_STAGE_AP);
   // U-74: advertise by name. Re-published on every network change, so the
   // advertisement is never stale - see startMdns() for why the drive deck cannot
   // open on the router without a way to FIND the car.
@@ -2778,6 +2781,14 @@ void WebServerComm::serveRootBounded() {
 }
 
 void WebServerComm::handleRoot() {
+  // P4/E1 (heap waterfall 5/6): the car's page is about to be served. First
+  // serve only - the page can load repeatedly, and the waterfall wants the
+  // stage transition, not one line per request.
+  static bool heapwPageLogged = false;
+  if (!heapwPageLogged) {
+    heapWaterfall(HEAPW_STAGE_PAGE);
+    heapwPageLogged = true;
+  }
   FW_LOG_VERBOSE("DBG: HTTP GET / received\n");
   serveRootBounded();
 }

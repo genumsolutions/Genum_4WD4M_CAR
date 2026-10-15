@@ -131,6 +131,34 @@ constexpr int HEAP_CRITICAL_BYTES = 4000;
 // #define VOLTAGE_MONITOR_PIN 34
 // constexpr float VOLTAGE_CRITICAL_V = 6.6f;
 
+// ===== P4 (issue 6, 2026-10-15) · the E1 heap waterfall ====================
+// Issue 6 (BT ON collapses free heap ~110 KB -> ~10 KB; BT+Wi-Fi below 14 KB
+// resets the car) is fixed by MEASUREMENT, so the firmware prints ONE
+// breadcrumb per radio lifecycle stage. The six tokens below are the wire
+// contract that the E1 capture (TRACKS/RUNSHEET.md) and
+// tools/check-firmware-contract.mjs both key on; they appear once each, in this
+// order: boot -> bt-stack -> spp-connected -> wifi-ap -> page-served ->
+// both-links. `max` is printed BESIDE `free` on purpose: the T-7b BT-restart
+// watchdog can fragment the heap (the largest contiguous block shrinks) without
+// moving the TOTAL, and free heap alone cannot see that (P4 prime suspect (c)).
+// Cost is six prints at boot/connect - nothing on the per-loop path.
+#define HEAPW_STAGE_BOOT  "boot"
+#define HEAPW_STAGE_BT    "bt-stack"
+#define HEAPW_STAGE_SPP   "spp-connected"
+#define HEAPW_STAGE_AP    "wifi-ap"
+#define HEAPW_STAGE_PAGE  "page-served"
+#define HEAPW_STAGE_BOTH  "both-links"
+
+// `stage` is always one of the six literals above (a static string, never
+// caller memory), so it is safe to print directly. One Serial.printf per call
+// - the same call FW_LOG expands to - so the breadcrumb lands on the same
+// diagnostic line as everything else.
+inline void heapWaterfall(const char *stage) {
+  Serial.printf("[HEAPW] %s free=%u max=%u\n", stage,
+                static_cast<unsigned>(ESP.getFreeHeap()),
+                static_cast<unsigned>(ESP.getMaxAllocHeap()));
+}
+
 // ===== Speed limits (match app/remote range 100–255) =====
 constexpr uint16_t MIN_SPEED = 100u;
 constexpr uint16_t MAX_SPEED = 255u;

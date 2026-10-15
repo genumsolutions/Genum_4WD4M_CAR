@@ -580,6 +580,51 @@ const mutants = [
     find: "    p = strchr(p, ',');\n    if (!p) return;          // fewer fields than asked for -> leave \"\"\n    ++p;",
     repl: "    p = strchr(p, ',');\n    ++p;",
     why: "the helper's missing-field bail-out is deleted — a surface with fewer fields than asked for walks `p` past its own NUL terminator" },
+
+  // P4 (issue 6, 2026-10-15) · the E1 heap waterfall. One mutant per stage the
+  // `heap-waterfall` rule pins, plus the two halves of the helper's wire
+  // format. A hole in the waterfall is exactly how a "we have heap data" claim
+  // goes stale: the capture still looks complete and is missing the stage that
+  // matters.
+  { id: "M81", rule: "heap-waterfall", file: INO,
+    find: "heapWaterfall(HEAPW_STAGE_BOOT);",
+    repl: "// boot breadcrumb removed",
+    why: "the boot sample disappears - the waterfall starts mid-story, so what the BT stack then eats cannot be totalled against a baseline" },
+
+  { id: "M82", rule: "heap-waterfall", file: "BluetoothComm.cpp",
+    find: "if (started_) heapWaterfall(HEAPW_STAGE_BT);",
+    repl: "// bt-stack breadcrumb removed",
+    why: "the single biggest drop in the waterfall is no longer emitted - the BT controller's cost is invisible and P4 has nothing to fix against" },
+
+  { id: "M83", rule: "heap-waterfall", file: INO,
+    find: "if (!btEverConnected) heapWaterfall(HEAPW_STAGE_SPP);",
+    repl: "// spp breadcrumb removed",
+    why: "the SPP-connect stage goes dark, so a pairing-time drop cannot be told apart from the controller's own cost" },
+
+  { id: "M84", rule: "heap-waterfall", file: WSC,
+    find: "heapWaterfall(HEAPW_STAGE_AP);",
+    repl: "// wifi-ap breadcrumb removed",
+    why: "the softAP cost is no longer sampled - exactly the stage that stacks on BT to cross the owner's <14 KB reset line" },
+
+  { id: "M85", rule: "heap-waterfall", file: WSC,
+    find: "heapWaterfall(HEAPW_STAGE_PAGE);",
+    repl: "// page-served breadcrumb removed",
+    why: "the page-serve stage goes dark, so the freeze-while-page-open path loses its heap figure" },
+
+  { id: "M86", rule: "heap-waterfall", file: INO,
+    find: "heapWaterfall(HEAPW_STAGE_BOTH);",
+    repl: "// both-links breadcrumb removed",
+    why: "the both-transports-up sample is gone - the one state issue 6 is actually about is the one with no number" },
+
+  { id: "M87", rule: "heap-waterfall", file: "Config.h",
+    find: "\"[HEAPW] %s free=%u max=%u\\n\"",
+    repl: "\"[HEAPW] %s free=%u\\n\"",
+    why: "the wire format drops max= - free heap alone cannot show BT-restart fragmentation (the largest contiguous block), which is the whole point of suspect (c)" },
+
+  { id: "M88", rule: "heap-waterfall", file: "Config.h",
+    find: "static_cast<unsigned>(ESP.getMaxAllocHeap())",
+    repl: "static_cast<unsigned>(ESP.getFreeHeap())",
+    why: "max= is printed from the FREE value - the format still claims max, the number is meaningless, and getMaxAllocHeap() is gone from the tree entirely" },
 ];
 
 // ---- runner -------------------------------------------------------------

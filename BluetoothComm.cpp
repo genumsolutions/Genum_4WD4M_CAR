@@ -54,7 +54,13 @@ bool BluetoothComm::begin() {
   started_ = success;
   if (started_) lastActivityMs = millis();
   TRANSPORT_POWER_EXIT_CRITICAL();
-  
+
+  // P4/E1 (heap waterfall 2/6): the heap with the classic-BT controller/host
+  // allocated. This is the single biggest drop in the waterfall (P4 suspects (a)
+  // BLE memory allocated but never used, and (b) default ACL/bt config buffers),
+  // so it is logged on the FIRST bring-up only (begin() is idempotent).
+  if (started_) heapWaterfall(HEAPW_STAGE_BT);
+
   return started_;
 }
 
