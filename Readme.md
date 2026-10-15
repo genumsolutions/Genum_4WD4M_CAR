@@ -96,6 +96,12 @@ gitignored, never committed; the sketch compiles without it).
   ADOPTS — reported neighbours' values. The surface is now one string literal
   read through a bounded, NULL-safe `teleSurfaceField()`; new `tele-params`
   rule + mutants M76-M80; syntax 9/9, mutate-gates **74/74**.
+  Also **P4 step 1 (measurement — nothing fixed)**: `heapWaterfall(stage)` prints
+  one `[HEAPW] <stage> free=… max=…` line per radio lifecycle stage
+  (boot → bt-stack → spp-connected → wifi-ap → page-served → both-links; `max` is
+  `getMaxAllocHeap()`, so fragmentation shows without moving the free total) —
+  the input the BT heap diet (issue 6) is designed from. New `heap-waterfall` rule
+  + mutants M81-M88; syntax 9/9, contract 46 rules, mutate-gates **82/82**.
 
 - **1.3.9 (2026-10-14, U-111b)** — **the Internet / cloud-relay method is removed.**
   `RelayComm.cpp`/`.h` are deleted and every seam is unwired (sketch, `ModeManager`,

@@ -55,8 +55,9 @@ anchor was re-sewn after the stall-abort moved the lines it matched.
 
 **VERIFY — source only.** `check-firmware-syntax.ps1` **9/9** TUs ·
 `check-webpage-js.mjs` PASS · `check-firmware-contract.mjs` 0 failures
-(45 rules incl. 5x heap-guard + tele-params) · `TSH/test_config_integrity.py` PASS ·
-`mutate-gates.mjs` **74/74 caught by their intended rule**.
+(46 rules incl. 5x heap-guard + tele-params + heap-waterfall) ·
+`TSH/test_config_integrity.py` PASS ·
+`mutate-gates.mjs` **82/82 caught by their intended rule**.
 
 ### Also in 1.3.10 — T66: the `tele.parameters` config surface on `/status`
 
@@ -106,6 +107,45 @@ Mutants **M76-M80**, one per assertion. A 1.3.11 was considered (the surface is 
 behaviour change to an already-labelled body) and rejected: 1.3.10 has never been
 flashed, so no device reports a version the fix would make ambiguous — see
 `TRACKS/NEXT-SESSION.md`.
+
+### Added — P4/E1: the six-stage `[HEAPW]` heap waterfall (measurement, not the fix)
+
+Issue 6 — *"Bluetooth ON collapses free heap 110 KB → ~10 KB; BT+Wi-Fi together
+sometimes < 14 KB → the car resets"* — is the round's **main** issue, and P4's
+first instruction is **measure first**: the E1 waterfall is *boot → BT controller
+up → SPP connected → own AP up → page served → both links*. Nothing emitted those
+stages, so the owner's serial capture could not have produced the waterfall the
+diet is supposed to be read from — every stage would have come back a flat line.
+
+`Config.h` gains `heapWaterfall(stage)`: one `Serial.printf` carrying **free heap
+AND `ESP.getMaxAllocHeap()`**, plus the six stage tokens as the wire contract.
+The call sites sit where each stage really becomes true, each **edge-gated** so
+the capture reads six lines and not one per loop pass:
+
+| Stage | Where | Edge that fires it |
+|---|---|---|
+| `boot` | `setup()`, right after `crashLogBegin()` | once, before `[BOOT]` prints |
+| `bt-stack` | `BluetoothComm::begin()` | idempotent begin → first bring-up |
+| `spp-connected` | `maybeCheckSupplyAndBTWatchdog()` | `btEverConnected` false→true |
+| `wifi-ap` | `startOwnAP()` after `apRunning_ = true` | the `if (apRunning_) return` guard |
+| `page-served` | `handleRoot()` | first serve |
+| `both-links` | `loop()`, after the U-79 enforcement | `btUp && webUp` false→true |
+
+`max` is printed beside `free` **on purpose**: the T-7b BT-restart watchdog can
+fragment the heap — the largest contiguous block shrinks — without moving the
+TOTAL, and free heap alone cannot see that (P4 prime suspect (c)).
+
+**No behaviour change.** No U-112 floor was re-tuned and no allocator was
+touched; the diet itself still waits on this capture.
+
+**Gate + mutants.** New `heap-waterfall` rule in `check-firmware-contract.mjs`
+(the wire format · `max` present · one call per stage, in the file that owns that
+stage). Mutants **M81-M88**: one per stage, plus one that drops `max=` from the
+format and one that prints `max` from the free value.
+
+**VERIFY — source only.** syntax **9/9** TUs · webpage-js PASS · contract **0
+failures (46 rules)** · TSH PASS (flag key still x1) ·
+`mutate-gates.mjs` **82/82 caught by their intended rule**.
 
 ## 1.3.9 (U-111b, 2026-10-14, ON THE OWNER'S CAR): the Internet method (cloud relay) removed + the firmware-contract gate completed
 

@@ -19,6 +19,7 @@ The bench car is on an older build. One flash of `main` brings all of it:
 | U-111b (1.3.9, ON THE CAR) | **The Internet / cloud-relay method is gone** — no `[RELAY]` log lines, no `RELAYCFG`, the OLED link row only ever reads Bluetooth / WiFi |
 | **U-112 (1.3.10)** | **The reset-while-pairing and freeze-while-page-open round.** The status broadcast defers below a 49 kB heap floor (time-boxed 4 s); scans refuse below 65 kB with an honest BUSY; the page send aborts a reader that stops draining, so the app link keeps running while a page is open. Serial grows `[HEAP] …` and `[SCAN] refused` lines — that is the evidence this flash exists to produce |
 | **U-114 (1.3.10)** | **Build/wiring fix (no new radio behaviour).** HEAD did not compile and `/status` reported its neighbours' values for `wifi_enabled`/`bt_enabled`/`boot_autojoin` (the app adopts those). `/status` now also carries `tele_params":"freq=1600, vyse=0"` (additive, nothing reads it yet) |
+| **P4/E1 (1.3.10)** | **Measurement only — the BT heap waterfall (issue 6).** Serial gains one `[HEAPW] <stage> free=… max=…` line per radio stage: `boot`, `bt-stack`, `spp-connected`, `wifi-ap`, `page-served`, `both-links`. Nothing about behaviour changes — those six numbers are what the BT heap diet gets designed from (step **6b**) |
 | app U-110 | the "Connection lost / reconnect?" prompt appears only when **no** link is live, and both prompts are centered dialogs |
 | app U-111 | the app adopts the car's Wi-Fi / Bluetooth / boot-auto-join settings on connect |
 | app U-112 | **exactly TWO methods** — Bluetooth · WiFi (LAN); no Internet pill or card anywhere |
@@ -97,6 +98,36 @@ serial for `[HTTP] root page paused`, `[HEAP] status broadcast
 deferred/resumed` and `[SCAN] refused` — if the freeze STILL happens, capture
 60 s of serial across it (`serial_capture.py COM<port> 60 u112.log`) and send
 the `[CRASH] rtc: …` line from the next boot; it names phase + task + heap.
+
+### 6b · E1 — capture the BT heap waterfall (P4, issue 6)
+
+Issue 6 is *"Bluetooth ON collapses free heap 110 KB → ~10 KB; BT+Wi-Fi together
+sometimes < 14 KB → the car resets"*. The diet is designed **from a measurement**,
+so this build emits one breadcrumb per stage — take the run in ONE uninterrupted
+window, from a cold boot:
+
+    python tools/serial_capture.py COM<port> 60 e1-heap-waterfall.log
+
+While it runs: wait for the boot to finish → pair/connect Bluetooth → open the
+car's own page in a browser → keep the app connected over Wi-Fi too. **Expect
+exactly six lines, once each, in this order:**
+
+    [HEAPW] boot free=… max=…
+    [HEAPW] bt-stack free=… max=…          ← usually the big drop
+    [HEAPW] spp-connected free=… max=…
+    [HEAPW] wifi-ap free=… max=…
+    [HEAPW] page-served free=… max=…
+    [HEAPW] both-links free=… max=…        ← the state issue 6 is about
+
+**Send back all six `free=` / `max=` pairs.** `max` is the largest contiguous
+free block: if `free` stays high while `max` collapses, the problem is
+FRAGMENTATION (the T-7b BT restart) rather than a leak — that is a different fix.
+Also report the **deltas** `boot → bt-stack` and `wifi-ap → both-links`, and
+whether the car reset anywhere inside the window.
+
+→ Phase 0 capture **E1** in `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md`.
+A missing stage means the waterfall has a hole; say which one is absent rather
+than filling it in.
 
 ## 7 · Settings round-trip + the two-method panel
 

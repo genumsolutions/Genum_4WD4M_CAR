@@ -1,13 +1,65 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, U-114: fixed a build-breaking, JSON-miswiring `tele.parameters` surface at HEAD — **1.3.10 still UNFLASHED, owner flash target**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P4 step 1: the six-stage `[HEAPW]` heap-waterfall breadcrumb is in — **the E1 capture itself is still owed; 1.3.10 still UNFLASHED, owner flash target**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
 > mode-rotate: the cycle used to send the car's GONE tokens ESP_SER/ESP_CLI → NACK
 > UNKNOWN_MODE → app rolled back to 4WD4M; the app now skips GONE tokens from the CAPS
-> table). **Next car-side phase is P4 — the BT heap diet → 1.3.11** (THE main issue); P2/P3
+> table). **Car-side P4 (the BT heap diet → 1.3.11, THE main issue) has STARTED at its first
+> bullet — the six-stage `[HEAPW]` heap-waterfall breadcrumb is landed, gates green — but the
+> E1 capture is still owed from the bench (RUNSHEET step 6b) and the diet waits on it.** P2/P3
 > are app-side. App mirror:
 > `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`. Phase 0 evidence
-> captures (E2/E5 + serial logs while the owner tests 1.3.10) are still owed.
+> captures (E1 + E2/E5 + serial logs while the owner tests 1.3.10) are still owed.
+
+## P4 step 1 · 2026-10-15 — the E1 heap-waterfall breadcrumb (measurement only; issue 6 is NOT fixed)
+
+**Started P4 (issue 6 — "THE main issue": BT ON collapses free heap ~110 KB →
+~10 KB, BT+Wi-Fi below 14 KB resets the car) at its first bullet, which the plan
+writes as MEASURE FIRST, not fix.** Walking the tree first showed that nothing
+could produce the E1 waterfall: the firmware prints a heap number only when a
+guard fires (`[HEAP] status broadcast deferred`), never per stage. So the owner's
+serial capture — and with it P4's own "fix per measurement" instruction — had no
+input at all. That is what this session added.
+
+**Added:** `heapWaterfall(stage)` in `Config.h` — one `Serial.printf` carrying
+**free heap AND `ESP.getMaxAllocHeap()`** (first use of the latter anywhere in
+this repo) — plus the six stage tokens as the wire contract and six edge-gated
+call sites:
+
+| Stage | Call site | Edge that fires it |
+|---|---|---|
+| `boot` | `setup()`, right after `crashLogBegin()` | once, before `[BOOT]` prints |
+| `bt-stack` | `BluetoothComm::begin()` | idempotent begin → first bring-up |
+| `spp-connected` | `maybeCheckSupplyAndBTWatchdog()` | `btEverConnected` false→true |
+| `wifi-ap` | `startOwnAP()` after `apRunning_ = true` | the `if (apRunning_) return` guard |
+| `page-served` | `handleRoot()` | first serve |
+| `both-links` | `loop()`, after the U-79 enforcement | `btUp && webUp` false→true |
+
+Edge-gating is the substance, not hygiene: an unguarded `printf` in
+`currentLink()` or `handleRoot()` would print every loop pass and bury the
+waterfall it exists to show.
+
+**`max` is not decoration.** `free` alone cannot tell a leak from fragmentation,
+and prime suspect (c) — the T-7b BT-restart watchdog — can shrink the largest
+contiguous block without moving the free total. The RUNSHEET tells the owner to
+read the `free`/`max` pair for exactly that reason.
+
+**Gates (source only — F-61):** new `heap-waterfall` rule (wire format · `max`
+present · one call per stage in the file that owns that stage) + mutants
+**M81-M88** (six stages, the format, the `getMaxAllocHeap` argument);
+`check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` PASS ·
+`check-firmware-contract.mjs` **0 failures (46 rules)** ·
+`TSH/test_config_integrity.py` PASS (flag key still exactly 1) ·
+`mutate-gates.mjs` **82/82 caught by their intended rule**.
+
+**STILL OWED FROM THE BENCH: E1 itself.** `TRACKS/RUNSHEET.md` **step 6b** — 60 s
+from a cold boot spanning pair → page → both links, then the six `free=`/`max=`
+pairs. **Nothing about issue 6 is fixed yet**: no U-112 floor re-tuned, no
+allocator touched, no `esp_bt_controller_mem_release(ESP_BT_MODE_BLE)`. P4's fix,
+and P5 riding it, and P6 gated on its headroom, all wait on those numbers.
+
+**Version: still 1.3.10, not bumped** — it has never been flashed, so folding the
+breadcrumb into it stays unambiguous (same reasoning as U-114).
 
 ## U-114 2026-10-15 — HEAD did not compile, and `/status` reported its neighbours' values (1.3.10, UNFLASHED — owner flash target)
 

@@ -1,8 +1,10 @@
 # PLAN 2026-10-15 — dual link + remote-screen UX + BT heap (CAR half, master)
 
-Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) — next is P4, the BT heap diet
-(1.3.11).** Phase 0 captures (E2/E5/E6 + the P3 audit log) are still owed from the owner's
-1.3.10 bench pass; P1 did not need them (source-level root cause, see below). The app half is
+Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) · P4 STEP 1 LANDED — the E1
+heap-waterfall breadcrumb is now in the firmware (source-only, gates green); P4's diet is next
+and is WAITING on the owner's E1 capture.** Phase 0 captures (E1 + E2/E5/E6 + the P3 audit log)
+are still owed from the owner's 1.3.10 bench pass; P1 did not need them (source-level root
+cause, see below). The app half is
 mirrored in `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`;
 cross-repo round log stays in the root `RESUME-HERE.md`.
 
@@ -67,7 +69,7 @@ before any code is touched. `python tools/serial_capture.py COMx <secs> <out.log
 
 | # | Capture | How | Proof we want |
 |---|---|---|---|
-| E1 | BT heap waterfall | serial 15 s at boot, then 30 s spanning BT pair + SPP connect | free-heap number per stage → where the ~100 KB goes (controller? host? BLE started but unused?) |
+| E1 | BT heap waterfall — **the breadcrumb is now built in** | **RUNSHEET step 6b**: 60 s from one cold boot spanning pair → page → both links (`serial_capture.py COMx 60 e1-heap-waterfall.log`); six `[HEAPW] <stage> free=… max=…` lines | free **and** max per stage → where the ~100 KB goes (controller? host? BLE started but unused?) and whether `max` collapses while `free` holds, i.e. fragmentation vs leak |
 | E2 | Mode rotate | car serial while tapping rotate 5× (plus app log if available) | does the token leave the app at all? does the car answer `NACK;E=UNKNOWN_MODE`? |
 | E3 | Wi-Fi OFF keeps beacon | phone Wi-Fi scan + serial across `WIFICFG;WIFI;OFF` | `[POWER] Wi-Fi off` printed? `softAPdisconnect` actually ran? `apRunning_` truth? |
 | E4 | Page without app | Wi-Fi ON, NO app connected, phone browses `http://192.168.245.1` | page renders vs blank/hang → issue 9 |
@@ -153,8 +155,15 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
 
 ### P4 — Issue 6: BT heap diet (car firmware → 1.3.11) — THE main thing
 
-- **Measure first (E1):** heap waterfall breadcrumb per stage: boot → BT controller up → SPP
-  connected → own AP up → page served → both links. A ~100 KB drop for classic BT is far above
+- **◑ STEP 1 LANDED 2026-10-15 — the breadcrumb exists; the CAPTURE (E1) is still owed.**
+  `heapWaterfall(stage)` (`Config.h`) plus six edge-gated call sites now print
+  `[HEAPW] <stage> free=… max=…` for exactly the stages named below (boot → BT controller up →
+  SPP connected → own AP up → page served → both links), with `max` =
+  `ESP.getMaxAllocHeap()` so fragmentation shows without moving the `free` total. New
+  `heap-waterfall` contract rule + mutants **M81-M88 (82/82)**; syntax 9/9 · webpage-js PASS ·
+  contract 0 failures (46 rules) · TSH PASS. **The owner captures it as RUNSHEET step 6b.**
+  The fix and the floor re-tune below are still untouched — they wait on that number.
+  Spec for the measurement itself: A ~100 KB drop for classic BT is far above
   the usual 40-70 KB: prime suspects are (a) BLE controller/host memory allocated but never used
   (the car speaks SPP — `esp_bt_controller_mem_release(ESP_BT_MODE_BLE)` BEFORE controller init
   reclaims it), (b) default ACL/bt config buffers, (c) the T-7b BT-restart watchdog causing
