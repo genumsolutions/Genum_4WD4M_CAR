@@ -10,7 +10,7 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
-## UNRELEASED — 1.3.10 (U-112, 2026-10-14): heap floor for status/scan + the page stall-abort (the post-1.3.9 reset/freeze report)
+## UNRELEASED — 1.3.11 (U-112 + U-114 + T66 + P4/E1, 2026-10-15): heap floor for status/scan + the page stall-abort + the tele surface + the E1 heap waterfall (the post-1.3.9 reset/freeze report)
 
 **UNFLASHED (F-61).** Owner flash target. The owner flashed 1.3.9 and reported:
 the car **resets while connecting Bluetooth + the own hotspot together**, and
@@ -59,7 +59,7 @@ anchor was re-sewn after the stall-abort moved the lines it matched.
 `TSH/test_config_integrity.py` PASS ·
 `mutate-gates.mjs` **82/82 caught by their intended rule**.
 
-### Also in 1.3.10 — T66: the `tele.parameters` config surface on `/status`
+### Also in 1.3.11 — T66: the `tele.parameters` config surface on `/status`
 
 `Config.h` carries ONE `CONFIG_TELEMETRY_PARAMETERS` line
 (`tele.parameters,frequency,1600,vysexcvr,0`) consumed in **two directions**:
@@ -69,7 +69,7 @@ the shaping key appears exactly once repo-wide), and
 reports it as `"tele_params":"freq=1600, vyse=0"`. Additive — nothing else in the
 repo reads it yet.
 
-### Fixed — U-114: 1.3.10 did not compile at HEAD, and its `/status` lied
+### Fixed — U-114: the body did not compile at HEAD, and its `/status` lied
 
 Commit `79e6d26` ("add CONFIG.telemetry.parameters surface … and wire it into
 status JSON") landed a surface that broke the build and mis-wired the JSON. Three
@@ -103,10 +103,11 @@ and treats the last field as the remainder of the string.
 (5 assertions: the surface is one string literal · the `tele_params` slot exists ·
 `freqBuf`/`vyseBuf` sit in that slot's argument position · the surface is read
 through the helper with both field indices · no `strchr(...) + 1` chain is back).
-Mutants **M76-M80**, one per assertion. A 1.3.11 was considered (the surface is a
-behaviour change to an already-labelled body) and rejected: 1.3.10 has never been
-flashed, so no device reports a version the fix would make ambiguous — see
-`TRACKS/NEXT-SESSION.md`.
+Mutants **M76-M80**, one per assertion. This fix first landed under the label
+**1.3.10** (the surface is a behaviour change to an already-labelled body) on the
+reasoning that 1.3.10 had never been flashed. The label was then **bumped to
+1.3.11** — see *Version* below — so a 1.3.10 binary that may already sit on the
+car can never report a version this body would make ambiguous.
 
 ### Added — P4/E1: the six-stage `[HEAPW]` heap waterfall (measurement, not the fix)
 
@@ -146,6 +147,17 @@ format and one that prints `max` from the free value.
 **VERIFY — source only.** syntax **9/9** TUs · webpage-js PASS · contract **0
 failures (46 rules)** · TSH PASS (flag key still x1) ·
 `mutate-gates.mjs` **82/82 caught by their intended rule**.
+
+### Version — 1.3.10 → 1.3.11 (2026-10-15, owner ruling)
+
+This body carried its U-112/U-114/T66/P4-E1 work under the label **1.3.10** while
+1.3.10 had never been flashed (the U-114 note above says so). The owner then ruled
+the version **bumped to 1.3.11**: a 1.3.10 binary may already have been put on the
+car (or bench-flashed) for the U-112 pass, and a body that adds the U-114
+compile/wiring fix and the P4/E1 breadcrumb must never be confusable with a
+pre-fix 1.3.10 report in `device_crash_reports`. **The bench + E1 flash is
+1.3.11.** P4's actual diet — and P5 riding it — will ship as **1.3.12**, so every
+flashed body keeps its own version.
 
 ## 1.3.9 (U-111b, 2026-10-14, ON THE OWNER'S CAR): the Internet method (cloud relay) removed + the firmware-contract gate completed
 

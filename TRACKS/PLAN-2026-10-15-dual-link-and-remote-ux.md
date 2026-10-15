@@ -3,8 +3,9 @@
 Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) · P4 STEP 1 LANDED — the E1
 heap-waterfall breadcrumb is now in the firmware (source-only, gates green); P4's diet is next
 and is WAITING on the owner's E1 capture.** Phase 0 captures (E1 + E2/E5/E6 + the P3 audit log)
-are still owed from the owner's 1.3.10 bench pass; P1 did not need them (source-level root
-cause, see below). The app half is
+are still owed from the owner's 1.3.11 bench pass; P1 did not need them (source-level root
+cause, see below). **Versions: the current car body — U-112 + U-114 + T66 + P4/E1 — is 1.3.11
+(the owner's bench + E1 flash); P4's diet and P5 ship as 1.3.12.** The app half is
 mirrored in `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`;
 cross-repo round log stays in the root `RESUME-HERE.md`.
 
@@ -64,7 +65,7 @@ plan's first pass and added on the 2026-10-15 re-read of the same pasted text):
 
 ## Phase 0 — evidence from the owner's current flash + device test (NO code)
 
-The owner is tethered and testing 1.3.10 now. These captures turn each symptom into a named cause
+The owner is tethered and testing 1.3.11 now. These captures turn each symptom into a named cause
 before any code is touched. `python tools/serial_capture.py COMx <secs> <out.log>` throughout.
 
 | # | Capture | How | Proof we want |
@@ -153,7 +154,7 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
   reconnect/restart prompts, floating button drag. Fix the failures.
 - Acceptance: TESTING.md checklist + device rows U-113-5..7; vitest green.
 
-### P4 — Issue 6: BT heap diet (car firmware → 1.3.11) — THE main thing
+### P4 — Issue 6: BT heap diet (car firmware → 1.3.12) — THE main thing
 
 - **◑ STEP 1 LANDED 2026-10-15 — the breadcrumb exists; the CAPTURE (E1) is still owed.**
   `heapWaterfall(stage)` (`Config.h`) plus six edge-gated call sites now print
@@ -175,9 +176,9 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
   — i.e. today, BT ON ≈ router list permanently busy. After the diet, re-measure steady-state and
   adjust the floors (or make them relative) so both guards still bite where they should.
 - Acceptance: soak 10 min with BT+Wi-Fi+page+both links live, free heap sustained ≥ agreed floor,
-  zero resets; serial evidence; device row U-113-8. Flash 1.3.11.
+  zero resets; serial evidence; device row U-113-8. Flash 1.3.12.
 
-### P5 — Issues 7, 9: transport policy made honest (car firmware → rides the 1.3.11 flash)
+### P5 — Issues 7, 9: transport policy made honest (car firmware → rides the 1.3.12 flash)
 
 - **Wi-Fi OFF hides everything:** `WIFICFG;WIFI;OFF` → the U-79 loop calls `stop()`
   (`WebServerComm.cpp` L1849) which drops the beacon only `if (apRunning_)` (L1871). E3 proves
@@ -219,8 +220,8 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
   clean-tree run with new mutants**) + app (vitest, typecheck, lint).
 - Ledgers + records updated: `TRACKS/CHANGELOG.md`, `TRACKS/DEVICE-TESTS.md` (U-113-1..16),
   app `mobile/TESTING.md`, both `TRACKS/NEXT-SESSION.md`, root `RESUME-HERE.md`, `Readme.md`,
-  `TRACKS/RUNSHEET.md` (flash 1.3.11 step).
-- Ship: owner flashes 1.3.11 (huge_app, 115200), app pushes the JS-only OTA (3.2.7/60 unchanged),
+  `TRACKS/RUNSHEET.md` (flash 1.3.12 step).
+- Ship: owner flashes 1.3.12 (huge_app, 115200), app pushes the JS-only OTA (3.2.7/60 unchanged),
   Arduino CI + app CI verified green on both repos, `backup` branches re-snapshotted.
 
 ## Open questions for the owner (defaults chosen — say the word to change them)
@@ -237,6 +238,6 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
 ## Definition of done (issue 13)
 
 All 14 issues closed with device evidence attached to their U-113 rows; every phase's gates green
-including mutation proof; both repos pushed with clean trees; CI green on both; 1.3.11 flashed and
+including mutation proof; both repos pushed with clean trees; CI green on both; 1.3.12 flashed and
 the app OTA published; `backup` updated. F-61 style honesty applies: device-verified = the owner's
 own captures, not our gates.

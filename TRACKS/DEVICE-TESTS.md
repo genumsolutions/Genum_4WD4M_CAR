@@ -3,15 +3,15 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
-## U-112 round — reset while pairing BT + own hotspot · freeze using the page with the app connected (2026-10-14, firmware 1.3.10 — DEVICE VERIFY PENDING)
+## U-112 round — reset while pairing BT + own hotspot · freeze using the page with the app connected (2026-10-14, firmware 1.3.11 — DEVICE VERIFY PENDING)
 
-> Flash **1.3.10** (supersedes 1.3.9, which IS on the owner's car). Root-cause
+> Flash **1.3.11** (supersedes 1.3.9, which IS on the owner's car). Root-cause
 > round for the post-1.3.9 report; the field record showed free_heap 13-18 kB.
 > Run sheet: `TRACKS/RUNSHEET.md`. Watch the serial for the new `[HEAP]` /
 > `[SCAN] refused` lines — they are this round's evidence.
 
 - [ ] **U-112-1 — ⭐ Bluetooth + own hotspot together, no reset.** Power the
-      car (1.3.10), pair BT, and join `4WD4MCar_WiFi` on the same phone.
+      car (1.3.11), pair BT, and join `4WD4MCar_WiFi` on the same phone.
       Both links live for >= 5 min: the car does NOT reset, the app stays
       connected on BT, and the crash counters in `/status` do not move
       (previously: reset at crash 757 during this exact sequence).

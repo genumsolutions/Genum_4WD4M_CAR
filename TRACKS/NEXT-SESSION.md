@@ -1,15 +1,15 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P4 step 1: the six-stage `[HEAPW]` heap-waterfall breadcrumb is in — **the E1 capture itself is still owed; 1.3.10 still UNFLASHED, owner flash target**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P4 step 1: the six-stage `[HEAPW]` heap-waterfall breadcrumb is in — **the E1 capture itself is still owed; the owner flash target is now 1.3.11 (bumped from 1.3.10 by owner ruling)**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
 > mode-rotate: the cycle used to send the car's GONE tokens ESP_SER/ESP_CLI → NACK
 > UNKNOWN_MODE → app rolled back to 4WD4M; the app now skips GONE tokens from the CAPS
-> table). **Car-side P4 (the BT heap diet → 1.3.11, THE main issue) has STARTED at its first
+> table). **Car-side P4 (the BT heap diet → 1.3.12, THE main issue) has STARTED at its first
 > bullet — the six-stage `[HEAPW]` heap-waterfall breadcrumb is landed, gates green — but the
 > E1 capture is still owed from the bench (RUNSHEET step 6b) and the diet waits on it.** P2/P3
 > are app-side. App mirror:
 > `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`. Phase 0 evidence
-> captures (E1 + E2/E5 + serial logs while the owner tests 1.3.10) are still owed.
+> captures (E1 + E2/E5 + serial logs while the owner tests 1.3.11) are still owed.
 
 ## P4 step 1 · 2026-10-15 — the E1 heap-waterfall breadcrumb (measurement only; issue 6 is NOT fixed)
 
@@ -58,10 +58,14 @@ pairs. **Nothing about issue 6 is fixed yet**: no U-112 floor re-tuned, no
 allocator touched, no `esp_bt_controller_mem_release(ESP_BT_MODE_BLE)`. P4's fix,
 and P5 riding it, and P6 gated on its headroom, all wait on those numbers.
 
-**Version: still 1.3.10, not bumped** — it has never been flashed, so folding the
-breadcrumb into it stays unambiguous (same reasoning as U-114).
+**Version: bumped 1.3.10 → 1.3.11 (owner ruling, 2026-10-15).** The breadcrumb —
+and the earlier U-112/U-114/T66 work — had shipped under **1.3.10** on the
+reasoning that 1.3.10 was never flashed. The owner ruled the label **bumped to
+1.3.11** so that a 1.3.10 binary (possibly already on the car for the U-112 pass)
+can never be confused with this pre-diet body. **1.3.11 is the bench + E1 flash.**
+P4's diet, and P5 riding it, ship as **1.3.12**.
 
-## U-114 2026-10-15 — HEAD did not compile, and `/status` reported its neighbours' values (1.3.10, UNFLASHED — owner flash target)
+## U-114 2026-10-15 — HEAD did not compile, and `/status` reported its neighbours' values (1.3.11, UNFLASHED — owner flash target)
 
 **Found by running the gates before touching anything.** `check-firmware-syntax.ps1`
 was **1 / 9** TUs at HEAD: `Config.h:40: 'tele' was not declared in this scope`.
@@ -90,9 +94,11 @@ gate still parses the same row), read through a bounded, NULL-safe
 treats the last field as the remainder of the string; the two buffers moved into
 the `tele_params` slot's argument position.
 
-**Version — why 1.3.10 and not 1.3.11.** 1.3.10 has never been flashed (no device
-reports it), so folding the fix into the same unreleased body leaves nothing
-ambiguous. A bump would only be required once a 1.3.10 binary is ON the car.
+**Version — first left at 1.3.10, then bumped (owner ruling, 2026-10-15).** The
+U-114 fix originally folded into **1.3.10** because no device reported it, so the
+same unreleased body stayed unambiguous. The owner then ruled the version bumped
+to **1.3.11** — see the P4 step-1 *Version* note at the top — because a 1.3.10
+binary may already be on the car and this body must stay distinguishable from it.
 
 **Gates (source only — F-61):** new `tele-params` rule (5 assertions) + mutants
 **M76-M80**; `check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` PASS ·
@@ -100,10 +106,10 @@ ambiguous. A bump would only be required once a 1.3.10 binary is ON the car.
 `mutate-gates.mjs` **74/74**. **No device evidence** — this is a compile/wiring
 fix, not a claim about the radio.
 
-**Owner note:** flashing 1.3.10 now also carries `"tele_params":"freq=1600,
+**Owner note:** flashing 1.3.11 now also carries `"tele_params":"freq=1600,
 vyse=0"` on `/status` (additive). Nothing else reads it yet.
 
-## U-112 2026-10-14 — the reset while pairing BT + own hotspot, and the freeze while using the page with the app connected (1.3.10, UNFLASHED — owner flash target)
+## U-112 2026-10-14 — the reset while pairing BT + own hotspot, and the freeze while using the page with the app connected (1.3.11, UNFLASHED — owner flash target)
 
 **Owner report after flashing 1.3.9 (the DB backs him):** connecting Bluetooth
 **and** the own hotspot together makes the car RESET (crash counter 757); using
@@ -115,7 +121,7 @@ coexistence scan, a page serve — is a coin flip, and where 3500 ms of
 blocked loop() (the page send to a slow/undrained reader) IS a freeze for
 every other link.
 
-**Fixes in 1.3.10 (car):**
+**Fixes in 1.3.11 (car):**
 
 1. **Heap floor for the status broadcast** — below `STATUS_HEAP_FLOOR_BYTES`
    (49152 B) `broadcastStatus()` defers, TIME-BOXED by
@@ -140,7 +146,7 @@ the in-flight refusal; the refusal is now pinned by text. Green:
 syntax **9/9** TUs · webpage-js PASS · firmware-contract 0 failures ·
 mutate-gates **69/69**.
 
-**Owner flash steps:** flash **1.3.10** (USB, 115200, `huge_app`) — follow
+**Owner flash steps:** flash **1.3.11** (USB, 115200, `huge_app`) — follow
 `TRACKS/RUNSHEET.md`. Watch the serial for `[HEAP]` lines under load and
 `[SCAN] refused` when scanning on a low heap; those lines are the evidence
 this round exists to produce. Then the U-112 rows in
@@ -198,7 +204,7 @@ change, so `wipeRoutersOnFreshFirmware()` clears saved routers + transport
 toggles on first boot (both transports ON, auto-join ON). Then the U-111 rows
 below **plus U-111-7** (the link surface never says Internet).
 
-Step-by-step for the owner's bench session: `TRACKS/RUNSHEET.md` (updated for 1.3.10).
+Step-by-step for the owner's bench session: `TRACKS/RUNSHEET.md` (updated for 1.3.11).
 
 ## U-111 2026-10-14 — Bluetooth pairing that actually completes + a hotspot that joins + the car↔app settings round-trip (1.3.8, UNFLASHED — owner flash target)
 

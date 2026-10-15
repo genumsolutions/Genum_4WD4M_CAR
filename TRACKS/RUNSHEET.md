@@ -1,6 +1,6 @@
-# RUNSHEET — flash 1.3.10 + the U-111 / U-112 device pass
+# RUNSHEET — flash 1.3.11 + the U-111 / U-112 device pass
 
-> One sheet for the owner's next bench session. Firmware **1.3.10** (UNFLASHED;
+> One sheet for the owner's next bench session. Firmware **1.3.11** (UNFLASHED;
 > 1.3.9 IS on the car) +
 > app **3.2.7 / versionCode 60** (OTA published; live manifest = commit `e5caaa8`).
 > Tick the rows in the row sheets as you go: car `TRACKS/DEVICE-TESTS.md`
@@ -8,7 +8,7 @@
 > `mobile/TESTING.md` (U-112-1..3, then U-111-1..6).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
-## 0 · What this one flash carries (1.3.9 → 1.3.10, plus everything below it)
+## 0 · What this one flash carries (1.3.9 → 1.3.11, plus everything below it)
 
 The bench car is on an older build. One flash of `main` brings all of it:
 
@@ -17,9 +17,9 @@ The bench car is on an older build. One flash of `main` brings all of it:
 | U-110 (1.3.7) | OLED last two rows = `Bluetooth : 4WD4M Car` / `Type : SPP`, rotating with `WiFi : <ssid>` / `IP : <car ip>`; the advertised BT name is **`4WD4M Car`** (was `4WD CAR`); Bluetooth starts after the radio's resting `AP_STA` mode; `btUp` is honest and retries a refused bring-up every 2 s |
 | U-111 (1.3.8) | **Bluetooth pairing completes** (SSP "Just Works" — no PIN; `1234` only as legacy fallback); the own hotspot no longer re-runs `softAP()` every loop pass (the freeze-shaped radio churn); the 11 dBm AP cap is boot-window only — 17 dBm again after 15 s |
 | U-111b (1.3.9, ON THE CAR) | **The Internet / cloud-relay method is gone** — no `[RELAY]` log lines, no `RELAYCFG`, the OLED link row only ever reads Bluetooth / WiFi |
-| **U-112 (1.3.10)** | **The reset-while-pairing and freeze-while-page-open round.** The status broadcast defers below a 49 kB heap floor (time-boxed 4 s); scans refuse below 65 kB with an honest BUSY; the page send aborts a reader that stops draining, so the app link keeps running while a page is open. Serial grows `[HEAP] …` and `[SCAN] refused` lines — that is the evidence this flash exists to produce |
-| **U-114 (1.3.10)** | **Build/wiring fix (no new radio behaviour).** HEAD did not compile and `/status` reported its neighbours' values for `wifi_enabled`/`bt_enabled`/`boot_autojoin` (the app adopts those). `/status` now also carries `tele_params":"freq=1600, vyse=0"` (additive, nothing reads it yet) |
-| **P4/E1 (1.3.10)** | **Measurement only — the BT heap waterfall (issue 6).** Serial gains one `[HEAPW] <stage> free=… max=…` line per radio stage: `boot`, `bt-stack`, `spp-connected`, `wifi-ap`, `page-served`, `both-links`. Nothing about behaviour changes — those six numbers are what the BT heap diet gets designed from (step **6b**) |
+| **U-112 (1.3.11)** | **The reset-while-pairing and freeze-while-page-open round.** The status broadcast defers below a 49 kB heap floor (time-boxed 4 s); scans refuse below 65 kB with an honest BUSY; the page send aborts a reader that stops draining, so the app link keeps running while a page is open. Serial grows `[HEAP] …` and `[SCAN] refused` lines — that is the evidence this flash exists to produce |
+| **U-114 (1.3.11)** | **Build/wiring fix (no new radio behaviour).** HEAD did not compile and `/status` reported its neighbours' values for `wifi_enabled`/`bt_enabled`/`boot_autojoin` (the app adopts those). `/status` now also carries `tele_params":"freq=1600, vyse=0"` (additive, nothing reads it yet) |
+| **P4/E1 (1.3.11)** | **Measurement only — the BT heap waterfall (issue 6).** Serial gains one `[HEAPW] <stage> free=… max=…` line per radio stage: `boot`, `bt-stack`, `spp-connected`, `wifi-ap`, `page-served`, `both-links`. Nothing about behaviour changes — those six numbers are what the BT heap diet gets designed from (step **6b**) |
 | app U-110 | the "Connection lost / reconnect?" prompt appears only when **no** link is live, and both prompts are centered dialogs |
 | app U-111 | the app adopts the car's Wi-Fi / Bluetooth / boot-auto-join settings on connect |
 | app U-112 | **exactly TWO methods** — Bluetooth · WiFi (LAN); no Internet pill or card anywhere |
@@ -28,7 +28,7 @@ The bench car is on an older build. One flash of `main` brings all of it:
 first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join ON,
 no router saved. Re-add your router in Step 5.
 
-## 1 · Flash 1.3.10 (USB)
+## 1 · Flash 1.3.11 (USB)
 
 ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 (this CH340 fails at the default 921600):
@@ -36,12 +36,12 @@ ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
     arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app .
     arduino-cli upload  --fqbn esp32:esp32:esp32:PartitionScheme=huge_app -p COM<port> --upload-property upload.speed=115200 .
 
-(1.3.9 is already on the car if you flashed it — 1.3.10 is a normal upgrade
+(1.3.9 is already on the car if you flashed it — 1.3.11 is a normal upgrade
 step, another version-change wipe of saved routers.)
 
 Capture the first boot while you are at it (~15 s, resets the board):
 
-    python tools/serial_capture.py COM<port> 15 boot-1.3.10.log
+    python tools/serial_capture.py COM<port> 15 boot-1.3.11.log
 
 **Expect in that log:** `[BOOT] Restored mode=4WD4M`, the router-wipe line
 (version change), `Own AP active: 4WD4MCar_WiFi`, and
@@ -75,7 +75,7 @@ once, re-join. Expect an `192.168.245.x` address, then open:
 
     http://192.168.245.1/status
 
-Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.10`, and the crash
+Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.11`, and the crash
 fields (`crash_count`, `reset_reason`, the phase). Also check `tele_params` reads
 `freq=1600, vyse=0` (U-114) and that `wifi_enabled`/`bt_enabled`/`boot_autojoin`
 report your actual toggles, not `1600`/`0`. The page's mode dropdown and
@@ -154,6 +154,10 @@ them can name this report's cause. If the car freezes:
 
 ## 9 · Still open after the pass
 
+- **The BT heap diet (P4, issue 6) is NOT in this flash — it ships as 1.3.12.**
+  This 1.3.11 body only *measures* (step 6b). Once the six `[HEAPW]` numbers are
+  in, the diet + P5 land and the owner flashes **1.3.12** — a separate version on
+  purpose, so a 1.3.11 report can never be confused with a post-diet one.
 - **DB Phase 7c migration** — owner runs
   `genumsolutions-website/supabase/migrations/20261013120000_phase7c_fresh_start_cleanup.sql`
   in the Supabase SQL editor (replace `owner_user_id` first).

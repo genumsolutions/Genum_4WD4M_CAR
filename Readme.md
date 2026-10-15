@@ -80,7 +80,8 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
-- **1.3.10 (2026-10-14, U-112)** — **heap floor for status/scan + the page
+- **1.3.11 (2026-10-15, U-112 + U-114 + T66 + P4/E1)** — **heap floor for
+  status/scan + the page
   stall-abort** (the post-1.3.9 report: reset while pairing BT + the own
   hotspot; freeze using the page with the app connected; field heap 13-18 kB).
   `broadcastStatus()` defers below 49152 B time-boxed to 4 s;
