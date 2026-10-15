@@ -625,6 +625,21 @@ const mutants = [
     find: "static_cast<unsigned>(ESP.getMaxAllocHeap())",
     repl: "static_cast<unsigned>(ESP.getFreeHeap())",
     why: "max= is printed from the FREE value - the format still claims max, the number is meaningless, and getMaxAllocHeap() is gone from the tree entirely" },
+
+  // P4 (issue 6, 2026-10-15) · the diet. Two ways the radio can silently go
+  // back to BTDM: drop the third argument (the library default), or pass the
+  // wrong boolean. Either re-allocates the BLE controller+host memory this
+  // SPP-only car never uses, i.e. the ~100 KB collapse returns while the
+  // waterfall still looks complete.
+  { id: "M89", rule: "bt-heap", file: "BluetoothComm.cpp",
+    find: "SerialBT.begin(BT_SPP_NAME, false, true)",
+    repl: "SerialBT.begin(BT_SPP_NAME)",
+    why: "the classic-only argument is gone - the radio is back to the BTDM default (disableBLE=false), so the BLE controller+host memory is allocated and never used (the issue-6 collapse)" },
+
+  { id: "M90", rule: "bt-heap", file: "BluetoothComm.cpp",
+    find: "SerialBT.begin(BT_SPP_NAME, false, true)",
+    repl: "SerialBT.begin(BT_SPP_NAME, false, false)",
+    why: "disableBLE is explicitly FALSE - the argument COUNT is right and the value is wrong, which is the shape a partial revert or a copy-paste takes" },
 ];
 
 // ---- runner -------------------------------------------------------------

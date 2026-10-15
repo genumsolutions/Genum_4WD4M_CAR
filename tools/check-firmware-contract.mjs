@@ -328,6 +328,21 @@ if (!hwFmt) {
   pass("heap-waterfall", "all 6 stages emit one [HEAPW] free+max breadcrumb (boot/bt/spp/ap/page/both)");
 }
 
+// (f4) P4 (issue 6, 2026-10-15): the diet itself. Issue 6's largest single cause
+// was the radio being brought up in BTDM mode: BluetoothSerial::begin()'s
+// disableBLE argument defaults to FALSE (BluetoothSerial.h:43), so the bare
+// begin(name) allocated BLE controller + host memory this SPP-only car never
+// uses (the app's BLE path is an explicit placeholder). disableBLE=true asks for
+// ESP_BT_MODE_CLASSIC_BT, and core 3.3.12's btStartMode() releases the BLE half
+// for us (esp32-hal-bt.c btMemRelease(BT_MODE_BLE)). Drop the third argument —
+// or flip it to false — and the ~100 KB collapse comes back with every gate
+// still green, which is why the THIRD argument is the contract here.
+if (!/SerialBT\.begin\(\s*[^,)]+\s*,\s*[^,)]+\s*,\s*true\s*\)/.test(code(raw("BluetoothComm.cpp")))) {
+  fail("bt-heap", "BluetoothComm::begin() does not ask for classic-BT-only (SerialBT.begin(name, false, true)) - the default is BTDM, which allocates the BLE controller+host memory this SPP-only car never uses (issue 6)");
+} else {
+  pass("bt-heap", "the radio comes up ESP_BT_MODE_CLASSIC_BT, so core 3.3.12 releases the unused BLE memory before the controller starts");
+}
+
 // ---- 7. the page-send loop cannot starve the watchdog (U-95/F-77) -------
 // The sketch's REAL watchdog config must be the same number the header declares.
 

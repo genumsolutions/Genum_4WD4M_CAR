@@ -46,9 +46,22 @@ bool BluetoothComm::begin() {
   SerialBT.enableSSP(false, false);
   SerialBT.setPin("1234", 4);
 
+  // P4 (issue 6) — the heap diet, step 1: bring the radio up CLASSIC-BT ONLY.
+  //
+  // BluetoothSerial::begin()'s third argument is `disableBLE`, and it DEFAULTS
+  // TO FALSE (BluetoothSerial.h:43), so the bare `begin(name)` this used to call
+  // ran the controller in BTDM mode — BLE *and* classic — allocating BLE
+  // controller + host memory that this car never touches (it speaks Classic SPP
+  // only; the app's BLE path is an explicit placeholder). disableBLE=true asks
+  // for ESP_BT_MODE_CLASSIC_BT, and core 3.3.12 releases the BLE half for us:
+  // btStartMode() calls btMemRelease(BT_MODE_BLE) before esp_bt_controller_init()
+  // (esp32-hal-bt.c). That reclaim is the largest single piece of the ~100 KB
+  // collapse issue 6 describes; the E1 waterfall below still reports whatever BT
+  // cost remains, so the diet stays measured rather than assumed.
+  //
   // SerialBT.begin() can take time - do it outside critical section
   crashRtcMark("bt-begin");
-  bool success = SerialBT.begin(BT_SPP_NAME);
+  bool success = SerialBT.begin(BT_SPP_NAME, false, true);
   
   TRANSPORT_POWER_ENTER_CRITICAL();
   started_ = success;
@@ -56,9 +69,10 @@ bool BluetoothComm::begin() {
   TRANSPORT_POWER_EXIT_CRITICAL();
 
   // P4/E1 (heap waterfall 2/6): the heap with the classic-BT controller/host
-  // allocated. This is the single biggest drop in the waterfall (P4 suspects (a)
-  // BLE memory allocated but never used, and (b) default ACL/bt config buffers),
-  // so it is logged on the FIRST bring-up only (begin() is idempotent).
+  // allocated — now AFTER the classic-only diet above, so this is the post-diet
+  // bt-stack figure the floor re-tune needs. It remains the single biggest drop
+  // in the waterfall, so it is logged on the FIRST bring-up only (begin() is
+  // idempotent).
   if (started_) heapWaterfall(HEAPW_STAGE_BT);
 
   return started_;

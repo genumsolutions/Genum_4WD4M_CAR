@@ -133,8 +133,11 @@ constexpr int HEAP_CRITICAL_BYTES = 4000;
 
 // ===== P4 (issue 6, 2026-10-15) · the E1 heap waterfall ====================
 // Issue 6 (BT ON collapses free heap ~110 KB -> ~10 KB; BT+Wi-Fi below 14 KB
-// resets the car) is fixed by MEASUREMENT, so the firmware prints ONE
-// breadcrumb per radio lifecycle stage. The six tokens below are the wire
+// resets the car). The diet's first step — a classic-BT-only bring-up, so the
+// BLE controller/host memory this SPP-only car never uses is released — now
+// lives in BluetoothComm::begin() (SerialBT.begin(name, false, true)). The
+// firmware ALSO prints ONE breadcrumb per radio lifecycle stage, so whatever BT
+// cost remains is measured, not assumed: the six tokens below are the wire
 // contract that the E1 capture (TRACKS/RUNSHEET.md) and
 // tools/check-firmware-contract.mjs both key on; they appear once each, in this
 // order: boot -> bt-stack -> spp-connected -> wifi-ap -> page-served ->
