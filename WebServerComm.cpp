@@ -2931,6 +2931,35 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // AP broadcast id — the app deck shows both. T-64: when nothing is stored,
   // the car's OWN network (4WD4MCar_WiFi) IS the network — the compile-time
   // secrets.h fallback is never joined nor named.
+  // T66 (round-9): the single config surface the car reads. `frequency` is the
+  // update cadence (Hz) and this shaping flag is the 1|0 value. Both live on
+  // the CONFIG.telemetry.parameters surface only (Config.h) — nothing else in
+  // this file defines them.
+  const char* teleParams = CONFIG_TELEMETRY_PARAMETERS;
+  const char* freqTok = strchr(teleParams, ',') + 1;
+  const char* freqVal = strchr(freqTok, ',') + 1;
+  const char* vyseTok = strchr(freqVal, ',') + 1;
+  const char* vyseVal = strchr(vyseTok, ',') + 1;
+  const char* freqEnd = strchr(freqVal, ',');
+  const char* vyseEnd = strchr(vyseVal, ',');
+  char freqBuf[16];
+  char vyseBuf[8];
+  if (freqEnd) {
+    size_t flen = static_cast<size_t>(freqEnd - freqVal);
+    if (flen >= sizeof(freqBuf)) flen = sizeof(freqBuf) - 1;
+    memcpy(freqBuf, freqVal, flen);
+    freqBuf[flen] = '\0';
+  } else {
+    freqBuf[0] = '\0';
+  }
+  if (vyseEnd) {
+    size_t vlen = static_cast<size_t>(vyseEnd - vyseVal);
+    if (vlen >= sizeof(vyseBuf)) vlen = sizeof(vyseBuf) - 1;
+    memcpy(vyseBuf, vyseVal, vlen);
+    vyseBuf[vlen] = '\0';
+  } else {
+    vyseBuf[0] = '\0';
+  }
   // U-70 (2026-10-02): the JSON `ssid` is the network the car is ACTUALLY on.
   // It used to be the stored target, which is written the moment `ROUTERS;USE`
   // stores the pair and BEFORE any association is attempted — so a failed switch
@@ -3015,6 +3044,7 @@ snprintf(buf, bufLen,
        "\"fw\":\"%s\","
        "\"networks\":[%s],"
        "\"scan\":%s,"
+       "\"tele_params\":\"freq=%s, vyse=%s\","
        "\"wifi_enabled\":%s,"
        "\"bt_enabled\":%s,"
        "\"boot_autojoin\":%s"
@@ -3058,6 +3088,8 @@ snprintf(buf, bufLen,
       scanJson,
       wifiEnabled_ ? "true" : "false",
       btEnabled_ ? "true" : "false",
-      bootAutojoin_ ? "true" : "false"
+      bootAutojoin_ ? "true" : "false",
+      freqBuf,
+      vyseBuf
   );
 }

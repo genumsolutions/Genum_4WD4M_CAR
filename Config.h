@@ -21,7 +21,24 @@
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
 #define FW_VERSION "1.3.10"  // see TRACKS/CHANGELOG.md
-#define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
+#define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."// T66 (round-9): the single config surface the car firmware and the TSH gate
+// read from. Every scalar product of `tele.parameters` must live here — no other
+// place in this repo re-ships the same `frequency` / shaping values; that surface
+// is the only source of truth.
+//
+// The wire format the TSH parses from this file is a CSV row:
+//   tele.parameters,frequency,<Hz>,<shaping>
+// `frequency` is the update cadence (Hz); the second CSV field is the shaping
+// flag. One source of truth: if either key is missing, or if either key appears
+// anywhere else in this repo, TSH/test_config_integrity.py fails.
+//
+// Values choose the shaping contract for the balance loop:
+//   frequency — update cadence the tele loop runs at (Hz).
+//   the shaping flag — 1 = single-slot model (faster, one product feed), 0 = dual-slot
+//               model (two independent feeds). Set it once here; the tele loop
+//               branches on this value.
+#define CONFIG_TELEMETRY_PARAMETERS   tele.parameters,frequency,1600,vysexcvr,0
+
 // T-xx / U-107 (2026-10-13): the advertised Bluetooth SPP name, ONE source.
 // BluetoothComm::begin() passes it to SerialBT.begin(); the OLED's Bluetooth
 // frame shows it (the "real BT name", not a second hard-coded literal that can
