@@ -870,6 +870,82 @@ if (!scanJsonBody) {
   }
 }
 
+// ---- P5 / U-113 issues 7 + 9 (2026-10-15): the Wi-Fi transport switch ----
+//
+// ISSUE 7 ("Wi-Fi OFF must hide everything - the phone still sees the hotspot
+// AND its webpage") had a source-visible cause, so E3 was only needed to pick
+// WHICH of the three candidate failures it was. The one that is in the code:
+//
+//   the own-hotspot bring-up was NEVER gated on the Wi-Fi transport switch.
+//     - stop() took the beacon down only `if (apRunning_)`, and apRunning_ is a
+//       BELIEVED flag the code itself force-writes false across an AP_STA<->AP
+//       mode bounce (GIVEUP_AP / REJOIN_STEP_AP: "forced false, not trusted"),
+//       so a stale value silently skipped softAPdisconnect();
+//     - handle()'s FIN-40/D1 retry then re-created the hotspot ~2 s
+//       (AP_RETRY_INTERVAL_MS) after `WIFICFG;WIFI;OFF`, because it tested
+//       `!apRunning_` and nothing else, and stop() had just cleared that flag.
+//     - stop() is reached only while `webUp` is true, and the U-79 loop clears
+//       webUp as it calls it - so the re-created beacon was NEVER taken down
+//       again. The switch said hidden; the radio said broadcasting.
+//
+// The rule pins the whole shape: the teardown is UNCONDITIONAL and NO bring-up
+// path (boot, retry, rejoin, give-up) raises the beacon while the transport is
+// off. The device half (does the SSID actually vanish, does the page refuse) is
+// E3 + U-113 rows on the owner's bench (F-61).
+const p5StopBody = body(wscCode, "void WebServerComm::stop()") ?? "";
+const p5ApBody = body(wscCode, "void WebServerComm::startOwnAP()") ?? "";
+const p5HandleBody = body(wscCode, "void WebServerComm::handle()") ?? "";
+const p5ApDisconnectAt = p5StopBody.search(/WiFi\.softAPdisconnect\s*\(/);
+const p5ApGatedOnFlag = /if\s*\(\s*apRunning_\s*\)[^\n]*softAPdisconnect\s*\(/.test(p5StopBody);
+if (!p5StopBody) {
+  fail("wifi-off-hides-ap", "could not locate WebServerComm::stop() - check this rule still matches the code");
+} else if (p5ApDisconnectAt < 0) {
+  fail("wifi-off-hides-ap", "stop() never calls WiFi.softAPdisconnect() - turning Wi-Fi OFF leaves the own beacon broadcasting (issue 7)");
+} else if (p5ApGatedOnFlag) {
+  fail("wifi-off-hides-ap", "stop() still gates the beacon teardown on `apRunning_` - that flag is force-written false across AP_STA<->AP mode bounces, so a stale value silently skips softAPdisconnect() and the hotspot survives the switch (issue 7)");
+} else if (!p5ApBody) {
+  fail("wifi-off-hides-ap", "could not locate WebServerComm::startOwnAP() - check this rule still matches the code");
+} else if (!/if\s*\(\s*!\s*wifiEnabled_\s*\)\s*return\s*;/.test(p5ApBody)) {
+  fail("wifi-off-hides-ap", "startOwnAP() does not refuse while the Wi-Fi transport is OFF - the boot bring-up, the rejoin and the give-up machines can all raise a beacon the owner switched off (issue 7)");
+} else if (!p5HandleBody) {
+  fail("wifi-off-hides-ap", "could not locate WebServerComm::handle() - check this rule still matches the code");
+} else if (!/if\s*\(\s*wifiEnabled_\s*&&\s*!\s*apRunning_/.test(p5HandleBody)) {
+  fail("wifi-off-hides-ap", "handle()'s own-hotspot retry is not gated on wifiEnabled_ - stop() clears apRunning_, so the next pass re-creates the beacon ~2 s after Wi-Fi OFF (the owner's 'the phone still sees it', issue 7)");
+} else if (!/server\.stop\s*\(\s*\)/.test(p5StopBody) || !/serverRunning\s*=\s*false/.test(p5StopBody)) {
+  fail("wifi-off-hides-ap", "stop() no longer stops the HTTP server (server.stop() + serverRunning=false) - the page would still be served after Wi-Fi OFF (issue 7)");
+} else {
+  pass("wifi-off-hides-ap", "stop() drops the beacon unconditionally; startOwnAP() AND the handle() retry refuse while the Wi-Fi transport is OFF; the HTTP server is stopped, so the page refuses");
+}
+
+// ISSUE 9 ("Page always up when Wi-Fi is on - never wait for the app/remote to
+// connect first") is the same beacon seen from the other end: while the Wi-Fi
+// transport is ON, the own hotspot and its page must be a way in with NOBODY
+// attached. There is no new fix here - U-105 removed the power-save PARK - so
+// this rule exists to make the property regress-proof, and E4 is the device
+// half (does the page actually render with no app connected).
+const p5RootBody = body(wscCode, "void WebServerComm::handleRoot()") ?? "";
+const p5ServeBody = body(wscCode, "void WebServerComm::serveRootBounded()") ?? "";
+const p5PowerBody = body(wscCode, "void WebServerComm::updateApPowerPolicy()") ?? "";
+if (!p5RootBody) {
+  fail("page-always-on", "could not locate WebServerComm::handleRoot() - check this rule still matches the code");
+} else if (!/serveRootBounded\s*\(\s*\)/.test(p5RootBody)) {
+  fail("page-always-on", "handleRoot() no longer sends the page via serveRootBounded() - the root route lost its body");
+} else if (/hasWsClients|connectedClients/.test(p5RootBody)) {
+  fail("page-always-on", "handleRoot() is gated on a connected client - the page would wait for the app to attach first (issue 9: 'never wait for the app/remote to connect first')");
+} else if (!p5ServeBody) {
+  fail("page-always-on", "could not locate WebServerComm::serveRootBounded() - check this rule still matches the code");
+} else if (/hasWsClients|connectedClients/.test(p5ServeBody)) {
+  fail("page-always-on", "serveRootBounded() is gated on a connected client - a phone that browses the car's own AP before the app connects gets no page (issue 9)");
+} else if (!p5PowerBody) {
+  fail("page-always-on", "could not locate WebServerComm::updateApPowerPolicy() - check this rule still matches the code");
+} else if (/softAPdisconnect|softAP\s*\(\s*\)/.test(p5PowerBody)) {
+  fail("page-always-on", "updateApPowerPolicy() tears the beacon down - the own hotspot must never be PARKED while Wi-Fi is ON (U-105: the beacon is the setup path, issue 9)");
+} else if (!/if\s*\(\s*!\s*wifiEnabled_\s*\)\s*return\s*;/.test(p5PowerBody)) {
+  fail("page-always-on", "updateApPowerPolicy() no longer returns on a disabled Wi-Fi transport - it would fight the owner's own switch (issue 7)");
+} else {
+  pass("page-always-on", "the root page is served with no client gate, and the own beacon is never parked while Wi-Fi is on");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that a
 // real car answers. That is the owner's bench, not a laptop.
 console.log("\nfirmware-contract: source checks only - no radio was touched, no car was asked.");

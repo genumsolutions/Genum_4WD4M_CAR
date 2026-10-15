@@ -640,6 +640,36 @@ const mutants = [
     find: "SerialBT.begin(BT_SPP_NAME, false, true)",
     repl: "SerialBT.begin(BT_SPP_NAME, false, false)",
     why: "disableBLE is explicitly FALSE - the argument COUNT is right and the value is wrong, which is the shape a partial revert or a copy-paste takes" },
+
+  // P5 (U-113 issues 7 + 9, 2026-10-15) · the Wi-Fi transport switch. Issue 7's
+  // cause was that NO bring-up path consulted the switch, so Wi-Fi OFF left the
+  // own beacon broadcasting. Three independent ways back to that state, one per
+  // assert in `wifi-off-hides-ap` - plus the two `page-always-on` regressions
+  // (a client gate on the page, and a parked beacon while Wi-Fi is on).
+  { id: "M91", rule: "wifi-off-hides-ap", file: WSC,
+    find: "WiFi.softAPdisconnect(true);",
+    repl: "if (apRunning_) WiFi.softAPdisconnect(true);",
+    why: "the teardown is gated on the believed flag again - stop() skips softAPdisconnect() whenever apRunning_ is stale, which is exactly the AP_STA<->AP bounce the flag is force-written around (issue 7's 'the hotspot is still there')" },
+
+  { id: "M92", rule: "wifi-off-hides-ap", file: WSC,
+    find: "if (wifiEnabled_ && !apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {",
+    repl: "if (!apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {",
+    why: "handle()'s AP retry no longer checks the transport switch - stop() clears apRunning_, so the very next pass re-creates the beacon ~2 s after Wi-Fi OFF and nothing ever takes it down again" },
+
+  { id: "M93", rule: "wifi-off-hides-ap", file: WSC,
+    find: "if (!wifiEnabled_) return;  // U-113 (#7): no beacon while the transport is off",
+    repl: "// U-113 (#7) guard removed from startOwnAP()",
+    why: "startOwnAP() loses its switch guard - the boot bring-up, the rejoin and the give-up machines can each raise a beacon the owner switched off (the invariant stated at the wrong end only)" },
+
+  { id: "M94", rule: "page-always-on", file: WSC,
+    find: "  serveRootBounded();",
+    repl: "  if (hasWsClients()) serveRootBounded();",
+    why: "the root page is gated on a connected client again - a phone that browses the car's own AP before the app attaches gets no page (issue 9: 'never wait for the app/remote to connect first')" },
+
+  { id: "M95", rule: "page-always-on", file: WSC,
+    find: "if (!wifiEnabled_) return;  // Wi-Fi transport deliberately off (U-105)",
+    repl: "if (!wifiEnabled_) { WiFi.softAPdisconnect(true); return; }  // Wi-Fi transport deliberately off (U-105)",
+    why: "updateApPowerPolicy() parks the beacon - the own hotspot is torn down on a policy pass, which is the U-87 'car dropped the link it was being driven over' shape and the issue-9 regression" },
 ];
 
 // ---- runner -------------------------------------------------------------

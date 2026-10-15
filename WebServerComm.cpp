@@ -1160,6 +1160,14 @@ void WebServerComm::startOwnAP() {
   // `ap` came back "" and the car was unfindable. apRunning_ still carries
   // whether the beacon is actually up; the name is identity, not state.
   if (apName_.length() == 0) apName_ = String(WIFI_AP_NAME);
+  // U-113 (#7): the own hotspot IS the Wi-Fi transport's beacon, so a Wi-Fi
+  // transport the owner switched OFF must not be brought back — not by the boot
+  // bring-up, not by the handle() retry below, not by the rejoin/give-up
+  // machines. stop() has already taken the beacon down; honour the switch. This
+  // is the same guard updateApPowerPolicy() carries, stated at the one function
+  // that actually raises the beacon. Placed AFTER the apName_ line so the
+  // identity field is still stated (U-109: name is identity, not state).
+  if (!wifiEnabled_) return;  // U-113 (#7): no beacon while the transport is off
   // U-76 (2026-10-02): THE ROOT CAUSE, from the owner's breadcrumbs.
   //
   //   [RADIO] rejoin/softAP
@@ -1871,7 +1879,14 @@ void WebServerComm::stop() {
   // defined but never called).
   stopMdns();
   WiFi.disconnect();
-  if (apRunning_) WiFi.softAPdisconnect(true);
+  // U-113 (#7): the beacon teardown must NOT be gated on `apRunning_`.
+  // `apRunning_` is a BELIEF about the beacon, and the code force-writes it
+  // false (GIVEUP_AP, REJOIN_STEP_AP: "forced false, not trusted") exactly
+  // because it goes stale across an AP_STA<->AP mode bounce. Gating the shutdown
+  // on a believed flag is how a Wi-Fi-OFF that claims everything is hidden
+  // leaves the own hotspot up. softAPdisconnect() is idempotent when nothing is
+  // up, and this path wants the radio down either way.
+  WiFi.softAPdisconnect(true);
 
   // Protect state variables with critical section
   TRANSPORT_POWER_ENTER_CRITICAL();
@@ -2139,7 +2154,12 @@ void WebServerComm::handle() {
   // real success, so the car always ends up broadcasting its own hotspot.
   {
     const unsigned long apNow = millis();
-    if (!apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {
+    // U-113 (#7): ONLY while the Wi-Fi transport is enabled. stop() sets
+    // apRunning_ = false as it takes the beacon down, so with no guard here the
+    // very next pass re-created the hotspot ~2 s (AP_RETRY_INTERVAL_MS) after
+    // `WIFICFG;WIFI;OFF` — the owner's "the phone still sees the hotspot AND its
+    // webpage" (issue 7). Wi-Fi OFF is forced down and STAYS down.
+    if (wifiEnabled_ && !apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {
       // U-76: never re-arm an AP bring-up while the STA is busy. `softAP()` and
       // `softAPConfig()` are both illegal then, and `softAP()` against a live
       // association can block long enough to trip the task watchdog - which is
