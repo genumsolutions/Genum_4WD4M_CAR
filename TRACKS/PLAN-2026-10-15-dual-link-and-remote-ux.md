@@ -1,8 +1,9 @@
 # PLAN 2026-10-15 — dual link + remote-screen UX + BT heap (CAR half, master)
 
-Status: **P1 DONE (2026-10-15) — P2 NEXT.** Phase 0 captures (E2/E5/E6 + the P3 audit log)
-are still owed from the owner's 1.3.10 bench pass; P1 did not need them (source-level root
-cause, see below). The app half is mirrored in `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`;
+Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) — next is P4, the BT heap diet
+(1.3.11).** Phase 0 captures (E2/E5/E6 + the P3 audit log) are still owed from the owner's
+1.3.10 bench pass; P1 did not need them (source-level root cause, see below). The app half is
+mirrored in `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`;
 cross-repo round log stays in the root `RESUME-HERE.md`.
 
 Owner request (2026-10-15, pasted text, verbatim intent — 14 issues; #14 was missed in this
@@ -98,6 +99,9 @@ name: the NACK rollback.**
 
 ### P2 — Issues 2, 3, 4, 10: Remote screen chrome rebuilt (app, JS-only OTA)
 
+**✅ DONE 2026-10-15** (app commit `c035e8c`; `remoteChrome.test.ts`; tsc 0 · vitest 705/705 ·
+prettier clean). Device rows **U-113-2..4 + U-113-16** owed from the owner's bench pass (F-61).
+
 All in `RemoteControlScreen.tsx`:
 
 - **Merge** the disconnect row (L868-921, `h-7`) and the tabs row (L924-999, `h-7`) into ONE
@@ -126,6 +130,11 @@ All in `RemoteControlScreen.tsx`:
   U-113-16 with before/after screenshots.
 
 ### P3 — Issues 5, 12: Settings panel widened + fully audited (app, JS-only OTA)
+
+**◑ CODE LANDED 2026-10-15** (app commit `d510a03`): the dropdown widened `w-64` → `w-80` and
+the CAR's "Boot auto-join (car)" toggle removed (Q1's UI half). **The control AUDIT (issue 12)
+is the owner's bench pass** — rows **U-113-5..7**. A 2026-10-15 cleanup also repaired the
+removal, which had left a dead JSX fragment parked inside a JSX comment.
 
 - Widen the dropdown (`absolute right-3 w-64`, L1307) to fit content (e.g. `w-80` / %-based with
   a max), re-lay the rows so labels + switches + helper text all fit without truncation, keep
