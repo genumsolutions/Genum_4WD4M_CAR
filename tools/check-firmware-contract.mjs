@@ -828,6 +828,8 @@ if (!scanJsonBody) {
   } else {
     if (scanFloor <= statusFloor) {
       fail("heap-guard", `SCAN_HEAP_FLOOR_BYTES (${scanFloor}) must sit ABOVE STATUS_HEAP_FLOOR_BYTES (${statusFloor}) - the bigger transient needs the bigger cushion`);
+    } else if (statusFloor < 30000 && scanFloor < statusFloor * 2) {
+      fail("heap-guard", `SCAN_HEAP_FLOOR_BYTES (${scanFloor}) is too close to STATUS_HEAP_FLOOR_BYTES (${statusFloor}) - the bigger transient needs a bigger cushion for reliability when the status floor is low`);
     } else {
       pass("heap-guard", `floors: status ${statusFloor} B < scan ${scanFloor} B; page stall-abort after ${stallAfter} zero-writes`);
     }
