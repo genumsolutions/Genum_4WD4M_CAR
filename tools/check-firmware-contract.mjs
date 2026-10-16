@@ -999,6 +999,37 @@ if (!bootArmBody) {
   pass("boot-scan-first", "the boot auto-join probes the air first; an absent router settles AP-only with no rejoin churn, an inconclusive scan falls back to the rejoin, and an explicit switch or Wi-Fi OFF clears a stale probe");
 }
 
+// P6 / issue 1 (2026-10-16): BOTH TRANSPORTS STAY UP AT THE SAME TIME.
+//
+// Issue 1 asks for the app and the car connected over Bluetooth AND Wi-Fi
+// simultaneously. The firmware already does this — the U-79 "both transports
+// on" branch only starts a transport that is down, it never stops one — but
+// until this rule that was a fact of one `if` nobody could see. The old
+// "one client on one transport powers the OTHER down" teardown was retired
+// with U-105, and the app-side half (ConnectionSection's shared `linkLive`
+// gate hiding the BT scan while Wi-Fi was live) landed the same day, so a
+// regression on EITHER side would silently put the fleet back to one link.
+//
+// This rule pins the firmware side: the both-enabled branch must exist, must
+// start whichever link is down, and must contain no `stop()` — a stop there
+// would drop the second link the moment it came up, which is exactly the
+// defect P6 exists to remove. The device half (both links live at once,
+// `BT+WiFi` on the OLED, each disconnecting independently) is rows U-113-12..14
+// on the owner's bench (F-61).
+const dualAt = inoCode.indexOf("if (wifiEn && btEn)");
+const dualOn = dualAt < 0 ? null : braced(inoCode, dualAt);
+if (!dualOn) {
+  fail("dual-link-kept", "could not locate the U-79 'both transports on' branch - check this rule still matches the code");
+} else if (/\.stop\s*\(/.test(dualOn)) {
+  fail("dual-link-kept", "the both-enabled branch STOPS a transport - a stop() here drops the second link as soon as it comes up, so the car is back to one active link (issue 1)");
+} else if (!/ensureBtAdvertising\s*\(/.test(dualOn)) {
+  fail("dual-link-kept", "the both-enabled branch never raises Bluetooth - with Bluetooth down and Wi-Fi up the second link can never appear, so a reboot leaves a one-link car");
+} else if (!/beginAlwaysOn\s*\(/.test(dualOn)) {
+  fail("dual-link-kept", "the both-enabled branch never raises the web layer - with Bluetooth up and Wi-Fi down the own hotspot and page never come up, so the second link can never appear");
+} else {
+  pass("dual-link-kept", "the both-enabled branch starts whichever link is down and stops neither - BT + own hotspot + page stay up together (issue 1)");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that a
 // real car answers. That is the owner's bench, not a laptop.
 console.log("\nfirmware-contract: source checks only - no radio was touched, no car was asked.");

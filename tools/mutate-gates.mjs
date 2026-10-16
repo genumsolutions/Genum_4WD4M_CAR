@@ -697,6 +697,24 @@ const mutants = [
     find: "  bootScanArmed_ = false;\n  bootScanKicked_ = false;\n  // U-95 Phase 2: a fresh request gets a fresh drop attempt budget, or the",
     repl: "  // U-95 Phase 2: a fresh request gets a fresh drop attempt budget, or the",
     why: "rejoinNetwork() no longer clears an armed boot probe — a stale probe fires a SECOND rejoin after the owner picked a network by hand" },
+
+  // P6 / issue 1 (2026-10-16): both transports stay up. Three mutants, one per
+  // direction the `dual-link-kept` rule polices — a stop inside the
+  // both-enabled branch, and each of the two raises it exists to make.
+  { id: "M101", rule: "dual-link-kept", file: INO,
+    find: '      webServerComm.beginAlwaysOn();\n      webServerComm.armBootAutoJoin();  // own hotspot stays up\n      Serial.println("[POWER] Wi-Fi up (both transports on)");',
+    repl: '      webServerComm.beginAlwaysOn();\n      webServerComm.armBootAutoJoin();  // own hotspot stays up\n      btComm.stop();\n      Serial.println("[POWER] Wi-Fi up (both transports on)");',
+    why: "the both-enabled branch now stops the OTHER transport - bringing Wi-Fi up tears Bluetooth down, so the second link can never exist (the retired one-link teardown, back in the branch that owns it)" },
+
+  { id: "M102", rule: "dual-link-kept", file: INO,
+    find: '      btUp = ensureBtAdvertising();\n      if (btUp) Serial.println("[POWER] Bluetooth advertising (both transports on)");',
+    repl: '      // (the Bluetooth raise is removed from the both-enabled branch)',
+    why: "the both-enabled branch never raises Bluetooth - after a reboot where BT came up down, Wi-Fi is up and the second link can never appear, so a one-link car is permanent" },
+
+  { id: "M103", rule: "dual-link-kept", file: INO,
+    find: '      webServerComm.beginAlwaysOn();\n      webServerComm.armBootAutoJoin();  // own hotspot stays up\n      Serial.println("[POWER] Wi-Fi up (both transports on)");',
+    repl: '      // (the web-layer raise is removed from the both-enabled branch)',
+    why: "the both-enabled branch never raises the web layer - Bluetooth up with the hotspot and page down means the second link is unreachable even though the toggle says ON" },
 ];
 
 // ---- runner -------------------------------------------------------------
