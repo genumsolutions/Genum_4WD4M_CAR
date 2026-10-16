@@ -45,6 +45,41 @@ elapsing, not a Bluetooth effect.
 
 **Device rows:** U-115-1..3 in `TRACKS/DEVICE-TESTS.md` — owner's bench.
 
+## P6 / issue 1 (2026-10-16): dual BT+Wi-Fi link — NO firmware byte changed, the premise is now gated
+
+**`FW_VERSION` stays 1.3.12** — nothing in the firmware moved. Issue 1 asked for the
+app and the car connected over Bluetooth AND Wi-Fi at the same time, and the car was
+already doing its half: the U-79 "both transports on" branch only *starts* a
+transport that is down and never stops one, and U-115 removed the boot
+moving-channel that made the own hotspot unjoinable in the first place.
+
+What actually stopped the dual link was **one line in the app**:
+
+```
+{target.id === "bt-spp" && !linkLive ? ( … Find my car … )}
+```
+
+`linkLive` was the SHARED "any link up" flag (`btLive || wifiConnected`), so the
+moment Wi-Fi connected the Bluetooth scan button vanished — and because
+`sppDevices` is filled only by a scan, the paired list below it stayed empty too.
+The dual link was **one-sided**: Wi-Fi-second worked, Bluetooth-second could not.
+Fixed app-side (`genumsolutions-app`); the Wi-Fi direction, which was already open,
+is now pinned so it cannot be "balanced" into a symmetric block later.
+
+**Command fan-out confirmed (P6 item 2):** `routeCommand` lets mode parity pick the
+radio, `EVERY_LINK_COMMANDS` broadcasts over whatever is live, and `chosenRadio`
+stays `null` (the transports/LinkManager is deliberately not activated) — so a
+non-broadcast drive line reaches exactly one radio and there is **no double-apply**
+on the car. **Q3 stays open** with default = broadcast lines on both.
+
+**Gates (source only — F-61):** new contract rule **`dual-link-kept`** + mutants
+**M101-M103** (an injected `stop()`, the BT raise removed, the web raise removed);
+`check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` **PASS** ·
+`check-firmware-contract.mjs` **0 failures** · `mutate-gates.mjs` **97/97** ·
+app vitest **711/711**, `tsc --noEmit` clean, prettier clean.
+
+**Device rows:** U-113-12..14 in `TRACKS/DEVICE-TESTS.md` — owner's bench.
+
 ## UNRELEASED — 1.3.11 (U-112 + U-114 + T66 + P4/E1 + P5, 2026-10-15): heap floor for status/scan + the page stall-abort + the tele surface + the E1 heap waterfall + Wi-Fi OFF that actually hides everything (the post-1.3.9 reset/freeze report)
 
 **FLASHED to the car** (COM8, 2026-10-15, hash-verified upload — see the bench

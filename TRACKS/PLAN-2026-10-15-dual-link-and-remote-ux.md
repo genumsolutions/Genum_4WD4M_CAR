@@ -5,9 +5,15 @@
 > hotspot on a moving channel (owner report 2026-10-16: "detected but won't connect");
 > new rule `boot-scan-first` + mutants M96-M100, gates green, `FW_VERSION` **1.3.12**.
 > **P4 is CLOSED** — E1 captured **6/6** and `STATUS_HEAP_FLOOR_BYTES` re-tuned
-> 49152 → **20000** (`cce743e`); P6's headroom gate is therefore satisfied. The
-> original 2026-10-15 text below is kept for the P6/P7/P8 detail still owed. **The
-> E3/E4/E11 device captures and Q1-Q3 remain the owner's.**
+> 49152 → **20000** (`cce743e`); P6's headroom gate is therefore satisfied.
+> **P6 (issue 1, dual link) is CODE-DONE** (`052379c`) — the app's Bluetooth scan no
+> longer hides behind a live Wi-Fi link (`dualLinkConnect.test.ts`, 4 mutations → red)
+> and the firmware premise is pinned by `dual-link-kept` + M101-M103. **No firmware
+> byte changed**, so 1.3.12 stands; the device half is rows **U-113-12..14**, still
+> owed from the owner's bench. **Q3** (which link is primary) is still open — default
+> = broadcast lines on both, since `chosenRadio` stays null and mode parity picks the
+> radio. The original 2026-10-15 text below is kept for the P7/P8 detail still owed.
+> **The E3/E4/E11 captures and Q1-Q3 remain the owner's.**
 
 Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) · P4 STEP 1 + STEP 2 LANDED — the E1
 heap-waterfall breadcrumb **and** the diet's first step (classic-BT-only bring-up, so the
@@ -243,6 +249,18 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
 - Extend `oneActiveLink.test.ts` / `linkManager.test.ts` (their current job is proving NO
   teardown) with the both-up connect path; device rows U-113-12..14: connect both, status shows
   `BT+WiFi`, disconnect each independently, commands work over each.
+- **✅ CODE-DONE 2026-10-16 (car `052379c`, app `02569c1`) — the gap was ONE line,
+  app-side.** `ConnectionSection` gated the Bluetooth scan on the SHARED `linkLive`
+  (`btLive || wifiConnected`), so a live Wi-Fi link hid "Find my car" — and since
+  `sppDevices` fills only from a scan, the paired list stayed empty too.
+  **Wi-Fi-second already worked; Bluetooth-second could not.** The gate now keys on
+  `btLive` (Bluetooth's own `sppStatus`); the dead `linkLive` prop is removed.
+  New `dualLinkConnect.test.ts` pins both directions (**4 mutations → red**); the
+  firmware premise is pinned by **`dual-link-kept` + M101-M103** with **no firmware
+  byte changed**. E5 was not needed: the root cause is source-level (P1's precedent).
+- **Still owed (F-61):** device rows **U-113-12..14** — the owner's bench. **Q3** stays
+  open with default = broadcast lines on both (mode parity picks the radio;
+  `chosenRadio` stays null, so no double-apply).
 
 ### P7 — Issue 8: prompt persistence + sync sweep (app + car)
 

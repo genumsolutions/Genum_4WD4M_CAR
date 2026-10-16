@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, U-115 boot-scan-first landed → **1.3.12**; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, U-115 boot-scan-first landed → **1.3.12**; **P6/issue 1** dual BT+Wi-Fi link landed — app fix + a gate, firmware unchanged; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
@@ -28,6 +28,50 @@
 > detected but won't connect"): the boot auto-join now probes the air first, so an
 > absent router no longer holds the own hotspot on a moving channel — **1.3.12**,
 > gates green. See the U-115 section below.
+>
+> **P6/issue 1** landed the same day: the dual BT+Wi-Fi link is now reachable from
+> the app (the Bluetooth scan no longer hides behind a live Wi-Fi link), and the
+> firmware premise is pinned by `dual-link-kept` — **no firmware byte changed**, so
+> 1.3.12 stands. See the P6 section below.
+
+## P6 · 2026-10-16 — issue 1: dual BT+Wi-Fi link, end to end (app fix + a gate; firmware unchanged)
+
+**The owner's issue 1:** *"app+car connected over Bluetooth AND Wi-Fi at the same
+time. Connecting both fails today; owner asks whether it is possible on the ESP32
+at all."*
+
+**Answer (source-level): yes — and the car was already doing its half.** The U-79
+both-enabled branch only *starts* a transport that is down (`.ino` L415-436), and
+U-115 removed the boot moving-channel that made the own hotspot unjoinable. Below the
+app's panel the plumbing is additive too: no teardown exists
+(`oneActiveLink.test.ts` / `linkManager.test.ts`).
+
+**The gap was ONE line, app-side** (`ConnectionSection.tsx`):
+
+- `{target.id === "bt-spp" && !linkLive ? ( … Find my car … )}` — `linkLive` was the
+  **shared** `btLive || wifiConnected`, so a live Wi-Fi link hid the Bluetooth scan,
+  and because `sppDevices` is filled only by a scan the paired list stayed empty too.
+  **Wi-Fi-second worked; Bluetooth-second could not.** The gate now keys on `btLive`
+  (Bluetooth's own `sppStatus`), and the dead `linkLive` prop is removed so the old
+  flag cannot be wired straight back in. New `dualLinkConnect.test.ts` pins both
+  directions; **4 mutations → red** (shared flag restored, paired list behind
+  `anyLink`, Wi-Fi gated on `btLive`, `TargetBody` fed `wifiConnected`).
+
+**Car half — no firmware byte changed (`FW_VERSION` stays 1.3.12).** New rule
+**`dual-link-kept`** + mutants **M101-M103** pin the premise: the both-enabled branch
+must raise a downed transport and must contain no `stop()`.
+
+**Command fan-out (Q3 still open — default = broadcast lines on both):** mode parity
+picks the radio, `EVERY_LINK_COMMANDS` broadcasts over whatever is live, and
+`chosenRadio` stays `null` (LinkManager deliberately not activated) — a non-broadcast
+drive line reaches exactly one radio, so there is **no double-apply**.
+
+**Gates:** contract **0 failures** · webpage-js **PASS** · syntax **9/9** ·
+mutate-gates **97/97** · app vitest **711/711** + `tsc --noEmit` clean + prettier clean.
+
+**Still owed from the bench:** device rows **U-113-12..14** (both links up in both
+orders, independent disconnects, commands over each + a 1 min soak). **Nothing here
+is device-verified.**
 
 ## U-115 · 2026-10-16 — the boot auto-join probes the air first (1.3.12, UNFLASHED — owner flash target)
 

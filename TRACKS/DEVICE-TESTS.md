@@ -117,6 +117,23 @@
       no client attached: the phone's scan sees `4WD4MCar_WiFi`, that page is
       browsable, AND Android's Bluetooth device list shows `4WD4M Car`
       advertising — all three simultaneously, for >= 1 min.
+- [ ] **U-113-12 — ⭐ issue 1: BOTH links up at the same time, in both orders.** On the
+      **P6 build** (car **1.3.12** + app **3.2.7/60**, JS-only OTA), with the car on its
+      own hotspot: **(a)** connect Bluetooth first, then switch the app to Wi-Fi and
+      press Connect — the BT link must stay up; **(b)** disconnect both, then connect
+      Wi-Fi first and raise Bluetooth second. **(b) is the direction this round
+      fixed**: before P6 the Bluetooth "Find my car" button vanished the moment Wi-Fi
+      was live, so a second link was impossible in that order. Both times the app shows
+      both links live and the OLED reads `BT+WiFi`.
+- [ ] **U-113-13 — issue 1: each link disconnects independently.** With both up, use the
+      per-method disconnect chips: dropping BT must leave the Wi-Fi link up (no
+      reconnect, no lost state), and dropping Wi-Fi must leave BT up. Repeat in the
+      other order. Neither may tear the other transport down.
+- [ ] **U-113-14 — issue 1: commands work over each link, no double-apply.** With both
+      live, drive over Bluetooth, then drop BT and confirm Wi-Fi still drives. `WIFICFG;…`
+      system commands fan out over whatever is live and must be answered exactly once.
+      Watch the serial for >= 1 min: no resets, and the heap must hold with both links
+      + the page live (this is also P4's soak).
 
 ## U-112 round — reset while pairing BT + own hotspot · freeze using the page with the app connected (2026-10-14, firmware 1.3.11 — DEVICE VERIFY PENDING)
 
