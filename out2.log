@@ -1,25 +1,0 @@
-å×Ê]Â 2°L‚‚:2²§Ój
-
-ò.‚ÂÅ ¨u]ÉONßªTUÑ),âëÑé0x1&BšAI_FP*Õe1M¡_BÏ
-•j
-cïË¥Íipº‚bA%]P:0øYYC¡,këEÉÙé0x00)}‘Év:0Á0,ÖEÉÙ:0x‚,c.ú‘Év:ÂÁ0	}‘rv:ÂÁ°éÁ}drv'ÂÁ0
-í‹•éDIO	±½ck VKé1
-ì+‘é0x3æ–‚š0,ìYK¢Â76C!ë‚¢…¥±12 ®ë«¢j
-loa–‚ÂQ00·‚‚‚âlåKŠ²ª32C!ë+‘é0x40Â‚¢‚0,«¹é350°C!–‹Éå0x´‚Â‚ªb4CáetóRÕ¹ ‚201¶‚‚Ò’’Ò57ŠC!®Ñé0x1 (õ]I=9_RESQU‰½½t:0xL&BšA%_FASTe1M!}BOOT©C¡¬ËË¥gsip'‚bšAIWP:0••5
-,këEÉÙi0x00)}‘ÉÙé0x00,dEÉÙé0Á0,csú‘ÉÙé0x00,èÖEÉÙé0x00,w}‘ÉÙé0x00
-í‹•éDIŠ	±½­ divºLC!ë+‘:0x3f–‚š‚bb•¹é4º6
-h‚ taéŠ’’½om 4!ë+‘é0x400·‚00,«¹é1¶M&¦Hˆë+‘é°Ñ008¢00,lYKšª‚‚j
-en—å0x‚Â‚ªÑ
-[CRASH] boot=1016 crash=757 reason=PANIC heap=176264 lastphase=''
-[CRASH] rtc: marks=0 phase='' task='loopTask' heap=9560 minHeap=9432 atMs=40442
-[BOOT] reset reason: PANIC
-[BOOT] *** UNSOLICITED RESTART #757 - last was PANIC, phase '', heap 176272 ***
-[BOOT] *** TASK_WDT means loop() blocked; PANIC means a crash ***
-[BOOT] *** also on the OLED header and in /status JSON ***
-[BOOT] Restored mode=PATH is not LIVE in v2 - keeping 4WD4M.
-[BOOT] Restored speed=255
-[RADIO] softAPConfig
-[MDNS] advertising genum-car.local (http:80 ws:81)
-Own AP active: 4WD4MCar_WiFi
-[V2] Web layer always-on: AP=4WD4MCar_WiFi ip=192.168.245.1 http=:80 ws=:81
-[RELAY] RELAY_HOST is empty - the relay transport stays off (see Config.h)

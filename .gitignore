@@ -20,5 +20,4 @@ desktop.ini
 # ---- Bench harness (tools/*.py) ----
 __pycache__/
 *.pyc
-serial.log
-out.log
+*.log
