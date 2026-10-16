@@ -14,6 +14,11 @@
 > = broadcast lines on both, since `chosenRadio` stays null and mode parity picks the
 > radio. The original 2026-10-15 text below is kept for the P7/P8 detail still owed.
 > **The E3/E4/E11 captures and Q1-Q3 remain the owner's.**
+>
+> **P8/issue 13 (close-out) landed 2026-10-16** — all gates green, records updated
+> (`Readme.md` 1.3.12, `TRACKS/RUNSHEET.md` retargeted, `TRACKS/DEVICE-TESTS.md`
+> close-out accounting), the app OTA published, both CIs green, `backup` re-snapshotted.
+> **The round is source-complete; every device row + Q1–Q3 stay the owner's bench (F-61).**
 
 Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) · P4 STEP 1 + STEP 2 LANDED — the E1
 heap-waterfall breadcrumb **and** the diet's first step (classic-BT-only bring-up, so the
@@ -301,6 +306,15 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
   `TRACKS/RUNSHEET.md` (flash 1.3.11 step).
 - Ship: owner flashes 1.3.11 (huge_app, 115200), app pushes the JS-only OTA (3.2.7/60 unchanged),
   Arduino CI + app CI verified green on both repos, `backup` branches re-snapshotted.
+- **✅ CODE-DONE 2026-10-16 (docs-only phase — no code byte changed).** Gates green: car
+  contract **0** · webpage-js **PASS** · syntax **9/9** · **mutate-gates 103/103**; app
+  vitest **48 files / 720 tests** · `tsc --noEmit` clean · prettier clean. Records:
+  `Readme.md` (1.3.12 + changelog), `TRACKS/RUNSHEET.md` (retargeted to 1.3.12 + the
+  U-115/U-113 bench), `TRACKS/DEVICE-TESTS.md` (P8 close-out accounting),
+  `TRACKS/CHANGELOG.md`, both `NEXT-SESSION.md`, root `RESUME-HERE.md`. **Ship:** app OTA
+  published (`3.2.7/60`, `e02db5c2b4c…`); **1.3.12 UNFLASHED** (owner flash target);
+  both CIs green; `backup` re-snapshotted to `main`. **Not device-verified (F-61):**
+  every U-113/U-115 row, E3/E4/E5/E11 and Q1–Q3 remain the owner's bench.
 
 ## Open questions for the owner (defaults chosen — say the word to change them)
 

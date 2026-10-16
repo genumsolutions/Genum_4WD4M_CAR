@@ -77,6 +77,20 @@ mutants **M104-M109** (the three NVS writes removed, the STATE keys removed, the
 
 **Device row:** U-113-15 in `TRACKS/DEVICE-TESTS.md` — owner's bench.
 
+## P8 / issue 13 (2026-10-16): close-out — no firmware byte changed, the round is source-complete
+
+**`FW_VERSION` stays 1.3.12** — nothing in the firmware moved. P8 is the round's own
+close-out: every phase's gates are green on a clean tree (firmware-contract **0
+failures** · webpage-js **PASS** · syntax **9/9** · mutate-gates **103/103**), the app's
+P6+P7 JS-only OTA is published (`3.2.7/60`, manifest notes `e02db5c2b4c…`), both CIs are
+green on `main`, and the `backup` branch was re-snapshotted to `main`. Records refreshed:
+`Readme.md` (version snapshot + changelog 1.3.12), `TRACKS/RUNSHEET.md` (retargeted to
+the 1.3.12 bench), `TRACKS/DEVICE-TESTS.md` (the P8 close-out accounting).
+
+**Not device-verified (F-61).** All 14 issues are code-complete; the rows
+(U-115-1..3 + U-113-8..15 here, U-113-1..7 + U-113-16 in the app), the E3/E4/E5/E11
+captures and **Q1–Q3** remain the owner's bench.
+
 ## P6 / issue 1 (2026-10-16): dual BT+Wi-Fi link — NO firmware byte changed, the premise is now gated
 
 **`FW_VERSION` stays 1.3.12** — nothing in the firmware moved. Issue 1 asked for the

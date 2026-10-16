@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, U-115 boot-scan-first landed → **1.3.12**; **P6/issue 1** dual BT+Wi-Fi link landed — app fix + a gate, firmware unchanged; **P7/issue 8** settings round-trip landed — app fixes + a gate (`settings-round-trip`), firmware still unchanged; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, **P8/issue 13 close-out landed — the round is SOURCE-COMPLETE; all gates green, records + `backup` re-snapshotted, nothing device-verified (F-61)**; U-115 boot-scan-first → **1.3.12**; **P6/issue 1** dual BT+Wi-Fi link landed — app fix + a gate, firmware unchanged; **P7/issue 8** settings round-trip landed — app fixes + a gate (`settings-round-trip`), firmware still unchanged; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything; **1.3.11 is FLASHED to the car (COM8); 1.3.12 is the owner flash target** — the U-115 / U-113-12..15 rows and the E3/E4 captures stay owed; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
@@ -41,6 +41,37 @@
 > `WIFICFG` reply runs the same grace as the broadcast, the Joystick pill and the
 > auto-join-router switch persist, and a focus gain re-reads the car. **No firmware
 > byte changed; 1.3.12 stands.** See the P7 section below.
+>
+> **P8/issue 13 (close-out) landed 2026-10-16:** all gates green (contract 0 ·
+> webpage-js PASS · syntax 9/9 · mutate-gates **103/103**); the app OTA for P6+P7 is
+> **published** (`3.2.7/60`, manifest notes `e02db5c2b4c…`); `Readme.md` bumped to
+> **1.3.12**, `TRACKS/RUNSHEET.md` retargeted to the 1.3.12 bench, both CIs green, and
+> the `backup` branch re-snapshotted. **The round is source-complete; every device row
+> is still the owner's bench (F-61).** See the P8 section below.
+
+## P8 · 2026-10-16 — issue 13: close-out
+
+**Issue 13 is the round's own close-out.** No firmware or app source changed in this
+phase — it is the "is the round actually done, and is the record honest" pass.
+
+**Gates (fresh, on the clean trees):** `check-firmware-contract.mjs` **0 failures** ·
+`check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` **PASS** ·
+`mutate-gates.mjs` **103/103** · app `vitest` **48 files / 720 tests** ·
+`tsc --noEmit` clean · `prettier --check` clean.
+
+**Ship state:** the app's P6+P7 **JS-only OTA is published** — live manifest
+`version 3.2.7`, `version_code 60`, notes `OTA · Short update (e02db5c2b4c…)`, updated
+2026-10-16 19:06 UTC. **Firmware 1.3.12 is UNFLASHED** — the owner's flash is the last
+ship step (`TRACKS/RUNSHEET.md`). Both CIs are green on `main`.
+
+**Records:** `Readme.md` version snapshot 1.3.11 → **1.3.12** + a 1.3.12 changelog
+entry; `TRACKS/RUNSHEET.md` retargeted **1.3.11 → 1.3.12** with the U-115/U-113 bench
+steps; `TRACKS/DEVICE-TESTS.md` gained the P8 close-out accounting; the `backup` branch
+was re-snapshotted to `main`.
+
+**Honest status (F-61):** every one of the 14 issues is **code-complete and gated**, and
+**none of it is device-verified** — the rows (car U-115-1..3 + U-113-8..15; app
+U-113-1..7 + U-113-16), the E3/E4/E5/E11 captures and **Q1–Q3** are the owner's bench.
 
 ## P7 · 2026-10-16 — issue 8: the settings round-trip, end to end (app fixes + a gate; firmware unchanged)
 

@@ -3,6 +3,23 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## P8 close-out — the 14-issue round is SOURCE-COMPLETE; the bench is the owner's (2026-10-16)
+
+> **Nothing below is device-verified.** Every gate is green (firmware-contract **0
+> failures** · webpage-js **PASS** · syntax **9/9** · mutate-gates **103/103**) and the
+> app ships JS-only (**3.2.7 / versionCode 60**, OTA notes `OTA · Short update
+> (e02db5c2b4c…)`), but per F-61 a green pipeline is not evidence the car works. The 14
+> issues are **code-complete**; the rows in both sheets are the owner's bench pass.
+
+**Row accounting across the two sheets (all DEVICE VERIFY PENDING):**
+
+- **Car (this file):** U-115-1..3 (flash **1.3.12**) · U-113-8..15 (issues 6, 1, 7, 9, 7b, 8).
+- **App (`mobile/TESTING.md`):** U-113-1..7, U-113-16 (issues 11, 2, 3, 4+10, 5, 12a, 12b, 14).
+
+**Still owed besides the rows:** the **E1** waterfall is closed (6/6) but the re-tune
+re-read, the **E3/E4** captures, **E5/E11**, the P3 audit log, and **Q1–Q3** remain the
+owner's — the order and capture commands are in `TRACKS/RUNSHEET.md`.
+
 ## U-115 round — the boot auto-join probes the air first (2026-10-16, firmware 1.3.12 — DEVICE VERIFY PENDING)
 
 > Owner field report on the 1.3.11 flash: the car's own hotspot was **detected but
