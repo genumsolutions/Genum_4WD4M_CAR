@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, U-115 boot-scan-first landed → **1.3.12**; **P6/issue 1** dual BT+Wi-Fi link landed — app fix + a gate, firmware unchanged; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, U-115 boot-scan-first landed → **1.3.12**; **P6/issue 1** dual BT+Wi-Fi link landed — app fix + a gate, firmware unchanged; **P7/issue 8** settings round-trip landed — app fixes + a gate (`settings-round-trip`), firmware still unchanged; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
@@ -33,6 +33,68 @@
 > the app (the Bluetooth scan no longer hides behind a live Wi-Fi link), and the
 > firmware premise is pinned by `dual-link-kept` — **no firmware byte changed**, so
 > 1.3.12 stands. See the P6 section below.
+>
+> **P7/issue 8** followed: every setting now stores on BOTH sides promptly. The
+> car's half was already whole (NVS before ack, reported on the STATE line and the
+> `/status` JSON, last-transport-off clamp) and is pinned by `settings-round-trip`;
+> the app's adopt paths now write the per-car profile (mode / speed / routers), the
+> `WIFICFG` reply runs the same grace as the broadcast, the Joystick pill and the
+> auto-join-router switch persist, and a focus gain re-reads the car. **No firmware
+> byte changed; 1.3.12 stands.** See the P7 section below.
+
+## P7 · 2026-10-16 — issue 8: the settings round-trip, end to end (app fixes + a gate; firmware unchanged)
+
+**The owner's issue 8:** *"every one of these settings must store in the car AND in
+the app promptly and stay in sync."*
+
+**Answer (source-level): the car already keeps its half.** Each
+`WIFICFG;WIFI|BT|AUTOJOIN;ON|OFF` persists to NVS (`t_wifi` / `t_bt` /
+`boot_autojoin`) before it is acked (`WebServerComm.cpp` L143-193), the reply
+carries the state the car actually holds — a flip that would turn the LAST
+transport off is refused and re-answered (`if (!next && !btEnabled_)`) — and the
+three settings ride BOTH surfaces: ModeManager's STATE line
+(`;WIFI=` / `;BT=` / `;AUTOJOIN=`, L605-618) and the `/status` JSON
+(`wifi_enabled` / `bt_enabled` / `boot_autojoin`), with `bootAutojoin_` restored
+from `botcfg/boot_autojoin` at boot.
+
+**The sync gaps were all app-side** (`useControlHub.ts`, `genumsolutions-app`
+`e02db5c`, JS-only OTA — 3.2.7/60 unchanged). In every case the app adopted car
+truth into live state but never wrote it to the per-car profile, so a restart
+resurrected whatever disk last held:
+
+- an **adopted MODE** (the car's own button, or a change from another phone) now
+  persists `modeId` — as the local CarMode id, `selectMode`'s shape — behind the
+  existing change guard, so the 1 Hz echo schedules nothing;
+- an **adopted SPEED** now persists;
+- an **adopted saved-router registry** now persists, change-guarded on the same
+  mirror the state setter uses;
+- the **`WIFICFG` reply** path now runs the SAME optimistic-commit grace as the
+  STATE adoption path: a reply in flight during a user flip can no longer roll the
+  panel back OR persist the pre-flip value. The grace is now ONE named predicate
+  read through a ref, not an inline closure in one path (the reason the reply path
+  bypassed it);
+- the **D-pad/Joystick pill** and the **auto-join-router switch** are no longer raw
+  `useState` setters — both persist through the same guarded writer, with the
+  restore paths deliberately on the raw setters so loading a profile never writes
+  back;
+- a **focus gain** now fires one `REQ_STATE` immediately (mode/speed/trim AND the
+  three toggles ride every STATE line), so a car-side change made while the app was
+  parked is re-read on return.
+
+**Car half — no firmware byte changed (`FW_VERSION` stays 1.3.12).** New contract
+rule **`settings-round-trip`** + mutants **M104-M109** pin the whole round trip:
+each toggle must persist to NVS before acking, answer with the state it holds, be
+reported on both the STATE line and the `/status` JSON, and keep the
+last-transport-off clamp.
+
+**Gates:** contract **0 failures** · webpage-js **PASS** · syntax **9/9** ·
+mutate-gates **103/103** (was 97) · app vitest **48 files / 720 tests** + `tsc
+--noEmit` clean + prettier clean. New `persistenceSync.test.ts` (9 assertions);
+**8 mutations → red**, byte-exact restore.
+
+**Still owed from the bench:** device row **U-113-15** (a setting changed on one
+surface survives kill-app / car-reboot / a change from another surface). **Nothing
+here is device-verified (F-61).**
 
 ## P6 · 2026-10-16 — issue 1: dual BT+Wi-Fi link, end to end (app fix + a gate; firmware unchanged)
 

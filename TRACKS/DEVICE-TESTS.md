@@ -134,6 +134,21 @@
       system commands fan out over whatever is live and must be answered exactly once.
       Watch the serial for >= 1 min: no resets, and the heap must hold with both links
       + the page live (this is also P4's soak).
+- [ ] **U-113-15 — ⭐ issue 8: a setting changed on ONE surface survives every restart.**
+      With the car and app linked (car **1.3.12** + app **3.2.7/60**, JS-only OTA), change each
+      setting in turn and confirm it stores in BOTH places and stays in sync: **(a)** the three
+      transport toggles (`WIFICFG;WIFI|BT|AUTOJOIN`) — flip one, **kill the app**, reopen it: the
+      panel shows the value you set (the reply path now honours the same grace as the broadcast,
+      so a stale reply can no longer flip it back); **(b)** power-cycle the **car** and reconnect:
+      each toggle reads back exactly as set (NVS `t_wifi`/`t_bt`/`boot_autojoin`); **(c)** change
+      the **mode on the car's own button** (or from a second phone), then kill + reopen the app: it
+      comes back on that mode — a change to speed made the same way survives too; **(d)** add or
+      delete a saved router from a second phone, then restart this app: the registry matches the
+      car; **(e)** flip the D-pad/Joystick pill and the "auto-join saved router" switch, kill +
+      reopen: both remember; **(f)** park the app on another screen, change a toggle **on the car**,
+      then return to Remote: the panel re-reads within a beat (focus-gain `REQ_STATE`), without
+      touching either link. Also confirm the clamp: with one transport OFF, flipping the other OFF
+      is refused and the reply re-states the live state (both can never be off).
 
 ## U-112 round — reset while pairing BT + own hotspot · freeze using the page with the app connected (2026-10-14, firmware 1.3.11 — DEVICE VERIFY PENDING)
 

@@ -45,6 +45,38 @@ elapsing, not a Bluetooth effect.
 
 **Device rows:** U-115-1..3 in `TRACKS/DEVICE-TESTS.md` — owner's bench.
 
+## P7 / issue 8 (2026-10-16): the settings round-trip — NO firmware byte changed, the car's half is now gated
+
+**`FW_VERSION` stays 1.3.12** — nothing in the firmware moved. Issue 8's bar:
+*"every one of these settings must store in the car AND in the app promptly and
+stay in sync."* The car was already keeping its half of that promise: each
+`WIFICFG;WIFI|BT|AUTOJOIN;ON|OFF` persists to NVS (`t_wifi` / `t_bt` /
+`boot_autojoin`) **before it is acked**, the reply always carries the state the car
+actually holds (a flip that would turn the LAST transport off is refused and
+re-answered with the live state), and the three settings are readable back on
+**both** surfaces a client can be attached to — ModeManager's STATE line
+(`;WIFI=` / `;BT=` / `;AUTOJOIN=`, so a Bluetooth-only app can re-sync) and the
+`/status` JSON (`wifi_enabled` / `bt_enabled` / `boot_autojoin`).
+`bootAutojoin_` is restored from `botcfg/boot_autojoin` at boot.
+
+The sync gaps were **all app-side**, and they had one shape: the app ADOPTED car
+truth into live state but never wrote it into the per-car profile, so a restart
+resurrected whatever disk last held (an adopted mode / speed / router registry);
+two controls (the D-pad/Joystick pill, the auto-join-router switch) were raw state
+setters that never persisted at all; and the `WIFICFG` **reply** path bypassed the
+optimistic-commit grace, so a reply in flight during a user flip could roll the
+panel back AND persist the pre-flip value. Fixed app-side in `genumsolutions-app`
+(JS-only OTA, `3.2.7/60` unchanged) with a new `persistenceSync.test.ts`;
+**8 mutations → red**, byte-exact restore.
+
+**Gates (source only — F-61):** new contract rule **`settings-round-trip`** +
+mutants **M104-M109** (the three NVS writes removed, the STATE keys removed, the
+`/status` JSON fields removed, the last-transport-off clamp removed);
+`check-firmware-syntax.ps1` **9/9** · `check-webpage-js.mjs` **PASS** ·
+`check-firmware-contract.mjs` **0 failures** · `mutate-gates.mjs` **103/103**.
+
+**Device row:** U-113-15 in `TRACKS/DEVICE-TESTS.md` — owner's bench.
+
 ## P6 / issue 1 (2026-10-16): dual BT+Wi-Fi link — NO firmware byte changed, the premise is now gated
 
 **`FW_VERSION` stays 1.3.12** — nothing in the firmware moved. Issue 1 asked for the

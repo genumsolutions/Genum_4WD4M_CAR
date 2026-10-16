@@ -270,6 +270,27 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
 - Fix the gaps found (e.g. `toggleCommitRef` grace, `queryCarTransportToggle` refresh on focus,
   cloud write batching); extend `carProfileService.test.ts` / `deviceProfileRegistryService`
   tests. Device row U-113-15: toggle → kill app → reopen → car reboot → still in sync.
+- **✅ CODE-DONE 2026-10-16 (car `26a781c`, app `e02db5c`) — every gap was app-side.**
+  The sweeps (app `useControlHub.ts`/`RemoteControlScreen.tsx`; car `/status` +
+  NVS) found the car already keeping its whole half: each `WIFICFG;WIFI|BT|AUTOJOIN`
+  persists to NVS **before acking**, answers with the state it holds (a flip that
+  would leave both transports off is refused + re-answered), and rides **both** the
+  STATE line (ModeManager `;WIFI=`/`;BT=`/`;AUTOJOIN=`) and the `/status` JSON. All
+  seven gaps were the app **adopting** car truth into live state without writing the
+  per-car profile: adopted **mode** (the car's own button), **speed**, and the
+  **saved-router registry**; the **D-pad/Joystick pill** and the **auto-join-router
+  switch** (raw `useState` setters, never persisted at all); the **`WIFICFG` reply**
+  path bypassing `toggleCommitRef`'s grace (a stale reply could roll the panel back
+  AND persist the pre-flip value); and **no refresh-on-focus**. Fixed with the grace
+  extracted to one named predicate every adopt path runs, and the two raw setters
+  wrapped in the guarded writer. New `persistenceSync.test.ts` (**8 mutations →
+  red**, byte-exact restore). Car half gated by the new **`settings-round-trip`**
+  rule + **M104-M109** with **no firmware byte changed** (`FW_VERSION` stays 1.3.12).
+  Two findings recorded as *not* gaps: **trim/steerLimit** ride only the stub
+  `TwoWD1M` (never emitted by a live mode), and `persistPrefs` early-returns until a
+  stable profile key exists (by design — no writes under a transient identity).
+- **Still owed (F-61):** device row **U-113-15** — the owner's bench; and **Q3**
+  stays open (unchanged).
 
 ### P8 — Issue 13: close-out
 
