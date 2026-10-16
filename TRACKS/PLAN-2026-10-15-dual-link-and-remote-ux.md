@@ -1,5 +1,14 @@
 # PLAN 2026-10-15 — dual link + remote-screen UX + BT heap (CAR half, master)
 
+> **2026-10-16 status addendum.** **U-115** landed (`5d26e9c`) — the boot auto-join
+> now probes the air before it rejoins, so an absent router no longer holds the own
+> hotspot on a moving channel (owner report 2026-10-16: "detected but won't connect");
+> new rule `boot-scan-first` + mutants M96-M100, gates green, `FW_VERSION` **1.3.12**.
+> **P4 is CLOSED** — E1 captured **6/6** and `STATUS_HEAP_FLOOR_BYTES` re-tuned
+> 49152 → **20000** (`cce743e`); P6's headroom gate is therefore satisfied. The
+> original 2026-10-15 text below is kept for the P6/P7/P8 detail still owed. **The
+> E3/E4/E11 device captures and Q1-Q3 remain the owner's.**
+
 Status: **P1 DONE · P2 DONE · P3 code landed (all app-side) · P4 STEP 1 + STEP 2 LANDED — the E1
 heap-waterfall breadcrumb **and** the diet's first step (classic-BT-only bring-up, so the
 never-used BLE memory is released) are now in the firmware (source-only, gates green). The E1

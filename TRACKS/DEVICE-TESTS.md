@@ -3,6 +3,28 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## U-115 round — the boot auto-join probes the air first (2026-10-16, firmware 1.3.12 — DEVICE VERIFY PENDING)
+
+> Owner field report on the 1.3.11 flash: the car's own hotspot was **detected but
+> would not connect**, and it "only connects once bluetooth is off". Root cause: the
+> boot auto-join held the own hotspot on a **moving channel** while it retried an
+> absent router. Flash **1.3.12**; watch the serial for the boot reachability probe.
+
+- [ ] **U-115-1 — ⭐ the own hotspot is joinable the second it appears (saved router ABSENT).**
+      Switch the saved router OFF (or move the car out of its range), then cold-boot the
+      car. The phone's Wi-Fi scan sees `4WD4MCar_WiFi` and a **join completes within
+      seconds** — no "detected but won't connect", no waiting for a Bluetooth-off moment.
+      Serial shows the boot reachability probe and then **no rejoin churn** (the car stays
+      AP-only because the router was absent).
+- [ ] **U-115-2 — a present router still rejoins as before.** Power the saved router back
+      on and cold-boot the car: the probe finds it and the car rejoins normally (the fix
+      must not cost the auto-join). Serial names the probe result and the rejoin.
+- [ ] **U-115-3 — a probe that cannot run never strands the car.** Confirm the fallback:
+      an inconclusive/refused probe (low boot heap, or the radio never answers) degrades to
+      the plain rejoin — the car still returns to its router. An explicit switch
+      (`ROUTERS;USE` / `WIFICFG`) or `WIFICFG;WIFI;OFF` clears a stale armed probe (no
+      second rejoin after a manual pick). Serial evidence per case.
+
 ## U-113 round — the 2026-10-15 rectification round, car-side rows (issues 6, 7, 9 — firmware 1.3.11 — DEVICE VERIFY PENDING)
 
 > The 14-issue list lives in `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md`.
@@ -76,8 +98,9 @@
       10 min soak. The car does not reset; the U-112 guards may still defer under
       load but telemetry returns within 4 s. **Capture the six `[HEAPW]` lines**
       from one cold boot spanning pair → page → both links (RUNSHEET step 6b):
-      they give the post-diet `free`/`max` per stage, which re-tunes the
-      49152 B / 65536 B floors before P4 is closed.
+      they give the post-diet `free`/`max` per stage. **DONE 2026-10-15:** E1 came
+      back **6/6** and `STATUS_HEAP_FLOOR_BYTES` was re-tuned **49152 → 20000** (P4
+      closed; the scan floor stays 65536 B). See the bench log above.
 - [ ] **U-113-9 — ⭐ issue 7: Wi-Fi OFF hides everything.** With BT ON, send
       `WIFICFG;WIFI;OFF` (app Connectivity panel or the page console). Within
       ~3 s the phone's Wi-Fi scan no longer lists `4WD4MCar_WiFi`, an already-open

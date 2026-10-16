@@ -10,9 +10,45 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.12 (U-115, 2026-10-16): the boot auto-join probes the air first — an absent router no longer holds the own hotspot on a moving channel
+
+**UNFLASHED (F-61).** Owner flash target. Fixes the 2026-10-16 owner field
+report on the 1.3.11 flash: the car's own hotspot was **detected but would not
+connect**, and it "only connects once bluetooth is off".
+
+**Root cause.** The boot auto-join handed the FULL retry budget to a router that
+may simply be switched off. While that budget ran, `startOwnAP()`'s `staSharing`
+branch set the AP channel to FOLLOW the STA (`apChannel 0`) and every
+`WiFi.begin()` retry made the STA scan — so the own hotspot broadcast on a
+**MOVING channel**. A phone SAW `4WD4MCar_WiFi` and could not complete the join.
+The "only connects once bluetooth is off" detail is the retry-budget window
+elapsing, not a Bluetooth effect.
+
+**Fix.**
+- `armBootAutoJoin()` now runs ONE non-blocking reachability scan before arming
+  the rejoin: **router present** → rejoin (unchanged), **absent** → stay AP-only
+  (own hotspot stable from the first second), **inconclusive** → fall back to the
+  rejoin so the car can never lose its router to a probe it could not run.
+- `startBootReachabilityScan()` / `serviceBootReachabilityScan()` drive the probe
+  in the same arm/kick/evaluate shape the user scan already uses; they drive the
+  driver directly (no collect vector, no SCAN broadcast) and `scanDelete()`
+  immediately, so the tight boot heap is returned.
+- `BOOT_SCAN_HEAP_FLOOR_BYTES` (20000) fits the measured cold-boot heap
+  (~23.2 kB after the BT stack); a refused probe degrades to the plain rejoin.
+- An explicit switch (`rejoinNetwork`) and a Wi-Fi OFF (`stop`) clear a stale probe.
+- `FW_VERSION` 1.3.11 → **1.3.12**.
+
+**Gates (source only — F-61):** new contract rule `boot-scan-first` + mutants
+**M96-M100**; `check-firmware-syntax.ps1` **9/9** TUs · `check-webpage-js.mjs`
+**PASS** · `check-firmware-contract.mjs` **0 failures** · `mutate-gates.mjs`
+**94/94 caught by their intended rule**.
+
+**Device rows:** U-115-1..3 in `TRACKS/DEVICE-TESTS.md` — owner's bench.
+
 ## UNRELEASED — 1.3.11 (U-112 + U-114 + T66 + P4/E1 + P5, 2026-10-15): heap floor for status/scan + the page stall-abort + the tele surface + the E1 heap waterfall + Wi-Fi OFF that actually hides everything (the post-1.3.9 reset/freeze report)
 
-**UNFLASHED (F-61).** Owner flash target. The owner flashed 1.3.9 and reported:
+**FLASHED to the car** (COM8, 2026-10-15, hash-verified upload — see the bench
+log in `TRACKS/DEVICE-TESTS.md`). The owner flashed 1.3.9 and reported:
 the car **resets while connecting Bluetooth + the own hotspot together**, and
 **freezes when the car's own page is opened while the app holds a Wi-Fi link**.
 The field record (`device_crash_reports`, boots 1026-1029, fw 1.3.9) matches

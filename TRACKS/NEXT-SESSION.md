@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-15, P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, U-115 boot-scan-first landed → **1.3.12**; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything — plus the P4 `[HEAPW]` breadcrumb and the diet's classic-BT-only bring-up; **1.3.11 is FLASHED to the car (COM8) and boot-verified; E1 came back 4-of-6 partial, so the floor re-tune and E3/E4 stay open**; app unchanged, 3.2.7 JS-only OTA)
 
 > **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
@@ -21,6 +21,54 @@
 > `genumsolutions-app\TRACKS\PLAN-2026-10-15-dual-link-and-remote-ux.md`. Phase 0 evidence
 > captures (E1 + E2/E5 + serial logs while the owner tests 1.3.11) are still owed — see
 > `TRACKS/DEVICE-TESTS.md` bench log for the 4-of-6 waterfall and router wipe.
+>
+> **2026-10-16 update (U-115):** the full E1 waterfall was captured **6/6** and P4
+> is **closed** — `STATUS_HEAP_FLOOR_BYTES` re-tuned 49152 → **20000** (`cce743e`).
+> **U-115** then landed the fix for the 2026-10-16 owner report ("own hotspot
+> detected but won't connect"): the boot auto-join now probes the air first, so an
+> absent router no longer holds the own hotspot on a moving channel — **1.3.12**,
+> gates green. See the U-115 section below.
+
+## U-115 · 2026-10-16 — the boot auto-join probes the air first (1.3.12, UNFLASHED — owner flash target)
+
+**Owner field report on the 1.3.11 flash:** the car's own hotspot was **detected
+but would not connect**, and it "only connects once bluetooth is off".
+
+**Root cause (source-level; the report named the symptom, the code named the
+mechanism).** `armBootAutoJoin()` handed the FULL retry budget to the saved
+router without checking whether it was there. While that budget ran,
+`startOwnAP()`'s `staSharing` branch set the AP channel to FOLLOW the STA
+(`apChannel 0`) and every `WiFi.begin()` retry made the STA scan — so the own
+hotspot broadcast on a **MOVING CHANNEL**. The phone SAW `4WD4MCar_WiFi` and
+could never complete the join. The "only connects once bluetooth is off" detail
+is the budget window elapsing (BT off shortens the boot), **not** a Bluetooth
+effect.
+
+**Fix — one non-blocking reachability scan BEFORE the rejoin is armed:**
+
+| Probe result | Action |
+|---|---|
+| router **present** | rejoin (unchanged) |
+| router **absent** | stay AP-only — own hotspot stable from the first second, no rejoin churn |
+| **inconclusive** (radio never answered) | fall back to the plain `rejoinNetwork()` — a probe that cannot run must never strand the car |
+
+- `startBootReachabilityScan()` / `serviceBootReachabilityScan()` reuse the user
+  scan's arm/kick/evaluate shape, drive the driver directly (no collect vector,
+  no SCAN broadcast) and `scanDelete()` immediately, so the tight boot heap is
+  returned.
+- `BOOT_SCAN_HEAP_FLOOR_BYTES` (**20000**) fits the measured cold-boot heap
+  (~23.2 kB after the BT stack); a refused probe degrades to the plain rejoin.
+- An explicit switch (`rejoinNetwork`) and a Wi-Fi OFF (`stop`) clear a stale probe.
+- `FW_VERSION` **1.3.11 → 1.3.12** (a native change ships, so the label moves).
+
+**Gates (source only — F-61):** new contract rule `boot-scan-first` (+ mutants
+**M96-M100**); `check-firmware-syntax.ps1` **9/9** TUs · `check-webpage-js.mjs`
+**PASS** · `check-firmware-contract.mjs` **0 failures** · `mutate-gates.mjs`
+**94/94 caught by their intended rule**.
+
+**Still owed from the bench:** device rows **U-115-1..3** (`TRACKS/DEVICE-TESTS.md`)
+— cold-boot with the saved router present and absent, and the low-heap-degrades
+case. **Nothing here is device-verified.**
 
 ## P5 · 2026-10-15 — issues 7 + 9: the Wi-Fi transport switch, made honest (1.3.11, UNFLASHED)
 
