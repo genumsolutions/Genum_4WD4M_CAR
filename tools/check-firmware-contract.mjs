@@ -1030,6 +1030,64 @@ if (!dualOn) {
   pass("dual-link-kept", "the both-enabled branch starts whichever link is down and stops neither - BT + own hotspot + page stay up together (issue 1)");
 }
 
+// P7 / issue 8 (2026-10-16): EVERY SETTING STORES IN THE CAR AND COMES BACK.
+//
+// Issue 8's bar (owner): *"every one of these settings must store in the car
+// AND in the app promptly and stay in sync."* The car's half of that bar is a
+// ROUND TRIP: a toggle command must (1) persist to NVS BEFORE it is acked,
+// (2) answer with the state it actually holds - including re-answering when a
+// flip is refused - and (3) be readable back on BOTH surfaces a client can be
+// attached to: the STATE line (what a Bluetooth-only app polls) and the
+// /status JSON (the web transport). The "never both transports off" clamp is
+// part of the same honesty - a refused flip is re-answered with the live
+// state, so the reply always describes reality.
+//
+// The firmware held every one of these already; until this rule it was an
+// invisible fact, and the app half (adopted values reaching the per-car
+// profile, replies honouring the toggle grace, refresh-on-focus) landed the
+// same day in genumsolutions-app's `persistenceSync.test.ts`. The device half
+// is row U-113-15: toggle -> kill app -> reopen -> car reboot -> still in
+// sync. Green here is source shape only (F-61).
+const wificfgLits = stripComments(wsc);
+const branchFrom = (sig, from) => wificfgLits.indexOf(sig, from);
+const wifiBrAt = branchFrom('strncasecmp(rest, ";WIFI", 5)', 0);
+const btBrAt = branchFrom('strncasecmp(rest, ";BT", 3)', wifiBrAt);
+const ajBrAt = branchFrom('strncasecmp(rest, ";AUTOJOIN", 9)', btBrAt);
+const ssidBrAt = branchFrom("rest[0] == ';'", ajBrAt);
+const brSlice = (a, b) => (a < 0 || b <= a ? null : wificfgLits.slice(a, b));
+const wifiBr = brSlice(wifiBrAt, btBrAt);
+const btBr = brSlice(btBrAt, ajBrAt);
+const ajBr = brSlice(ajBrAt, ssidBrAt);
+const toggleJsonLits = stripComments(body(wsc, "void WebServerComm::buildStatusJson") ?? "");
+const toggleStateLits = stripComments(raw("ModeManager.cpp"));
+const missingState = [";WIFI=%s", ";BT=%s", ";AUTOJOIN=%s"].filter((k) => !toggleStateLits.includes(k));
+const missingJson = ["wifi_enabled", "bt_enabled", "boot_autojoin"].filter((f) => !toggleJsonLits.includes(f));
+if (!wifiBr || !btBr || !ajBr) {
+  fail("settings-round-trip", "could not locate the WIFICFG transport-toggle branches - check this rule still matches the code");
+} else if (!/putBool\s*\(\s*"t_wifi"/.test(wifiBr)) {
+  fail("settings-round-trip", "WIFICFG;WIFI;ON|OFF no longer persists to NVS (t_wifi) before acking - the setting dies at the next reboot, so nothing is ever stored in the car (issue 8)");
+} else if (!/"WIFICFG;WIFI;%s"/.test(wifiBr)) {
+  fail("settings-round-trip", "the Wi-Fi toggle never answers with the state it holds - a set can go unconfirmed and the app has nothing to stay in sync with (issue 8)");
+} else if (!/if\s*\(\s*!next\s*&&\s*!btEnabled_\s*\)/.test(wifiBr)) {
+  fail("settings-round-trip", "the Wi-Fi toggle no longer refuses to turn the LAST transport off - both transports can be commanded off, which the owner ruled impossible (\"both cant be off at the same time\")");
+} else if (!/putBool\s*\(\s*"t_bt"/.test(btBr)) {
+  fail("settings-round-trip", "WIFICFG;BT;ON|OFF no longer persists to NVS (t_bt) before acking - the setting dies at the next reboot, so nothing is ever stored in the car (issue 8)");
+} else if (!/"WIFICFG;BT;%s"/.test(btBr)) {
+  fail("settings-round-trip", "the Bluetooth toggle never answers with the state it holds - a set can go unconfirmed and the app has nothing to stay in sync with (issue 8)");
+} else if (!/if\s*\(\s*!next\s*&&\s*!wifiEnabled_\s*\)/.test(btBr)) {
+  fail("settings-round-trip", "the Bluetooth toggle no longer refuses to turn the LAST transport off - both transports can be commanded off, which the owner ruled impossible (\"both cant be off at the same time\")");
+} else if (!/putBool\s*\(\s*"boot_autojoin"/.test(ajBr)) {
+  fail("settings-round-trip", "WIFICFG;AUTOJOIN;ON|OFF no longer persists to NVS (boot_autojoin) before acking - the boot auto-join choice dies at the next reboot");
+} else if (!/"WIFICFG;AUTOJOIN;%s"/.test(ajBr)) {
+  fail("settings-round-trip", "the boot auto-join toggle never answers with the state it holds");
+} else if (missingState.length) {
+  fail("settings-round-trip", `the STATE line no longer carries ${missingState.join(" / ")} - a Bluetooth-only client cannot re-sync the toggles after a reconnect or a restart, so panel and car drift apart (issue 8)`);
+} else if (missingJson.length) {
+  fail("settings-round-trip", `the /status JSON no longer carries ${missingJson.join(" / ")} - the web transport cannot re-sync the toggles`);
+} else {
+  pass("settings-round-trip", "each toggle persists to NVS before it is acked, answers with the state it holds, is reported on both the STATE line and the /status JSON, and the last-transport-off clamp stands");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that a
 // real car answers. That is the owner's bench, not a laptop.
 console.log("\nfirmware-contract: source checks only - no radio was touched, no car was asked.");

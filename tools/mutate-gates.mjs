@@ -715,6 +715,42 @@ const mutants = [
     find: '      webServerComm.beginAlwaysOn();\n      webServerComm.armBootAutoJoin();  // own hotspot stays up\n      Serial.println("[POWER] Wi-Fi up (both transports on)");',
     repl: '      // (the web-layer raise is removed from the both-enabled branch)',
     why: "the both-enabled branch never raises the web layer - Bluetooth up with the hotspot and page down means the second link is unreachable even though the toggle says ON" },
+
+  // P7 / issue 8 (2026-10-16): every setting stores in the car and comes back.
+  // Six mutants, one per claim the `settings-round-trip` rule polices: the
+  // three NVS writes (a toggle that is not stored dies at the reboot), the
+  // STATE keys (a Bluetooth-only client can never re-sync), the /status JSON
+  // fields (same, web transport), and the last-transport-off clamp (the owner
+  // ruled both-off impossible; without it a reply can promise a dead car).
+  { id: "M104", rule: "settings-round-trip", file: WSC,
+    find: '        wifiEnabled_ = next;\n        Preferences prefs;\n        prefs.begin("botcfg", false);\n        prefs.putBool("t_wifi", wifiEnabled_);\n        stampConfigWrite(prefs);\n        prefs.end();',
+    repl: '        wifiEnabled_ = next;\n        Preferences prefs;\n        prefs.begin("botcfg", false);\n        stampConfigWrite(prefs);\n        prefs.end();',
+    why: "WIFICFG;WIFI;ON|OFF flips the flag in RAM but never writes NVS t_wifi - the Wi-Fi transport setting dies at the next reboot and the app re-adopts the OLD value on reconnect (issue 8)" },
+
+  { id: "M105", rule: "settings-round-trip", file: WSC,
+    find: '        btEnabled_ = next;\n        Preferences prefs;\n        prefs.begin("botcfg", false);\n        prefs.putBool("t_bt", btEnabled_);\n        stampConfigWrite(prefs);\n        prefs.end();',
+    repl: '        btEnabled_ = next;\n        Preferences prefs;\n        prefs.begin("botcfg", false);\n        stampConfigWrite(prefs);\n        prefs.end();',
+    why: "WIFICFG;BT;ON|OFF flips the flag in RAM but never writes NVS t_bt - the Bluetooth transport setting dies at the next reboot (issue 8)" },
+
+  { id: "M106", rule: "settings-round-trip", file: WSC,
+    find: '      bootAutojoin_ = (strcasecmp(arg, ";ON") == 0);\n      Preferences prefs;\n      prefs.begin("botcfg", false);\n      prefs.putBool("boot_autojoin", bootAutojoin_);\n      stampConfigWrite(prefs);\n      prefs.end();',
+    repl: '      bootAutojoin_ = (strcasecmp(arg, ";ON") == 0);\n      Preferences prefs;\n      prefs.begin("botcfg", false);\n      stampConfigWrite(prefs);\n      prefs.end();',
+    why: "WIFICFG;AUTOJOIN;ON|OFF flips the flag in RAM but never writes NVS boot_autojoin - the owner's boot auto-join choice dies at the next reboot (issue 8)" },
+
+  { id: "M107", rule: "settings-round-trip", file: MM,
+    find: '        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";WIFI=%s",\n                 ws->wifiEnabled() ? "ON" : "OFF");\n        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";BT=%s",\n                 ws->btEnabled() ? "ON" : "OFF");\n        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";AUTOJOIN=%s",\n                 ws->bootAutojoin() ? "ON" : "OFF");',
+    repl: '        // (the transport-toggle keys are removed from the STATE line)',
+    why: "the STATE line no longer carries ;WIFI= ;BT= ;AUTOJOIN= - a Bluetooth-only app can never re-sync the toggles, so a panel change made from another phone survives forever in one app's memory (issue 8)" },
+
+  { id: "M108", rule: "settings-round-trip", file: WSC,
+    find: '       "\\"wifi_enabled\\":%s,"\n       "\\"bt_enabled\\":%s,"\n       "\\"boot_autojoin\\":%s"',
+    repl: '       "\\"scan_disabled_note\\":\\"toggles moved to STATE only\\""',
+    why: "the /status JSON no longer carries wifi_enabled/bt_enabled/boot_autojoin - the web transport cannot re-sync the toggles, so an app on Wi-Fi holds a stale panel (issue 8)" },
+
+  { id: "M109", rule: "settings-round-trip", file: WSC,
+    find: '      if (!next && !btEnabled_) {',
+    repl: '      if (false) {',
+    why: "the Wi-Fi toggle no longer refuses to turn the LAST transport off - both transports can be commanded off in two taps, which the owner ruled impossible ('both cant be off at the same time')" },
 ];
 
 // ---- runner -------------------------------------------------------------
