@@ -670,6 +670,33 @@ const mutants = [
     find: "if (!wifiEnabled_) return;  // Wi-Fi transport deliberately off (U-105)",
     repl: "if (!wifiEnabled_) { WiFi.softAPdisconnect(true); return; }  // Wi-Fi transport deliberately off (U-105)",
     why: "updateApPowerPolicy() parks the beacon - the own hotspot is torn down on a policy pass, which is the U-87 'car dropped the link it was being driven over' shape and the issue-9 regression" },
+
+  // P7/U-115: boot auto-join scans first. Five mutants, one per direction the
+  // `boot-scan-first` rule polices.
+  { id: "M96", rule: "boot-scan-first", file: WSC,
+    find: "  if (startBootReachabilityScan()) {",
+    repl: "  if (false) {",
+    why: "the boot path no longer probes the air — armBootAutoJoin() falls straight through to the blind rejoin, so a stored-but-absent router holds the own hotspot on a moving channel for the whole budget again (the owner's 'detected but won't connect')" },
+
+  { id: "M97", rule: "boot-scan-first", file: WSC,
+    find: "  if (inRange || !conclusive) {",
+    repl: "  if (inRange) {",
+    why: "the fallback is dropped — an INCONCLUSIVE scan (radio never answered) is treated as ABSENT, so a probe that could not run strands the car without its router" },
+
+  { id: "M98", rule: "boot-scan-first", file: WSC,
+    find: "  serviceBootReachabilityScan();",
+    repl: "  // (the boot probe is no longer dragged from handle())",
+    why: "handle() stops dragging the probe — it arms and never runs, so the boot auto-join silently never happens and the car never returns to its router" },
+
+  { id: "M99", rule: "boot-scan-first", file: WSC,
+    find: "  if (ESP.getFreeHeap() < BOOT_SCAN_HEAP_FLOOR_BYTES) return false;",
+    repl: "  // boot heap floor check removed",
+    why: "startBootReachabilityScan() loses its heap floor — the scan can be issued into the starved boot heap and land silently empty, which reads as 'router absent'" },
+
+  { id: "M100", rule: "boot-scan-first", file: WSC,
+    find: "  bootScanArmed_ = false;\n  bootScanKicked_ = false;\n  // U-95 Phase 2: a fresh request gets a fresh drop attempt budget, or the",
+    repl: "  // U-95 Phase 2: a fresh request gets a fresh drop attempt budget, or the",
+    why: "rejoinNetwork() no longer clears an armed boot probe — a stale probe fires a SECOND rejoin after the owner picked a network by hand" },
 ];
 
 // ---- runner -------------------------------------------------------------

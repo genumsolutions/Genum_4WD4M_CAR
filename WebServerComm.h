@@ -32,6 +32,36 @@
 // keep the own hotspot up throughout, and settle AP-only once the capped budget
 // is spent (the beacon never blanks, FIN-40/D2).
 #define STA_MAX_RETRIES 6
+// P7 / U-115 (2026-10-16): BOOT REACHABILITY SCAN — the boot auto-join SCANS
+// FIRST.
+//
+// The boot auto-join used to hand the whole retry budget to a router that may
+// not even be switched on. While that budget runs, the softAP FOLLOWS the STA
+// channel (`startOwnAP()`'s staSharing branch → apChannel 0, because the STA is
+// turning the rejoin step machine), and every `WiFi.begin()` retry makes the STA
+// scan. So an absent router parked the own hotspot on a MOVING channel for the
+// whole budget: the phone SAW 4WD4MCar_WiFi and could not complete the join —
+// the owner's field report 2026-10-16 ("the phone's wifi doesn't connect to the
+// car's wifi even though the car's own wifi is detected … it only connects once
+// bluetooth is off"), which is exactly the ~STA_MAX_RETRIES × WIFI_RETRY_INTERVAL
+// window elapsing, not a Bluetooth effect.
+//
+// The owner's own rule already asks for this (U-98/U-71): "the car should always
+// go to the last switched router … if it is not available it should show its own
+// router". So the boot path now runs ONE non-blocking scan before it commits to
+// the rejoin: the stored router present → rejoin exactly as before; absent →
+// STAY AP-ONLY, own hotspot rock-solid from the first second. An EXPLICIT switch
+// (ROUTERS;USE / WIFICFG) is untouched — it keeps the full budget, because a
+// person who just chose a network deserves every retry.
+//
+// Floor: the scan is driven without the collect vector (results are read
+// directly and freed with scanDelete()), so it needs far less than the full
+// SCAN_HEAP_FLOOR_BYTES. The measured cold-boot heap after the Bluetooth stack
+// is ~23.2 kB (E1 waterfall, 2026-10-15), so a 20 kB floor lets the boot scan
+// actually run while still refusing on a genuinely starved heap — and a scan
+// that cannot complete is treated as INCONCLUSIVE and falls back to the plain
+// rejoin, so this can never cost the car its router.
+#define BOOT_SCAN_HEAP_FLOOR_BYTES 20000ul
 // FIN-40/D1: retry cadence for a softAP() that failed to start (radio busy).
 #define AP_RETRY_INTERVAL_MS 2000ul
 // U-111: how long the radio stays at the low boot-window power (see
@@ -43,15 +73,18 @@
 // SCAN_TIMEOUT_MS bounds the wait so a radio that never finishes reports
 // honestly instead of leaving the app waiting. SCAN_MAX_RESULTS caps both the
 // kept list and the JSON fragment so the status buffer stays bounded.
-// U-71 (2026-10-02) budget note, REWRITTEN 2026-10-11 (U-98): the boot
-// auto-join uses the FULL explicit-switch budget (WIFI_STA_TIMEOUT_MS /
-// STA_MAX_RETRIES above). The old short boot window is gone because the own
-// hotspot beacon stays UP throughout the whole retry — parking only ever runs
-// while the car is CONNECTED and in use — so a long boot retry can never
-// strand the car, and an unreachable router still ends in the give-up path,
-// which restores the hotspot. Owner rule (2026-10-11): a power-up always
-// returns to the last-switched router, and only settles on the own hotspot
-// when that router is gone.
+// U-71 (2026-10-02) budget note, REWRITTEN 2026-10-11 (U-98), CORRECTED
+// 2026-10-16 (P7/U-115): an EXPLICIT switch (ROUTERS;USE / WIFICFG) uses the
+// FULL budget (WIFI_STA_TIMEOUT_MS / STA_MAX_RETRIES above). The BOOT
+// auto-join uses the same full budget ONLY for a router the boot scan has
+// already confirmed is in range (BOOT_SCAN_HEAP_FLOOR_BYTES note above) —
+// scanning first is what keeps the own hotspot rock-solid for a phone join,
+// because the rejoin's channel-follow is what made a stored-but-absent router
+// hold the hotspot hostage. The old claim that "the own hotspot beacon stays UP
+// throughout the whole retry" was true of the BEACON but not of its CHANNEL:
+// the beacon was broadcast, on a channel that kept moving. Owner rule
+// (2026-10-11): a power-up always returns to the last-switched router, and only
+// settles on the own hotspot when that router is gone.
 // U-76: how often a DEFERRED mDNS publication is retried once the STA settles.
 #define MDNS_RETRY_INTERVAL_MS 2000ul
 // U-77 (2026-10-03): stalled-client guards — the last two ways loop() could
@@ -296,6 +329,17 @@ public:
   bool startScan();
   void runScanIfDue();
   void collectScanIfDone();
+  /**
+   * P7 / U-115: the boot auto-join's "is the stored router actually in range?"
+   * probe. `startBootReachabilityScan()` ARMS it (false when the heap is below
+   * BOOT_SCAN_HEAP_FLOOR_BYTES or another scan is in flight, so the caller can
+   * fall back to a plain rejoin); `serviceBootReachabilityScan()` kicks the
+   * non-blocking pass and, when the radio reports, either hands off to
+   * `rejoinNetwork()` (present, or the result was inconclusive) or leaves the
+   * car AP-only (absent). One scan, never a retry loop on the command path.
+   */
+  bool startBootReachabilityScan();
+  void serviceBootReachabilityScan();
   /** SPP form: `SCAN;<ssid>,<rssi>,<1|0>;…` or `SCAN;NONE`. */
   void buildScanLine(char* buf, size_t bufLen) const;
   /** WS JSON form: `[{"ssid":…,"rssi":…,"open":true|false},…]`. */
@@ -706,6 +750,15 @@ private:
   unsigned long scanWaitMs_;
   int scanCount_;
   std::vector<ScannedNetwork> scanNetworks_;
+  // P7 / U-115: the boot auto-join's reachability probe. `bootScanArmed_` is set
+  // by armBootAutoJoin() and cleared when the probe resolves; `bootScanKicked_`
+  // marks that the async pass has been issued (so the arm/kick/evaluate phases
+  // never repeat); `bootScanWaitMs_` bounds the wait exactly like
+  // scanWaitMs_ does for a user scan. Read from the first handle() pass, so the
+  // in-class initialisers keep them deterministic before begin().
+  bool bootScanArmed_ = false;
+  bool bootScanKicked_ = false;
+  unsigned long bootScanWaitMs_ = 0;
   // AP fallback broadcast id ("4WD4MCar_WiFi", T-56), shown on the OLED and
   // in the status JSON ("ap") so the app/website can display it.
   String apName_;

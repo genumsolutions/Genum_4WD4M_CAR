@@ -948,6 +948,57 @@ if (!p5RootBody) {
   pass("page-always-on", "the root page is served with no client gate, and the own beacon is never parked while Wi-Fi is on");
 }
 
+// P7 / U-115 (2026-10-16): BOOT AUTO-JOIN SCANS FIRST.
+//
+// The boot auto-join handed the FULL retry budget to a router that may simply
+// be switched off. While that budget ran, startOwnAP()'s staSharing branch set
+// the AP channel to FOLLOW the STA (apChannel 0) and every WiFi.begin() retry
+// made the STA scan — so the own hotspot broadcast on a MOVING channel: a phone
+// SAW `4WD4MCar_WiFi` and could not complete the join (owner field report
+// 2026-10-16, "the phone's wifi doesn't connect … even though the car's own
+// wifi is detected … it only connects once bluetooth is off"). One non-blocking
+// reachability scan before the rejoin is armed fixes it: router present → rejoin;
+// absent → stay AP-only, own hotspot stable from the first second.
+//
+// This rule pins the whole shape, so a refactor cannot quietly re-introduce the
+// blind rejoin: the boot path must reach the probe, the probe must be a real
+// scan, and — the load-bearing half — it must FALL BACK to rejoinNetwork() when
+// the scan cannot answer, so the car can never lose its router to a probe it
+// could not run. The device half (a phone joins the own hotspot within seconds
+// of a boot with the saved router absent) is the owner's bench (F-61).
+const bootArmBody = body(wscCode, "void WebServerComm::armBootAutoJoin()") ?? "";
+const bootProbeBody = body(wscCode, "bool WebServerComm::startBootReachabilityScan()") ?? "";
+const bootSvcBody = body(wscCode, "void WebServerComm::serviceBootReachabilityScan()") ?? "";
+const bootRejoinBody = body(wscCode, "void WebServerComm::rejoinNetwork()") ?? "";
+const bootStopBody = body(wscCode, "void WebServerComm::stop()") ?? "";
+if (!bootArmBody) {
+  fail("boot-scan-first", "could not locate WebServerComm::armBootAutoJoin() - check this rule still matches the code");
+} else if (!/startBootReachabilityScan\s*\(\s*\)/.test(bootArmBody)) {
+  fail("boot-scan-first", "armBootAutoJoin() no longer asks the air before it joins - a stored-but-absent router holds the own hotspot on a moving channel for the whole retry budget (the owner's 'detected but won't connect')");
+} else if (!bootProbeBody) {
+  fail("boot-scan-first", "WebServerComm::startBootReachabilityScan() is gone - the boot probe has no producer");
+} else if (!/BOOT_SCAN_HEAP_FLOOR_BYTES/.test(bootProbeBody)) {
+  fail("boot-scan-first", "startBootReachabilityScan() no longer floors on the boot heap - the scan can be issued into a starved heap and land silently empty");
+} else if (!bootSvcBody) {
+  fail("boot-scan-first", "WebServerComm::serviceBootReachabilityScan() is gone - the boot probe has no consumer");
+} else if (!/WiFi\s*\.\s*scanNetworks\s*\(/.test(bootSvcBody) || !/WiFi\s*\.\s*scanComplete\s*\(\s*\)/.test(bootSvcBody)) {
+  fail("boot-scan-first", "the boot probe does not actually run a non-blocking scan (scanNetworks/scanComplete)");
+} else if (!/storedSsid_/.test(bootSvcBody)) {
+  fail("boot-scan-first", "the boot probe never compares a result against the stored router name - it cannot tell present from absent");
+} else if (!/WiFi\s*\.\s*scanDelete\s*\(\s*\)/.test(bootSvcBody)) {
+  fail("boot-scan-first", "the boot probe never frees the driver's scan results (scanDelete()) - the boot heap is the tightest of the uptime");
+} else if (!/rejoinNetwork\s*\(\s*\)/.test(bootSvcBody)) {
+  fail("boot-scan-first", "the boot probe has no fallback to rejoinNetwork() - a probe that cannot answer would strand the car without its router");
+} else if (!/if\s*\(\s*inRange\s*\|\|\s*!\s*conclusive\s*\)/.test(bootSvcBody)) {
+  fail("boot-scan-first", "the boot probe's join decision is not `inRange || !conclusive` - an inconclusive scan must fall back to the rejoin, and only a conclusive ABSENT result may stay AP-only");
+} else if (!p5HandleBody || !/serviceBootReachabilityScan\s*\(\s*\)/.test(p5HandleBody)) {
+  fail("boot-scan-first", "handle() no longer drags serviceBootReachabilityScan() - the probe would arm and never run");
+} else if (!/bootScanArmed_\s*=\s*false/.test(bootRejoinBody) || !/bootScanArmed_\s*=\s*false/.test(bootStopBody)) {
+  fail("boot-scan-first", "an explicit switch (rejoinNetwork) or a Wi-Fi OFF (stop) no longer clears an armed boot probe - a stale probe could fire a second rejoin after the owner chose a network");
+} else {
+  pass("boot-scan-first", "the boot auto-join probes the air first; an absent router settles AP-only with no rejoin churn, an inconclusive scan falls back to the rejoin, and an explicit switch or Wi-Fi OFF clears a stale probe");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that a
 // real car answers. That is the owner's bench, not a laptop.
 console.log("\nfirmware-contract: source checks only - no radio was touched, no car was asked.");

@@ -922,6 +922,9 @@ bool WebServerComm::handleRouterCommand(const char* cmd) {
 // dropped. Gate rule: `scan-honest`.
 bool WebServerComm::startScan() {
   if (scanPending_ || scanBusy_) return false;  // armed or in flight already
+  // P7/U-115: a boot reachability probe owns the radio too — refuse a user scan
+  // into it rather than issue a second scanNetworks() on top of a live one.
+  if (bootScanArmed_ || bootScanKicked_) return false;
   if (connectingPending_) return false;         // associating - do not race the join
   // U-112: the WS coexistence scan is the largest transient allocation of the
   // system (driver buffers + the vector reallocation in collectScanIfDone()).
@@ -1043,6 +1046,87 @@ void WebServerComm::collectScanIfDone() {
   // goes out on this broadcast so a WS client sees it straight away.
   if (modeManager) modeManager->sendState();
   broadcastStatus();
+}
+
+// P7 / U-115 (2026-10-16): the boot auto-join's reachability probe.
+//
+// "Is the router we saved actually in the air?" — asked ONCE, non-blocking,
+// before the rejoin is allowed to start. Two methods, in the same arm/kick/
+// evaluate shape the user scan already uses (startScan/runScanIfDue/
+// collectScanIfDone), so there is exactly one pattern for driving a scan in
+// this file. The differences from the user scan are deliberate:
+//   - it drives the driver DIRECTLY instead of the scanNetworks_ vector, so it
+//     never clobbers the user's /scan table and never broadcasts a SCAN line;
+//   - it frees the driver's results with scanDelete() the moment it is done
+//     (the boot heap is the tightest of the whole uptime — see the E1 waterfall);
+//   - its verdict is a JOIN DECISION, not a display list.
+bool WebServerComm::startBootReachabilityScan() {
+  if (bootScanArmed_ || bootScanKicked_) return false;
+  // Let a user scan have the radio first: at boot nobody is there yet, but on
+  // the U-79 power-policy resume path they can be.
+  if (scanPending_ || scanBusy_) return false;
+  if (ESP.getFreeHeap() < BOOT_SCAN_HEAP_FLOOR_BYTES) return false;
+  bootScanArmed_ = true;
+  bootScanKicked_ = false;
+  return true;
+}
+
+void WebServerComm::serviceBootReachabilityScan() {
+  if (!bootScanArmed_) return;
+  if (!bootScanKicked_) {
+    // Wait for any user scan to clear, then kick ours. Refuse to start while
+    // the STA is mid-join (the same rule startScan() carries): scanning into an
+    // association returns garbage and races the join.
+    if (scanPending_ || scanBusy_ || connectingPending_) return;
+    if (ESP.getFreeHeap() < BOOT_SCAN_HEAP_FLOOR_BYTES) {
+      // Heap fell since arming: degrade honestly to the plain rejoin rather
+      // than hold the car dark.
+      bootScanArmed_ = false;
+      FW_LOG("[WIFICFG] boot: heap low (%u) - skipping the range check\n",
+             static_cast<unsigned>(ESP.getFreeHeap()));
+      rejoinNetwork();
+      return;
+    }
+    bootScanKicked_ = true;
+    bootScanWaitMs_ = millis();
+    WiFi.scanNetworks(/*async=*/true, /*show_hidden=*/false);
+    return;
+  }
+
+  const int found = WiFi.scanComplete();
+  if (found < 0 && millis() - bootScanWaitMs_ < SCAN_TIMEOUT_MS) return;  // still running
+
+  // Resolve ONCE. `found < 0` here means the scan never completed: treat it as
+  // INCONCLUSIVE and fall back to the plain rejoin - a probe that could not
+  // answer must never cost the car its router.
+  bool inRange = false;
+  const bool conclusive = (found >= 0);
+  if (conclusive) {
+    for (int i = 0; i < found; ++i) {
+      const String name = WiFi.SSID(i);
+      if (name.length() > 0 && strcasecmp(name.c_str(), storedSsid_) == 0) {
+        inRange = true;
+        break;
+      }
+    }
+  }
+  WiFi.scanDelete();  // free the driver's result buffers immediately
+  bootScanArmed_ = false;
+  bootScanKicked_ = false;
+
+  if (inRange || !conclusive) {
+    FW_LOG("[WIFICFG] boot: \"%s\" %s - joining (full budget)\n", storedSsid_,
+           inRange ? "is in range" : "range check inconclusive");
+    rejoinNetwork();
+  } else {
+    // Absent: settle AP-ONLY without any rejoin churn, so the own hotspot is
+    // rock-solid for a phone join from the first second (P7).
+    FW_LOG("[WIFICFG] boot: \"%s\" not in range - staying on own hotspot\n",
+           storedSsid_);
+    // R-16/pronto: tell the app/remote the stale SSID row is no longer being
+    // chased, the same way the give-up path does.
+    if (modeManager) modeManager->sendState();
+  }
 }
 
 void WebServerComm::buildScanLine(char* buf, size_t bufLen) const {
@@ -1472,6 +1556,11 @@ void WebServerComm::rejoinNetwork() {
   lastWifiRetryMs_ = millis();
   startedAsAP = true;
   rejoinStep_ = REJOIN_STEP_MODE;
+  // P7/U-115: an EXPLICIT switch supersedes an armed boot probe — a probe that
+  // outlived the request it was armed for must never fire a second rejoin after
+  // the owner picked a network by hand.
+  bootScanArmed_ = false;
+  bootScanKicked_ = false;
   // U-95 Phase 2: a fresh request gets a fresh drop attempt budget, or the
   // second switch of a session would inherit the first one's spent retries.
   modeDropAttempts_ = 0;
@@ -1825,13 +1914,14 @@ void WebServerComm::armBootAutoJoin() {
   // deleted network: DEL/CLEAR/WIFICFG;RESET all wipe it, the last-good pair is
   // wiped with it (U-98), and a fresh flash starts empty.
   //
-  // The budget is now the FULL explicit-switch budget (WIFI_STA_TIMEOUT_MS /
-  // STA_MAX_RETRIES), not the old SHORT boot window (BOOT_STA_*, removed). That
-  // reversal of R-16/T-64 is safe because the own hotspot beacon stays UP for
-  // the whole retry — parking only ever runs while the car is CONNECTED and in
-  // use — so a long attempt can never strand the owner; and an unreachable
-  // router still ends in the give-up path, which restores the own hotspot the
-  // moment the budget is spent.
+  // The budget for a router the boot scan has CONFIRMED in range is the FULL
+  // explicit-switch budget (WIFI_STA_TIMEOUT_MS / STA_MAX_RETRIES). P7/U-115
+  // (2026-10-16): the router is only given that budget once the air has been
+  // asked for it — see the BOOT_SCAN_HEAP_FLOOR_BYTES note in the header for why
+  // (a stored-but-absent router used to hold the own hotspot on a moving channel
+  // for the whole budget). The rejoin now starts from the probe's verdict, not
+  // blind, so the own hotspot is rock-solid for a phone join from the first
+  // second when the router is gone.
   if (!bootAutojoin_) {
     FW_LOG_VERBOSE("[WIFICFG] boot auto-join disabled - staying on own hotspot\n");
     return;
@@ -1849,7 +1939,15 @@ void WebServerComm::armBootAutoJoin() {
                    storedSsid_);
     return;
   }
-  FW_LOG("[WIFICFG] boot: returning to last-switched router \"%s\" (full budget)\n",
+  // P7/U-115: ASK THE AIR FIRST. A refused probe (low heap / a user scan in
+  // flight) degrades to the plain rejoin — the car never loses its router to a
+  // reason check it could not run; handle() drags the probe from here.
+  if (startBootReachabilityScan()) {
+    FW_LOG("[WIFICFG] boot: checking whether \"%s\" is in range before joining\n",
+           storedSsid_);
+    return;
+  }
+  FW_LOG("[WIFICFG] boot: range check unavailable - joining \"%s\" directly\n",
          storedSsid_);
   // rejoinNetwork() arms the full budget and does no radio work itself; handle()
   // walks the drop -> restore -> begin step machine, one radio call per pass
@@ -1864,6 +1962,10 @@ void WebServerComm::stop() {
   // U-95 Phase 2: shutdown must not leave a deferred begin armed for a
   // later start() to fire.
   retryBeginPending_ = false;
+  // P7/U-115: and it must not leave an armed (or in-flight) boot reachability
+  // probe behind either — a Wi-Fi OFF has to silence every join path.
+  bootScanArmed_ = false;
+  bootScanKicked_ = false;
 
   if (serverRunning) {
     server.stop();
@@ -1986,6 +2088,11 @@ void WebServerComm::handle() {
   crashRtcMark("wifi-scan");
   runScanIfDue();
   collectScanIfDone();
+  // P7/U-115 (2026-10-16): drag the boot auto-join's reachability probe. One
+  // non-blocking scan decides join-vs-AP-only before any rejoin churn can start;
+  // see startBootReachabilityScan(). It runs AFTER the user-scan machinery so it
+  // never races a /scan the app asked for.
+  serviceBootReachabilityScan();
 
   // U-95 Phase 2 (retry split): the begin deferred by the retry branch below
   // lands here, on its OWN pass — one radio call per pass (U-71). The guard
