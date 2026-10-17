@@ -589,6 +589,24 @@ void advanceRejoinStep();
   // car (there is deliberately NO mid-command reboot: the reply must reach the
   // app first, and a reboot would drop the very link that carries it).
   bool handleFactoryCommand(const char* cmd);
+
+  // P6 (2026-10-17, owner item D): the car's EVENT-LOG verbs (system-hook
+  // commands, every mode, every transport; replies ride STATE as REPLY=…):
+  //
+  //   LOG / LOG?          `LOG;COUNT=<n>;CAP=12` — how many events the ring
+  //                       holds and its hard cap.
+  //   LOG;GET;<n>         newest-first window starting at entry n, three at a
+  //                       time (the REPLY= slot holds ~190 bytes; bounded so
+  //                       one reply can never overflow it): `LOG;GET;<n>;<n>
+  //                       =<total>;K,<boot>,<ms>,<heap>,<reason>,<phase>;…`.
+  //                       Each event is SIX comma fields (kind number, boot
+  //                       counter, millis, free heap, reset reason, phase).
+  //                       A car with NO events answers an empty `LOG;GET;
+  //                       0;<n>=0;` — honest, parseable, never a guess.
+  //   LOG;CLEAR           drop every stored event → `LOG;CLEARED`.
+  //
+  // Contract rule `event-log` pins the shapes; the app half is P7.
+  bool handleLogCommand(const char* cmd);
   // Adopt the app-provided epoch (seconds). 0 = unsynced.
   void syncEpoch(uint32_t epochSeconds);
   // Current epoch (seconds), or 0 when the app has never synced this session.

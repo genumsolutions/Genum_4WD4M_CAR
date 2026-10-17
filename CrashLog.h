@@ -79,6 +79,76 @@ struct CrashInfo {
 // Floor on how often a non-empty phase may reach flash. See crashLogPhase().
 constexpr uint32_t CRASHLOG_PHASE_MIN_MS = 30000u;
 
+// ---------------------------------------------------------------------
+// P6 (2026-10-17, owner item D): the CAR'S EVENT LOG — a BOUNDED ring of
+// the facts a bug/reset/freeze report is built from, tied to the boot
+// counter, readable by the app (`LOG?` / `LOG;GET;<n>` / `LOG;CLEAR`,
+// WebServerComm::handleLogCommand) and summarised in /status
+// (`event_log_count`).
+//
+// WHY A BOUNDED RING, stated once: F-89 "an on-device log must be bounded
+// before it is useful". A log that grows with every event turns a debugging
+// aid into a flash-exhaustion bug, so the ring has a HARD cap and the OLDEST
+// event is the one dropped. The cap is a compile-time constant (never
+// re-tuned at run time), and every append that hits it keeps the newest
+// CAR_EVENT_CAP facts and forgets the rest — forgetfulness is the feature.
+//
+// STORAGE. One fixed array persisted as ONE NVS blob per append (the appends
+// are rare: boots, faults, heap-guard edges, link up/down transitions), so
+// the write count stays predictable and there is never an unbounded number
+// of tiny NVS keys. Events live in the same `botcfg` namespace as the rest
+// of the car's config; `FACTORY;RESET` clears the ring with the namespace.
+//
+// NO SECRETS: entries carry the boot counter, millis, free heap, an event
+// kind, a fault reset reason and — only ever — firmware string LITERALS for
+// the phase, exactly like /status `last_crash_phase`. A runtime-built phase
+// string from a phone or the network would be a JSON/injection hazard in
+// LOG;GET's reply; the ring only ever stores what the firmware wrote. Do not
+// feed it network input.
+// ---------------------------------------------------------------------
+
+// Event.kind values. Numbers ride the wire (LOG;GET), the labels are for
+// humans; keep both in step with carEventKindLabel().
+#define CAR_EV_BOOT      0u   // every boot, clean or not
+#define CAR_EV_FAULT     1u   // an unexpected reset (isFaultReset true)
+#define CAR_EV_LOWHEAP   2u   // a heap guard deferred/refused work
+#define CAR_EV_LINKCAP   3u   // the car REFUSED a second link (heap floor)
+#define CAR_EV_LINKUP    4u   // a transport came up ("wifi" / "bt")
+#define CAR_EV_LINKDOWN  5u   // a transport went down
+
+// The HARD cap. 12 events at a fixed 32-byte record is one 384-byte NVS
+// blob — small enough that even a router-switch flap costs grams of wear
+// and the blob stays a single predictable write.
+#define CAR_EVENT_CAP    12u
+
+// One event, fixed size so the blob is a flat array read/write with one
+// call. `phase` is a firmware string LITERAL only (see above).
+struct CarEvent {
+  uint8_t kind;        // CAR_EV_* above
+  uint8_t reason;      // esp_reset_reason_t (faults) / 0 otherwise
+  uint32_t bootCount;  // the boot counter at the event
+  uint32_t millis;     // millis() at the event
+  uint32_t heap;       // free heap at the event
+  char phase[16];      // "" when not applicable; firmware literals only
+};
+
+// Append one bounded-ring event and persist the ring. `phase` may be nullptr
+// or ""; only ever pass firmware literals. Safe from setup() onwards.
+void crashLogEvent(uint8_t kind, uint8_t reason, const char* phase);
+
+// How many events the ring currently holds (0..CAR_EVENT_CAP).
+uint16_t carLogCount();
+
+// Event `idx` counting NEWEST-FIRST: 0 is the most recent.
+const CarEvent& carLogAt(uint16_t idx);
+
+// Human label for a CAR_EV_* kind ("BOOT", "FAULT", ..."). Unknown → "EV?".
+const char* carEventKindLabel(uint8_t kind);
+
+// Drop every stored event, RAM and NVS. Called by LOG;CLEAR and — via
+// crashLogResetCounters() — by FACTORY;RESET.
+void carLogClear();
+
 // Call this FIRST in setup(), before anything else allocates or runs, so the
 // heap figure recorded is the heap at boot rather than the heap after setup.
 void crashLogBegin();

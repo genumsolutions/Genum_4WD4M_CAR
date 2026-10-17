@@ -326,6 +326,77 @@ bool WebServerComm::handleFactoryCommand(const char* cmd) {
   return true;
 }
 
+// P6 (2026-10-17, owner item D): the car's EVENT-LOG verbs. System-hook
+// commands (every mode, every transport); replies ride STATE as REPLY=….
+// Shapes are documented on the declaration in WebServerComm.h and pinned by
+// the contract rule `event-log`.
+bool WebServerComm::handleLogCommand(const char* cmd) {
+  if (!cmd) return false;
+  const bool isLog = strncasecmp(cmd, "LOG", 3) == 0 &&
+                     (cmd[3] == '\0' || cmd[3] == '?' || cmd[3] == ';');
+  if (!isLog) return false;
+
+  char reply[192];
+  const char* arg = cmd + 3;  // "" | "?" | ";GET;<n>" | ";CLEAR"
+
+  if (arg[0] == ';' && strncasecmp(arg + 1, "CLEAR", 5) == 0) {
+    carLogClear();
+    lastWifiReply_ = "LOG;CLEARED";
+    return true;
+  }
+
+  if (arg[0] == ';' && strncasecmp(arg + 1, "GET", 3) == 0) {
+    // LOG;GET;<n> — the window START index, newest-first (0 = newest).
+    // CHUNK = 3: three events at their worst (~48 chars each, phase 15) keep
+    // the reply under the 192-byte REPLY= slot in pendingReply_, so one
+    // reply can never truncate mid-event. The answer carries <n> and
+    // <total> so the consumer knows exactly what it got.
+    const uint16_t total = carLogCount();
+    uint16_t start = 0;
+    const char* num = arg + 4;  // after ";GET"
+    bool ok = num[0] != '\0';
+    for (const char* c = num; *c; ++c) {
+      if (*c < '0' || *c > '9') {
+        ok = false;
+        break;
+      }
+      start = start * 10u + static_cast<uint16_t>(*c - '0');
+    }
+    if (!ok) {
+      lastWifiReply_ = "LOG;ERROR;Syntax";
+      return true;
+    }
+    reply[0] = '\0';
+    snprintf(reply, sizeof(reply), "LOG;GET;%u;%u=", (unsigned)start,
+             (unsigned)total);
+    // An out-of-range or empty ring answers EMPTY — a car with no events
+    // says so honestly, never a guess.
+    const uint16_t writtenAt = (uint16_t)strlen(reply);
+    size_t at = writtenAt;
+    size_t room = sizeof(reply) - at - 1;
+    uint16_t emitted = 0;
+    for (; start + emitted < total && emitted < 3; ++emitted) {
+      const CarEvent& e = carLogAt((uint16_t)(start + emitted));
+      char one[64];
+      snprintf(one, sizeof(one), "%s%u,%lu,%lu,%lu,%u,%s",
+               emitted ? ";" : "", (unsigned)e.kind,
+               (unsigned long)e.bootCount, (unsigned long)e.millis,
+               (unsigned long)e.heap, (unsigned)e.reason, e.phase);
+      const size_t len = strlen(one);
+      if (len >= room) break;  // bounded line: never truncate an event
+      memcpy(reply + at, one, len + 1);
+      at += len;
+      room -= len;
+    }
+    lastWifiReply_ = reply;
+    return true;
+  }
+
+  // LOG / LOG? — the summary. The count is what /status's event_log_count says.
+  lastWifiReply_ = "LOG;COUNT=" + String((int)carLogCount()) + ";CAP=12";
+  return true;
+}
+
 void WebServerComm::syncEpoch(uint32_t epochSeconds) {
   epochBase_ = epochSeconds;
   epochSetMs_ = millis();
@@ -2036,6 +2107,9 @@ bool WebServerComm::admitSecondLink() {
           "link kept\n",
           static_cast<unsigned>(freeHeap),
           static_cast<unsigned>(LINK_ADMISSION_FLOOR_BYTES));
+      // P6: the refusal is a FACT the owner needs to act on (multi-connect
+      // was attempted and denied) — one ring entry per latched verdict.
+      crashLogEvent(CAR_EV_LINKCAP, 0, "link-admit");
     }
     return false;
   }
@@ -2749,6 +2823,9 @@ void WebServerComm::broadcastStatus() {
         FW_LOG("[HEAP] status broadcast deferred (free=%u, floor=%u)\n",
                static_cast<unsigned>(ESP.getFreeHeap()),
                static_cast<unsigned>(STATUS_HEAP_FLOOR_BYTES));
+        // P6: the below-floor CROSSING is the event the log exists for —
+        // one entry per streak (this edge), never per deferred broadcast.
+        crashLogEvent(CAR_EV_LOWHEAP, 0, "status-defer");
       }
       return;
     }
@@ -3244,8 +3321,9 @@ snprintf(buf, bufLen,
        "\"tele_params\":\"freq=%s, vyse=%s\","
        "\"wifi_enabled\":%s,"
        "\"bt_enabled\":%s,"
-       "\"boot_autojoin\":%s",
-       "\"link_cap\":%d"
+       "\"boot_autojoin\":%s,"
+       "\"link_cap\":%d,"
+       "\"event_log_count\":%lu"
      "}",
      statusWord,
      modeToken,
@@ -3294,6 +3372,9 @@ snprintf(buf, bufLen,
       wifiEnabled_ ? "true" : "false",
       btEnabled_ ? "true" : "false",
       bootAutojoin_ ? "true" : "false",
-      linkCapCode()
+      linkCapCode(),
+      // P6: how many events the car's bounded log holds — the app's cue to
+      // fetch (P7 reads LOG;GET windows; 0 = nothing stored, say so honestly).
+      static_cast<unsigned long>(carLogCount())
   );
 }

@@ -1083,6 +1083,57 @@ if (!linkFloor) {
   pass("link-admission", "the car refuses a SECOND link below LINK_ADMISSION_FLOOR_BYTES, keeps the incumbent, and reports the verdict on the STATE line and in /status");
 }
 
+// P6 / item D (2026-10-17): THE CAR HANDS OVER A BOUNDED EVENT LOG.
+//
+// The owner's report (item 4): the remote needs to SEE and ACT ON the
+// bug/reset/freeze history **tied to the car's unique profile**. P6 is the
+// car half: a HARD-BOUNDED ring (F-89 — cap first, then read) of boots,
+// faults, low-heap crossings, link refusals and link up/down edges, persisted
+// as ONE NVS blob, plus the verbs the app (P7) reads it with:
+// `LOG?` / `LOG;GET;<n>` / `LOG;CLEAR`, and the /status summary field.
+//
+// Bounded means bounded in every dimension the gate can see: the cap is a
+// define, the ring drops the OLDEST at the cap, the GET reply is size-bounded
+// so one reply can never truncate mid-event, and FACTORY;RESET clears the
+// ring with the namespace it lives in.
+const evCapH = raw("CrashLog.h");
+const evSrc = code(raw("CrashLog.cpp"));
+const eventCap = Number(evCapH.match(/#define\s+CAR_EVENT_CAP\s+(\d+)u?/)?.[1] ?? 0);
+const evAppend = body(evSrc, "void crashLogEvent") ?? "";
+const evBegin = body(evSrc, "void crashLogBegin") ?? "";
+const evClear = body(evSrc, "void carLogClear") ?? "";
+const evReset = body(evSrc, "void crashLogResetCounters") ?? "";
+// The verbs' reply literals live inside C string literals, so this body is
+// read from the RAW source (comments kept, literals KEPT): the code() view
+// blanks literals and would fail even a correct implementation — the same
+// view split the link-admission rule learned above.
+const logBody = body(wsc, "bool WebServerComm::handleLogCommand") ?? "";
+const inoHook = stripComments(raw("Genum_4WD4M_CAR.ino"));
+const statusBody2 = stripComments(body(wsc, "void WebServerComm::buildStatusJson") ?? "");
+if (!eventCap) {
+  fail("event-log", "CAR_EVENT_CAP is not defined in CrashLog.h - the log grows unbounded and becomes a flash-exhaustion bug (F-89)");
+} else if (eventCap < 4 || eventCap > 64) {
+  fail("event-log", `CAR_EVENT_CAP (${eventCap}) is outside a sane bounded-window range - a cap this unusual is a bug, not a design`);
+} else if (!/memmove\s*\(/.test(evAppend) || !/CAR_EVENT_CAP/.test(evAppend)) {
+  fail("event-log", "crashLogEvent() does not drop the OLDEST event at the cap - the ring overflows past CAR_EVENT_CAP");
+} else if (!/CAR_EV_BOOT/.test(evBegin) || !/CAR_EV_FAULT/.test(evBegin)) {
+  fail("event-log", "crashLogBegin() does not record the BOOT and FAULT events - the ring misses the two facts a reset report is built from");
+} else if (!/carLogClear\s*\(/.test(evReset)) {
+  fail("event-log", "crashLogResetCounters() (FACTORY;RESET) does not clear the event ring - a fresh start resurrects historical events, a lie about the present");
+} else if (!logBody || !logBody.includes("LOG;GET;") || !logBody.includes("LOG;CLEARED")) {
+  fail("event-log", "handleLogCommand() does not implement LOG;GET / LOG;CLEAR with their replies - the app cannot read or reset the log");
+} else if (!logBody.includes("sizeof(reply) - at - 1") && !logBody.includes("room")) {
+  fail("event-log", "LOG;GET does not size-check each event against the reply buffer - one reply can truncate mid-event, which invents a broken record");
+} else if (!inoHook.includes("handleLogCommand(cmd)")) {
+  fail("event-log", "the sketch's system-command hook does not call handleLogCommand() - the verbs exist but no transport can reach them");
+} else if (!inoHook.includes("trackLinkEvents(")) {
+  fail("event-log", "the loop does not track link up/down transitions - the link-add/drop events the owner asked for never exist");
+} else if (!/.event_log_count./.test(statusBody2)) {
+  fail("event-log", "/status JSON does not carry event_log_count - the web transport cannot learn there is a log to fetch");
+} else {
+  pass("event-log", `the car keeps a bounded event ring (cap ${eventCap}, oldest dropped), records boot/fault/low-heap/refusal/link edges, and serves LOG?/LOG;GET;<n>/LOG;CLEAR over the system hook, with /status carrying event_log_count`);
+}
+
 // P7 / issue 8 (2026-10-16): EVERY SETTING STORES IN THE CAR AND COMES BACK.
 //
 // Issue 8's bar (owner): *"every one of these settings must store in the car

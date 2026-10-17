@@ -160,6 +160,8 @@ const WSC = "WebServerComm.cpp";
 const WSH = "WebServerComm.h";
 const INO = "Genum_4WD4M_CAR.ino";
 const MM = "ModeManager.cpp";
+const CL = "CrashLog.cpp";
+const CLH = "CrashLog.h";
 
 const mutants = [
   // ---- crash record (F-79) ----
@@ -792,6 +794,37 @@ const mutants = [
     find: '  if (!(wifiEnabled_ && btEnabled_)) return 1;',
     repl: '  if (false) return 1;',
     why: "linkCapCode() no longer folds the transport toggles - with one transport off it reports a refusal for a second link that was never going to exist, a verdict about nothing" },
+
+  // P6 / item D (2026-10-17): the bounded event log the app can hand over.
+  { id: "M117", rule: "event-log", file: CL,
+    find: '    s_evCount = CAR_EVENT_CAP - 1;',
+    repl: '    // (the cap break removed - the ring overflows)',
+    why: "crashLogEvent() no longer keeps the newest CAR_EVENT_CAP facts - the ring overflows past the hard cap and the log becomes a flash-exhaustion bug (F-89)" },
+
+  { id: "M118", rule: "event-log", file: CL,
+    find: '  crashLogEvent(CAR_EV_BOOT, 0, nullptr);',
+    repl: '  // (the boot event is not recorded)',
+    why: "crashLogBegin() stops recording the BOOT event - a clean boot is indistinguishable from a faulted one, and the reset report loses its timeline anchor" },
+
+  { id: "M119", rule: "event-log", file: CL,
+    find: '  if (isFaultReset(reason)) {\n    crashLogEvent(CAR_EV_FAULT, (uint8_t)reason,\n                  s_info.phase[0] ? s_info.phase : nullptr);',
+    repl: '  if (false) {',
+    why: "fault boot extremes: the FAULT event is never recorded - the ring misses the one fact the owner is acting on (why did it reset)" },
+
+  { id: "M120", rule: "event-log", file: WSC,
+    find: '    lastWifiReply_ = "LOG;CLEARED";',
+    repl: '    lastWifiReply_ = "LOG;ERROR;Syntax";',
+    why: "LOG;CLEAR no longer confirms the clear - the app cannot tell a cleared log from a refused one, so restart the car and the old events come back" },
+
+  { id: "M121", rule: "event-log", file: WSC,
+    find: '      static_cast<unsigned long>(carLogCount())\n  );',
+    repl: '      0ul\n  );',
+    why: "/status stops reporting event_log_count - the web transport cannot learn there is a log to fetch, so the per-car viewer reads a lie (empty) forever" },
+
+  { id: "M122", rule: "event-log", file: INO,
+    find: '    const bool isLogCmd = webServerComm.handleLogCommand(cmd);',
+    repl: '    const bool isLogCmd = false; (void)0;',
+    why: "the verbs stop riding the system hook - LOG?/LOG;GET/LOG;CLEAR fall through to the drive path and are answered by nothing, while the contract still claims the app can read them" },
 ];
 
 // ---- runner -------------------------------------------------------------

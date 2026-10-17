@@ -18,6 +18,14 @@ static const char *KEY_CRASH  = "ccount";  // unexpected boots only
 static const char *KEY_REASON = "lreason"; // last unexpected reset reason
 static const char *KEY_HEAP   = "lheap";   // free heap at that boot
 static const char *KEY_PHASE  = "lphase";  // phase during that boot
+// P6: the bounded event ring (see CrashLog.h) — ONE blob + the live count.
+static const char *KEY_ELOG   = "elog";    // CarEvent[CAR_EVENT_CAP]
+static const char *KEY_ELOGC  = "elogc";   // events currently stored
+// The RAM ring. Newest at s_evCount-1; oldest at 0. When the cap is hit the
+// oldest is DROPPED (memmove down one) and the new event takes the tail —
+// bounded memory, bounded flash, F-89.
+static CarEvent s_ev[CAR_EVENT_CAP];
+static uint16_t s_evCount = 0;
 // U-106 (2026-10-13): crash-TIME evidence mirrored from the RTC breadcrumb.
 static const char *KEY_HEAPC = "lheapc";  // free heap at the last breadcrumb
 static const char *KEY_MINH  = "lminh";   // low-water heap over the dying boot
@@ -221,6 +229,27 @@ void crashLogBegin() {
   prefs.putUInt(KEY_CRASH, s_info.crashCount);
   prefs.end();
 
+  // P6: load the persisted event ring BEFORE appending this boot's events,
+  // so the ring is the continuity across boots, not one boot's memory.
+  {
+    Preferences prefs;
+    if (prefs.begin(PREF_NS, true)) {
+      s_evCount = 0;
+      uint16_t stored = (uint16_t)prefs.getUInt(KEY_ELOGC, 0);
+      if (stored > CAR_EVENT_CAP) stored = CAR_EVENT_CAP;
+      size_t got = prefs.getBytes(KEY_ELOG, s_ev, sizeof(s_ev));
+      if (got == sizeof(s_ev)) s_evCount = stored;
+      prefs.end();
+    }
+  }
+  // P6: record THIS boot — every boot (cheap, bounded) and, when it was a
+  // fault, the reason + the phase evidence the readers above assembled.
+  crashLogEvent(CAR_EV_BOOT, 0, nullptr);
+  if (isFaultReset(reason)) {
+    crashLogEvent(CAR_EV_FAULT, (uint8_t)reason,
+                  s_info.phase[0] ? s_info.phase : nullptr);
+  }
+
   // Adopt whatever is already in NVS, so the first idle transition does not
   // rewrite a string that is already correct.
   strncpy(s_flashedPhase, s_info.phase, sizeof(s_flashedPhase) - 1);
@@ -308,6 +337,87 @@ uint32_t crashLogBootCount() { return s_info.bootCount; }
 uint32_t crashLogCrashCount() { return s_info.crashCount; }
 uint32_t crashLogMinHeap() { return s_bootMinHeap; }
 
+// ---------------------------------------------------------------------
+// P6 (2026-10-17, owner item D): the bounded EVENT RING — one blob in NVS,
+// newest at the tail, OLDEST dropped at the cap (F-89: bounded before it is
+// useful). The appends are the rare facts of a bug/reset/freeze report:
+// boots, faults, heap-guard edges, refusals, link up/down.
+// ---------------------------------------------------------------------
+
+// Persist the whole ring as ONE blob + the live count. Appends are rare, so
+// the flash cost is predictable and always the same write.
+static void carLogPersist() {
+  Preferences prefs;
+  if (!prefs.begin(PREF_NS, false)) return;
+  prefs.putBytes(KEY_ELOG, s_ev, sizeof(s_ev));
+  prefs.putUInt(KEY_ELOGC, (uint32_t)s_evCount);
+  prefs.end();
+}
+
+const char *carEventKindLabel(uint8_t kind) {
+  switch (kind) {
+    case CAR_EV_BOOT:     return "BOOT";
+    case CAR_EV_FAULT:    return "FAULT";
+    case CAR_EV_LOWHEAP:  return "LOW-HEAP";
+    case CAR_EV_LINKCAP:  return "LINK-REFUSED";
+    case CAR_EV_LINKUP:   return "LINK-UP";
+    case CAR_EV_LINKDOWN: return "LINK-DOWN";
+    default:              return "EV?";
+  }
+}
+
+void crashLogEvent(uint8_t kind, uint8_t reason, const char *phase) {
+  // Degradable, never blocking: a refused NVS open drops ONE event rather
+  // than wedging the caller. The ring's job is to be boring.
+  if (s_evCount >= CAR_EVENT_CAP) {
+    // F-89: the cap is HARD. Drop the OLDEST (index 0) and append at the
+    // tail; the newest facts always win.
+    memmove(s_ev, s_ev + 1, sizeof(CarEvent) * (size_t)(CAR_EVENT_CAP - 1));
+    s_evCount = CAR_EVENT_CAP - 1;
+  }
+
+  CarEvent &e = s_ev[s_evCount];
+  memset(&e, 0, sizeof(e));
+  e.kind = kind;
+  e.reason = reason;
+  e.bootCount = crashLogBootCount();
+  e.millis = millis();
+  e.heap = ESP.getFreeHeap();
+  if (phase != nullptr) {
+    // firmware literals only (CrashLog.h) — copy bounded, NUL-terminated.
+    strncpy(e.phase, phase, sizeof(e.phase) - 1);
+    e.phase[sizeof(e.phase) - 1] = '\0';
+  }
+  s_evCount++;
+
+  carLogPersist();
+  Serial.printf("[EV] %s boot=%u ms=%u heap=%u%s%s\n",
+                carEventKindLabel(kind), (unsigned)e.bootCount,
+                (unsigned)e.millis, (unsigned)e.heap,
+                e.phase[0] ? " phase='" : "", e.phase[0] ? e.phase : "");
+}
+
+uint16_t carLogCount() { return s_evCount; }
+
+const CarEvent &carLogAt(uint16_t idx) {
+  // Newest-first view over the tail. Out-of-range readers get a zeroed
+  // entry (kind 0 = BOOT with boot=0 — distinguishable, and the caller
+  // bounds by carLogCount() anyway).
+  static CarEvent zero;
+  if (idx >= s_evCount) {
+    memset(&zero, 0, sizeof(zero));
+    return zero;
+  }
+  return s_ev[s_evCount - 1 - idx];
+}
+
+void carLogClear() {
+  memset(s_ev, 0, sizeof(s_ev));
+  s_evCount = 0;
+  carLogPersist();
+  Serial.println("[EV] event log cleared");
+}
+
 // U-108 Phase 7 (owner 2026-10-13): the `FACTORY;RESET` fresh start. This is the
 // ONLY writer that lowers the counters on purpose — normal operation only ever
 // increments them. RAM is reset so the running session reports honestly, and NVS
@@ -316,6 +426,9 @@ uint32_t crashLogMinHeap() { return s_bootMinHeap; }
 // reset there is no "last unexpected boot" to attribute.
 void crashLogResetCounters() {
   s_info.bootCount = 1;   // this boot is the first of the fresh start
+  // P6: the event ring dies with the namespace wipe — FACTORY;RESET must not
+  // leave historical events a fresh start could resurrect (U-108's own rule).
+  carLogClear();
   s_info.crashCount = 0;
   s_info.valid = false;
   s_info.reason = 0;

@@ -62,6 +62,25 @@ static bool btEverConnected = false;
 // stored; the own hotspot beacon stays up the whole time (never parked, U-105).
 static bool webUp = false;   // web layer (AP + HTTP/WS + router join) is up
 static bool btUp = false;    // Bluetooth SPP is up
+
+// P6 (2026-10-17, owner item D): record each link UP/DOWN transition in the
+// bounded event ring, edge-gated (one entry per transition, never per loop
+// pass). The first call establishes the baseline without inventing events.
+static void trackLinkEvents(bool btNow, bool webNow) {
+  static bool seen = false, btPrev = false, webPrev = false;
+  if (!seen) {
+    btPrev = btNow;
+    webPrev = webNow;
+    seen = true;
+    return;
+  }
+  if (btNow && !btPrev) crashLogEvent(CAR_EV_LINKUP, 0, "bt");
+  if (!btNow && btPrev) crashLogEvent(CAR_EV_LINKDOWN, 0, "bt");
+  if (webNow && !webPrev) crashLogEvent(CAR_EV_LINKUP, 0, "wifi");
+  if (!webNow && webPrev) crashLogEvent(CAR_EV_LINKDOWN, 0, "wifi");
+  btPrev = btNow;
+  webPrev = webNow;
+}
 // Legacy: `last_transport` / the idle-grace counters were removed with the
 // teardown arbitration they belonged to (U-105). The NVS key is still wiped on
 // a fresh install by wipeRoutersOnFreshFirmware() for residue cleanliness.
@@ -236,7 +255,11 @@ void setup() {
     // ride the SAME single system-command entry point — they are not drive
     // commands and must work in every mode over every transport.
     const bool isFactoryCmd = webServerComm.handleFactoryCommand(cmd);
-    if (!isRouterCmd && !isWifiCmd && !isFactoryCmd) return false;
+    // P6 (owner item D): the car's EVENT LOG — LOG? / LOG;GET;<n> / LOG;CLEAR
+    // ride the SAME single system-command entry point; replies ride STATE as
+    // REPLY=… (bounded ≤191 bytes, three events per GET window).
+    const bool isLogCmd = webServerComm.handleLogCommand(cmd);
+    if (!isRouterCmd && !isWifiCmd && !isFactoryCmd && !isLogCmd) return false;
     if (webServerComm.lastWifiReply().length() > 0) {
       modeManager.queueReply(webServerComm.lastWifiReply().c_str());
       // T-35/T-63: fan the reply out over EVERY connected transport (STATE
@@ -512,6 +535,11 @@ void loop() {
       Serial.println("[POWER] Wi-Fi up (Bluetooth off)");
     }
   }
+
+  // P6: the event ring follows the link transitions the branch above just
+  // decided — one entry per up/down edge, bounded both ways. Called every
+  // loop; it early-outs on no-change.
+  trackLinkEvents(btUp, webUp);
 
   // P4/E1 (heap waterfall 6/6): BOTH transports are up at once - the state
   // issue 6 (the <14 KB BT+Wi-Fi reset) is about. Logged on the false->true
