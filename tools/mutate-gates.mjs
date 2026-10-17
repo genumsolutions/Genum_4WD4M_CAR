@@ -751,6 +751,47 @@ const mutants = [
     find: '      if (!next && !btEnabled_) {',
     repl: '      if (false) {',
     why: "the Wi-Fi toggle no longer refuses to turn the LAST transport off - both transports can be commanded off in two taps, which the owner ruled impossible ('both cant be off at the same time')" },
+
+  // P4 / item F (2026-10-17): the car refuses a SECOND link, honestly. Six
+  // mutants, one per claim the `link-admission` rule polices: the heap floor
+  // exists and is above the status floor, admitSecondLink() actually compares
+  // and LATCHES, BOTH raises in the both-enabled branch are gated, a refused
+  // Wi-Fi raise reverts the optimistic mark (or the loop never retries), and the
+  // verdict is on BOTH surfaces (STATE line + /status JSON).
+  { id: "M110", rule: "link-admission", file: WSC,
+    find: '  if (freeHeap < LINK_ADMISSION_FLOOR_BYTES) {',
+    repl: '  if (false) {',
+    why: "admitSecondLink() no longer compares the free heap to the floor - it always admits, so the second transport comes up into a starved heap again and the run-time starves with it (item 6)" },
+
+  { id: "M111", rule: "link-admission", file: WSC,
+    find: '      linkCapRefused_ = true;',
+    repl: '      // (the refusal is not latched)',
+    why: "the refusal is not LATCHED - the app can no longer tell a refusal from a link still coming up, so it cannot honestly say multi-connect is unavailable" },
+
+  { id: "M112", rule: "link-admission", file: INO,
+    find: '    if (shouldStartWeb && btUp) {',
+    repl: '    if (shouldStartWeb) {',
+    why: "the Wi-Fi raise is no longer gated on admission - with Bluetooth up, Wi-Fi comes up unconditionally and the second-link freeze is back" },
+
+  { id: "M113", rule: "link-admission", file: MM,
+    find: '        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";LINKCAP=%d",\n                 ws->linkCapCode());',
+    repl: '        // (the link-admission verdict is removed from the STATE line)',
+    why: "the STATE line no longer carries ;LINKCAP= - a Bluetooth-only app can never learn the car refused the second link" },
+
+  { id: "M114", rule: "link-admission", file: WSC,
+    find: '       "\\"link_cap\\":%d"\n     "}",',
+    repl: '     "}",',
+    why: "the /status JSON no longer carries link_cap - the web transport can never learn the car refused the second link" },
+
+  { id: "M115", rule: "link-admission", file: WSH,
+    find: '#define LINK_ADMISSION_FLOOR_BYTES 32000ul',
+    repl: '#define LINK_ADMISSION_FLOOR_BYTES 2000ul',
+    why: "the link-admission floor drops BELOW the status floor - a second link (a standing cost) is admitted on less headroom than a single status broadcast needs, so the refusal protects nothing" },
+
+  { id: "M116", rule: "link-admission", file: WSC,
+    find: '  if (!(wifiEnabled_ && btEnabled_)) return 1;',
+    repl: '  if (false) return 1;',
+    why: "linkCapCode() no longer folds the transport toggles - with one transport off it reports a refusal for a second link that was never going to exist, a verdict about nothing" },
 ];
 
 // ---- runner -------------------------------------------------------------

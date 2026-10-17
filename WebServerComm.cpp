@@ -2014,6 +2014,43 @@ bool WebServerComm::broadcastDeferred() {
   return ESP.getFreeHeap() < STATUS_HEAP_FLOOR_BYTES;
 }
 
+// P4 (2026-10-17, owner item F / issue 6): LINK ADMISSION.
+//
+// The FIRST link is never gated — a car with no way in is worse than a car with
+// one. This is called by the sketch's transport-power loop ONLY when the
+// transport it is about to raise would be the SECOND one, and it refuses that
+// raise while the free heap is below LINK_ADMISSION_FLOOR_BYTES. The refusal is
+// LATCHED so the STATE line and /status can report it; it is cleared by the
+// sketch the pass both links are actually up (clearLinkCapRefusal()).
+//
+// Why a latch and not just a live reading: the app must be able to tell "the car
+// is refusing the second link" from "the second link is merely still coming up".
+// A bare heap number would make the app guess; a sticky verdict is a fact.
+bool WebServerComm::admitSecondLink() {
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  if (freeHeap < LINK_ADMISSION_FLOOR_BYTES) {
+    if (!linkCapRefused_) {
+      linkCapRefused_ = true;
+      Serial.printf(
+          "[LINKCAP] second link REFUSED - free heap %u < floor %u; incumbent "
+          "link kept\n",
+          static_cast<unsigned>(freeHeap),
+          static_cast<unsigned>(LINK_ADMISSION_FLOOR_BYTES));
+    }
+    return false;
+  }
+  return true;
+}
+
+// P4: the LINKCAP report. 1 = a second link is (or could be) admitted; 0 = the
+// car refused it. Only meaningful with BOTH transports enabled — with one off
+// there is no second link to deny, so the honest answer is 1. Absent on
+// pre-1.3.13 firmware, and the app reads absence as "capable" (F-88).
+int WebServerComm::linkCapCode() const {
+  if (!(wifiEnabled_ && btEnabled_)) return 1;
+  return linkCapRefused_ ? 0 : 1;
+}
+
 bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; }
 // U-70 (2026-10-02): the CURRENT network, as opposed to the stored target.
 //
@@ -3207,7 +3244,8 @@ snprintf(buf, bufLen,
        "\"tele_params\":\"freq=%s, vyse=%s\","
        "\"wifi_enabled\":%s,"
        "\"bt_enabled\":%s,"
-       "\"boot_autojoin\":%s"
+       "\"boot_autojoin\":%s",
+       "\"link_cap\":%d"
      "}",
      statusWord,
      modeToken,
@@ -3255,6 +3293,7 @@ snprintf(buf, bufLen,
       vyseBuf,
       wifiEnabled_ ? "true" : "false",
       btEnabled_ ? "true" : "false",
-      bootAutojoin_ ? "true" : "false"
+      bootAutojoin_ ? "true" : "false",
+      linkCapCode()
   );
 }

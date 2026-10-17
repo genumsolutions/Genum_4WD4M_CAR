@@ -185,6 +185,28 @@
 // allocation never happened. Must stay ABOVE the status floor: the bigger
 // transient needs the bigger cushion (gate rule `heap-guard`).
 #define SCAN_HEAP_FLOOR_BYTES 65536ul
+// P4 (2026-10-17, owner item F / issue 6): LINK ADMISSION.
+//
+// The owner's report: raising BOTH links at once can FREEZE/reset the car
+// because the ESP32 runs near its allocation floor (the field record shows
+// free_heap 13-18 kB at the multi-connect resets). Telemetry and scans already
+// REFUSE below a floor; a LINK never did, so the second transport came up into
+// a starved heap and the run-time starved with it.
+//
+// `admitSecondLink()` is that missing refusal. It gates only the SECOND link —
+// the FIRST is never gated, because a car with no way in is worse than a car
+// with one. When the second link is refused the incumbent link is left
+// untouched and the refusal is REPORTED (`;LINKCAP=0` on the STATE line,
+// `"link_cap":0` in /status) so the app can say "multi-connect is not possible
+// right now" instead of drawing a second link that is not there.
+//
+// The floor sits ABOVE the 20000 B status floor (a second link costs more than
+// the status path) and BELOW the 65536 B scan floor (a scan is a one-shot
+// transient; a link is a standing cost). It is a BENCH-TUNED value: P0 evidence
+// (the owner's multi-connect soak) is owed and may move it — the point of the
+// rule is that the refusal EXISTS and is honest, not that this exact number is
+// final. The `link-admission` gate rule pins floor > STATUS_HEAP_FLOOR_BYTES.
+#define LINK_ADMISSION_FLOOR_BYTES 32000ul
 // The root-page send loop: this many CONSECUTIVE zero-byte writes (one retry
 // gap each) ends the transfer for THIS pass. A client that moves resets the
 // count on every byte, so it keeps the full HTTP_BODY_BUDGET_MS; a reader that
@@ -277,6 +299,21 @@ public:
   bool wifiEnabled() const { return wifiEnabled_; }
   bool btEnabled() const { return btEnabled_; }
   bool bootAutojoin() const { return bootAutojoin_; }
+  // P4 (2026-10-17): link admission — may a SECOND transport be raised right
+  // now? Called by the sketch's transport-power loop ONLY when one link is
+  // already up (the FIRST link is never gated). Returns false and latches the
+  // refusal when the free heap cannot carry a second link; the incumbent link
+  // is left up. The verdict is reported via linkCapCode().
+  bool admitSecondLink();
+  // The LINKCAP report: 1 = a second link is (or could be) admitted; 0 = the car
+  // REFUSED it. Only meaningful while BOTH transports are enabled — with one
+  // off there is no second link to deny, so the honest answer is 1. Absent on
+  // pre-1.3.13 firmware: the app must read ABSENCE as "capable" (P5/F-88), not
+  // as a denial.
+  int linkCapCode() const;
+  // Clear the latched refusal once both links are actually up (or the owner
+  // turned a transport off) — a stale refusal must not outlive its cause.
+  void clearLinkCapRefusal() { linkCapRefused_ = false; }
   // T-48 (round-5): saved-router registry commands — ROUTERS;LIST /
   // ROUTERS;ADD;<ssid>;<pass> / ROUTERS;USE;<ssid> / ROUTERS;DEL;<ssid>.
   // True when the line was a ROUTERS command (consumed). USE stores the pair
@@ -447,6 +484,10 @@ public:
   bool wifiEnabled_ = true;
   bool btEnabled_ = true;
   bool bootAutojoin_ = true;
+  // P4 (2026-10-17): latched when admitSecondLink() refuses a second transport.
+  // Cleared the moment both links are up (or a transport is toggled off). Only
+  // reported while both transports are enabled (see linkCapCode()).
+  bool linkCapRefused_ = false;
 void advanceRejoinStep();
   uint8_t rejoinStep_;
   // U-95 Phase 2: MODE_WAIT bookkeeping. modeWaitStartMs_ is the base of the

@@ -1030,6 +1030,59 @@ if (!dualOn) {
   pass("dual-link-kept", "the both-enabled branch starts whichever link is down and stops neither - BT + own hotspot + page stay up together (issue 1)");
 }
 
+// P4 / item F (2026-10-17): THE CAR CAN REFUSE A SECOND LINK, HONESTLY.
+//
+// The owner's report (item 6): connecting BOTH links can FREEZE/reset the car
+// because the ESP32 runs near its allocation floor. Telemetry and scans already
+// REFUSE below a floor; a LINK never did — the second transport came up into a
+// starved heap and the run-time starved with it. P4 adds the missing refusal:
+// `admitSecondLink()` gates ONLY the second link (the first is never gated — a
+// car with no way in is worse than a car with one), the incumbent link is left
+// untouched, and the verdict is REPORTED on BOTH surfaces — `;LINKCAP=` on the
+// STATE line a Bluetooth-only app reads, `"link_cap"` in the /status JSON the
+// web transport reads.
+//
+// This rule pins all of it. The app half (F-88: an ABSENT field means CAPABLE,
+// never denied) is `linkCap.ts` + its tests in genumsolutions-app.
+const linkFloorM = wsh.match(/#define\s+LINK_ADMISSION_FLOOR_BYTES\s+(\d+)ul/);
+const linkFloor = linkFloorM ? Number(linkFloorM[1]) : 0;
+const statusFloor = Number(wsh.match(/#define\s+STATUS_HEAP_FLOOR_BYTES\s+(\d+)ul/)?.[1] ?? 0);
+const admitBody = body(wscCode, "bool WebServerComm::admitSecondLink") ?? "";
+const capBody = body(wscCode, "int WebServerComm::linkCapCode") ?? "";
+const linkBranch = dualOn ?? "";
+const btAdmitAt = linkBranch.indexOf("if (shouldStartBt && webWasUp)");
+const webAdmitAt = linkBranch.indexOf("if (shouldStartWeb && btUp)");
+const btAdmit = btAdmitAt >= 0 ? braced(linkBranch, btAdmitAt) : null;
+const webAdmit = webAdmitAt >= 0 ? braced(linkBranch, webAdmitAt) : null;
+const linkStateLits = stripComments(raw("ModeManager.cpp"));
+if (!linkFloor) {
+  fail("link-admission", "LINK_ADMISSION_FLOOR_BYTES is not defined in WebServerComm.h - the car has no second-link budget to refuse against");
+} else if (linkFloor <= statusFloor) {
+  fail("link-admission", `LINK_ADMISSION_FLOOR_BYTES (${linkFloor}) is not ABOVE STATUS_HEAP_FLOOR_BYTES (${statusFloor}) - a standing second link costs MORE than the status path, so its cushion must be bigger`);
+} else if (!/ESP\.getFreeHeap\(\)/.test(admitBody) || !/<\s*LINK_ADMISSION_FLOOR_BYTES/.test(admitBody)) {
+  fail("link-admission", "admitSecondLink() does not compare the free heap against LINK_ADMISSION_FLOOR_BYTES - the refusal no longer exists");
+} else if (!/linkCapRefused_\s*=\s*true/.test(admitBody)) {
+  fail("link-admission", "admitSecondLink() does not LATCH the refusal - the app cannot tell a refusal from a link still coming up");
+} else if (!/return\s+false/.test(admitBody) || !/return\s+true/.test(admitBody)) {
+  fail("link-admission", "admitSecondLink() does not return both a refusal (false) and an admit (true)");
+} else if (!/(wifiEnabled_\s*&&\s*btEnabled_)/.test(capBody)) {
+  fail("link-admission", "linkCapCode() does not fold the transport toggles - with one transport off there is no second link to deny, so it must read 1");
+} else if (!btAdmit || !/admitSecondLink\s*\(/.test(btAdmit)) {
+  fail("link-admission", "the both-enabled branch does not gate the Bluetooth raise on admitSecondLink() - with Wi-Fi already up the second link is raised unconditionally again (the freeze, item 6)");
+} else if (!webAdmit || !/admitSecondLink\s*\(/.test(webAdmit)) {
+  fail("link-admission", "the both-enabled branch does not gate the Wi-Fi raise on admitSecondLink() - with Bluetooth already up the second link is raised unconditionally again (the freeze, item 6)");
+} else if (/\.stop\s*\(/.test(linkBranch)) {
+  fail("link-admission", "the both-enabled branch STOPS a transport - a refusal must keep the incumbent link, never tear it down");
+} else if (!/webUp\s*=\s*false/.test(linkBranch)) {
+  fail("link-admission", "a refused Wi-Fi raise does not revert the optimistic webUp mark - the loop would believe Wi-Fi is up and never retry it once the heap recovers");
+} else if (!linkStateLits.includes(";LINKCAP=%d")) {
+  fail("link-admission", "the STATE line does not carry ;LINKCAP=%d - a Bluetooth-only app cannot learn the car's link verdict");
+} else if (!stripComments(body(wsc, "void WebServerComm::buildStatusJson") ?? "").includes("link_cap")) {
+  fail("link-admission", "/status JSON does not carry link_cap - the web transport cannot learn the car's link verdict");
+} else {
+  pass("link-admission", "the car refuses a SECOND link below LINK_ADMISSION_FLOOR_BYTES, keeps the incumbent, and reports the verdict on the STATE line and in /status");
+}
+
 // P7 / issue 8 (2026-10-16): EVERY SETTING STORES IN THE CAR AND COMES BACK.
 //
 // Issue 8's bar (owner): *"every one of these settings must store in the car

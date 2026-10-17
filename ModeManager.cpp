@@ -531,7 +531,7 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // U-R3 (1.3.2): + the restart record (RST/BC/CC/PH/LH below, up to ~56 B) so a
   // Bluetooth-only controller finally sees WHY the car reset — the same fields
   // /status has carried since U-95. wifiKeys grew 224 -> 288 to hold it.
-  char buf[512];
+  char buf[704];
   // R-12: STATE also carries the configured SSID (never the password) and the
   // AP fallback broadcast id so the remote's dashboard can show the car's
   // WiFi truth (the app gets the same via the WS JSON `ssid`/`ap`).
@@ -539,7 +539,7 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // the app deck show where to point a browser / WS even over pure WiFi.
   // Connections-Hub: plus the stable board id (`;ID=`), the fw:<id> profile
   // key source for WiFi-only cars (STATE:000000..FFFFFF hex).
-  char wifiKeys[288] = "";
+  char wifiKeys[384] = "";
   // v2: WiFi truth (SSID / AP id / reachable IP) rides EVERY STATE line in
   // EVERY mode — the web layer is always-on and no longer SERVER-scoped.
   // (instanceForWs may be null pre-setup(); guarded.)
@@ -583,7 +583,7 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // phone sent — mirrors the JSON escaping note in buildStatusJson.
   {
     const CrashInfo& ci = crashLogInfo();
-    char tKeys[176] = "";
+    char tKeys[224] = "";
     snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";UP=%lu",
              static_cast<unsigned long>(millis()));
     snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";HEAP=%u",
@@ -614,6 +614,14 @@ void ModeManager::sendStateOn(CommInterface& comm) {
                  ws->btEnabled() ? "ON" : "OFF");
         snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";AUTOJOIN=%s",
                  ws->bootAutojoin() ? "ON" : "OFF");
+        // P4 (2026-10-17, owner item F): the link-admission verdict rides every
+        // STATE line too, so a Bluetooth-only app learns whether the car can host
+        // a second link WITHOUT a WS round-trip. 0 = the car refused the second
+        // link to keep the run-time alive (the incumbent link stays up); 1 = a
+        // second link is (or could be) admitted. Absent on pre-1.3.13 firmware,
+        // and the app reads ABSENCE as "capable" (F-88), never as a denial.
+        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";LINKCAP=%d",
+                 ws->linkCapCode());
       }
     }
     strncat(wifiKeys, tKeys, sizeof(wifiKeys) - strlen(wifiKeys) - 1);

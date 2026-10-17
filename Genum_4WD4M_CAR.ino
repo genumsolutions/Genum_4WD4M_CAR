@@ -416,6 +416,11 @@ void loop() {
     // Both enabled: start whatever is down, idempotently. The own hotspot is
     // ALWAYS a way in (never parked, U-105) and a stored router is (re)joined
     // per boot_autojoin inside armBootAutoJoin().
+    // P4 (2026-10-17, owner item F): snapshot whether each link is ALREADY up
+    // BEFORE the critical block below marks `webUp` optimistically (it is set
+    // true before beginAlwaysOn() has actually run). "Is this raise the SECOND
+    // link?" must be answered against reality, not against the mark.
+    const bool webWasUp = webUp;
     bool shouldStartBt = false, shouldStartWeb = false;
     {
       TRANSPORT_POWER_ENTER_CRITICAL();
@@ -424,10 +429,35 @@ void loop() {
       if (shouldStartWeb) webUp = true;
       TRANSPORT_POWER_EXIT_CRITICAL();
     }
+    // P4: LINK ADMISSION — the FIRST link is never gated (a car with no way in
+    // is worse than a car with one), the SECOND one is, because it is the one
+    // that starves the run-time. Refusing leaves the incumbent link untouched
+    // and latches the verdict for ;LINKCAP= / link_cap.
+    if (shouldStartBt && webWasUp) {
+      // Wi-Fi was already up, so Bluetooth would be the second link.
+      if (!webServerComm.admitSecondLink()) {
+        shouldStartBt = false;
+        Serial.println("[LINKCAP] Bluetooth held back - second link refused (heap)");
+      }
+    }
     if (shouldStartBt) {
       // U-110: btUp follows the REAL bring-up (see ensureBtAdvertising()).
       btUp = ensureBtAdvertising();
       if (btUp) Serial.println("[POWER] Bluetooth advertising (both transports on)");
+    }
+    if (shouldStartWeb && btUp) {
+      // Bluetooth is up (raised this pass or already was), so Wi-Fi would be
+      // the SECOND link. If BT never came up, Wi-Fi IS the first link and must
+      // never be refused.
+      if (!webServerComm.admitSecondLink()) {
+        shouldStartWeb = false;
+        // The optimistic `webUp = true` above is a lie now: put it back, or the
+        // loop would think Wi-Fi is up and never retry it once the heap recovers.
+        TRANSPORT_POWER_ENTER_CRITICAL();
+        webUp = false;
+        TRANSPORT_POWER_EXIT_CRITICAL();
+        Serial.println("[LINKCAP] Wi-Fi held back - second link refused (heap)");
+      }
     }
     if (shouldStartWeb) {
       webServerComm.beginAlwaysOn();
@@ -494,6 +524,12 @@ void loop() {
         heapWaterfall(HEAPW_STAGE_BOTH);
         heapwBothArmed = true;
       }
+      // P4: both links are genuinely up, so a refusal latched on an earlier
+      // pass (when the heap was short) no longer describes this car. A sticky
+      // verdict must never outlive the condition that produced it — otherwise
+      // the app would keep telling the owner multi-connect is impossible while
+      // it plainly exists.
+      webServerComm.clearLinkCapRefusal();
     } else {
       heapwBothArmed = false;
     }

@@ -1,4 +1,4 @@
-Version 1.3.12
+Version 1.3.13
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -20,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD4M Car`** (PIN 1234) — `Config.h` `BT_SPP_NAME` (U-110: renamed from `4WD CAR` so the phone list, the OLED and the app match; re-pair once after the change) |
 | Wi-Fi AP SSID | **`4WD4MCar_WiFi`** (open) — `Config.h` `WIFI_AP_NAME` (1.3.5: the ONE own-hotspot name fleet-wide; the donor `WirelessCar_Wifi` and the older `4WDCar_Wifi` are fully removed) |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.12` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.13` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -80,6 +80,25 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.3.13 (2026-10-17, P4 / item F)** — **the car REFUSES a second link it
+  cannot afford**, so multi-connect can no longer starve the run-time (the
+  2026-10-17 owner report: connecting BOTH links at once can freeze/reset the
+  car; field `free_heap` 13-18 kB at those resets). Telemetry and scans already
+  refused below a heap floor — a LINK never did, so the second transport came up
+  into a starved heap. `WebServerComm::admitSecondLink()` gates **only the
+  SECOND** link (the FIRST is never gated — a car with no way in is worse than a
+  car with one), leaves the incumbent link untouched, and **latches** the verdict
+  so `;LINKCAP=0|1` (STATE line, Bluetooth-only apps) and `\"link_cap\":0|1`
+  (`/status`, the web transport) report it honestly; `linkCapCode()` folds the
+  transport toggles (one transport off ⇒ 1, nothing to deny) and the latch clears
+  the moment both links are up. `LINK_ADMISSION_FLOOR_BYTES` **32000** (above the
+  20000 status floor, below the 65536 scan floor; bench-tuned pending P0). The
+  `.ino` snapshots each link's state before the optimistic `webUp = true` mark,
+  and a refused Wi-Fi raise reverts it so the loop retries once the heap recovers.
+  New `link-admission` rule + mutants M110-M116; mutate-gates **110/110**.
+  Failsafe **F-87** (an unreservable resource must be refused, not attempted).
+  The app half is P5 (F-88: an ABSENT `link_cap` means CAPABLE, never denied).
+  UNFLASHED (F-61) — owner flash target; 1.3.11 remains the last build on the car.
 - **1.3.12 (2026-10-16, U-115 + the P6/P7 gate rules)** — **the boot auto-join
   probes the air first**, so an absent router no longer holds the own hotspot on a
   **moving channel** (the owner's 2026-10-16 field report: the own hotspot was

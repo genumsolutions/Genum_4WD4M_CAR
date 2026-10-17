@@ -10,6 +10,47 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
+## UNRELEASED — 1.3.13 (P4 / item F, 2026-10-17): the car REFUSES a second link it cannot afford — multi-connect stops starving the run-time
+
+**UNFLASHED (F-61).** Owner flash target. Addresses the 2026-10-17 owner report
+(item 6): **connecting BOTH links at once can freeze / reset the car**, the field
+record showing `free_heap` 13-18 kB at the multi-connect resets.
+
+**Root cause.** Telemetry and scans already REFUSE below a heap floor
+(`STATUS_HEAP_FLOOR_BYTES`, `SCAN_HEAP_FLOOR_BYTES`) — a LINK never did. The
+second transport was raised unconditionally into a starved heap, and the
+run-time starved with it. Nothing in the car could say "not now".
+
+**Fix.**
+- `WebServerComm::admitSecondLink()` — the missing refusal. It gates **only the
+  SECOND** link: the FIRST is never gated (a car with no way in is worse than a
+  car with one). Refusing leaves the **incumbent link untouched** and **latches**
+  the verdict so it can be reported; a live heap reading would make "refused"
+  indistinguishable from "still coming up".
+- `LINK_ADMISSION_FLOOR_BYTES` (32000) — above the 20000 status floor (a standing
+  link costs more than the status path), below the 65536 scan floor (a scan is a
+  transient, a link is a standing cost). **Bench-tuned pending P0** — the point of
+  the rule is that the refusal EXISTS and is honest, not that 32000 is final.
+- The `.ino` transport-power loop snapshots each link's state **before** the
+  optimistic `webUp = true` mark, so "is this raise the SECOND link?" is answered
+  against reality. A refused Wi-Fi raise **reverts** the optimistic mark (or the
+  loop would believe Wi-Fi is up and never retry it once the heap recovers).
+- The verdict is reported on **both** surfaces: `;LINKCAP=0|1` on the STATE line a
+  Bluetooth-only app reads, `"link_cap":0|1` in the `/status` JSON the web
+  transport reads. `linkCapCode()` folds the transport toggles — with one
+  transport OFF there is no second link to deny, so the honest answer is **1**.
+  The latch is cleared the moment both links are genuinely up.
+- `FW_VERSION` 1.3.12 → **1.3.13**.
+
+**Gates (source only — F-61):** new contract rule `link-admission` + mutants
+**M110-M116**; `check-firmware-syntax.ps1` **9/9** TUs ·
+`check-firmware-contract.mjs` **0 failures** · `mutate-gates.mjs`
+**110/110 caught by their intended rule**.
+
+**Failsafe.** F-87 — an unreservable resource must be REFUSED, not attempted
+optimistically. **App half** is P5 (F-88: an ABSENT `link_cap` means CAPABLE,
+never denied — the pre-1.3.13 reading).
+
 ## UNRELEASED — 1.3.12 (U-115, 2026-10-16): the boot auto-join probes the air first — an absent router no longer holds the own hotspot on a moving channel
 
 **UNFLASHED (F-61).** Owner flash target. Fixes the 2026-10-16 owner field
