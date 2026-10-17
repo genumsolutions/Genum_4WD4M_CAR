@@ -15,6 +15,30 @@
 > (P6), the *first* dialog pass (P2/issue 14), the BT heap diet (P4) and the settings
 > round-trip (P7). This round covers what the owner reported **after** testing that body.
 
+## PROGRESS — implementation log (live; update after EACH phase)
+
+**Status: IMPLEMENTING** (owner said go, 2026-10-17). One phase at a time; each phase ends
+with **typecheck + tests + format green → commit → push `main` AND `backup`** before the next
+begins. If a session is interrupted, **resume from the first phase below that is not ✅** — each
+✅ names the commit that carries it. App-half phases (P1/P2/P3/P5/P7/P8) are committed in the
+**app** repo; copy their ✅ state here so the master stays the single source of truth.
+
+| Phase | Scope | State | Commit |
+|---|---|---|---|
+| P0 | evidence captures (owner bench, no code) | ⏳ owed — no device here | — |
+| P1 | [B] reconnect/restart prompt → one pure decision (APP) | ✅ | app `8b2405f` |
+| P2 | [C] reset strip leads with the last reset (APP) | ⏳ todo | — |
+| P3 | [A] dual-link connect ordering (APP, needs P5) | ⏳ todo | — |
+| P4 | [F car] link admission + `LINKCAP` (CAR) | ⏳ todo | — |
+| P5 | [F app] surface `LINKCAP` (absent ⇒ capable) (APP) | ⏳ todo | — |
+| P6 | [D car] bounded event log + `LOG` verbs (CAR) | ⏳ todo | — |
+| P7 | [D app] per-car log viewer off the car profile (APP) | ⏳ todo | — |
+| P8 | [E] connectivity responsiveness + "Car network" (APP) | ⏳ todo | — |
+| P9 | [E car] findability (conditional on P8) (CAR) | ⏳ todo | — |
+| P10 | close-out (ledgers, ship, backup) | ⏳ todo | — |
+
+Legend: ✅ done + committed · 🔧 in progress · ⏳ todo · ⛔ blocked.
+
 ## Owner request (2026-10-17, verbatim intent — six items)
 
 1. **Dual-link BT + Wi-Fi connect problem** — connecting both still misbehaves; the concern
