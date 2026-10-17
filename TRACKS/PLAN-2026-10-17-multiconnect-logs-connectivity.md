@@ -29,7 +29,7 @@ begins. If a session is interrupted, **resume from the first phase below that is
 | P1 | [B] reconnect/restart prompt → one pure decision (APP) | ✅ | app `8b2405f` |
 | P2 | [C] reset strip leads with the last reset (APP) | ✅ | app `78827b4` |
 | P3 | [A] dual-link connect ordering (APP, needs P5) | ⏳ todo | — |
-| P4 | [F car] link admission + `LINKCAP` (CAR) | 🔧 in progress | — |
+| P4 | [F car] link admission + `LINKCAP` (CAR) | ✅ | `50e5522` |
 | P5 | [F app] surface `LINKCAP` (absent ⇒ capable) (APP) | ⏳ todo | — |
 | P6 | [D car] bounded event log + `LOG` verbs (CAR) | ⏳ todo | — |
 | P7 | [D app] per-car log viewer off the car profile (APP) | ⏳ todo | — |
