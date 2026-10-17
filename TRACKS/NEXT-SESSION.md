@@ -1,6 +1,17 @@
 # NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, **P8/issue 13 close-out landed — the round is SOURCE-COMPLETE; all gates green, records + `backup` re-snapshotted, nothing device-verified (F-61)**; U-115 boot-scan-first → **1.3.12**; **P6/issue 1** dual BT+Wi-Fi link landed — app fix + a gate, firmware unchanged; **P7/issue 8** settings round-trip landed — app fixes + a gate (`settings-round-trip`), firmware still unchanged; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything; **1.3.11 is FLASHED to the car (COM8); 1.3.12 is the owner flash target** — the U-115 / U-113-12..15 rows and the E3/E4 captures stay owed; app unchanged, 3.2.7 JS-only OTA)
 
-> **⏭️ ROUND IN PROGRESS:** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
+> **🆕 NEXT ROUND (2026-10-17) — PLANNING ONLY, no product byte changed.** The owner filed a
+> new six-item list: (1) dual-link BT+Wi-Fi *connect timing*, (2) the reconnect dialog (right
+> time, no stale messages, **Reconnect + Cancel only**), (3) control-panel reset status as
+> **last reset only** but cleaner, (4) a **bug/reset/freeze log tied to the car's unique
+> profile**, (5) connectivity **responsiveness** + a way to tell the app where the car's
+> network is (or automatic), (6) the **multi-connect heap freeze** — manage resources or have
+> the app know multi-connect is refused. Plan (master):
+> `TRACKS/PLAN-2026-10-17-multiconnect-logs-connectivity.md` (app mirror in the app repo).
+> Phases P0–P10, smaller steps, new failsafe entries F-85…F-91 proposed, firmware target
+> **1.3.13**, app stays **3.2.7/60**. Implementation starts phase-by-phase on the owner's go.
+>
+> **⏭️ PREVIOUS ROUND (source-complete):** `TRACKS/PLAN-2026-10-15-dual-link-and-remote-ux.md` — the
 > owner's 14-issue list. **P1 DONE 2026-10-15 — APP-ONLY, NO CAR CHANGE** (issue 11, dead
 > mode-rotate: the cycle used to send the car's GONE tokens ESP_SER/ESP_CLI → NACK
 > UNKNOWN_MODE → app rolled back to 4WD4M; the app now skips GONE tokens from the CAPS
