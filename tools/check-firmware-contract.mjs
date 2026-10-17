@@ -1116,6 +1116,8 @@ if (!eventCap) {
   fail("event-log", `CAR_EVENT_CAP (${eventCap}) is outside a sane bounded-window range - a cap this unusual is a bug, not a design`);
 } else if (!/memmove\s*\(/.test(evAppend) || !/CAR_EVENT_CAP/.test(evAppend)) {
   fail("event-log", "crashLogEvent() does not drop the OLDEST event at the cap - the ring overflows past CAR_EVENT_CAP");
+} else if (!/s_evCount\s*=\s*CAR_EVENT_CAP\s*-\s*1/.test(evAppend)) {
+  fail("event-log", "crashLogEvent() drops the oldest but does not re-clamp the count to CAR_EVENT_CAP-1 - the next append indexes past the array");
 } else if (!/CAR_EV_BOOT/.test(evBegin) || !/CAR_EV_FAULT/.test(evBegin)) {
   fail("event-log", "crashLogBegin() does not record the BOOT and FAULT events - the ring misses the two facts a reset report is built from");
 } else if (!/carLogClear\s*\(/.test(evReset)) {
@@ -1130,6 +1132,8 @@ if (!eventCap) {
   fail("event-log", "the loop does not track link up/down transitions - the link-add/drop events the owner asked for never exist");
 } else if (!/.event_log_count./.test(statusBody2)) {
   fail("event-log", "/status JSON does not carry event_log_count - the web transport cannot learn there is a log to fetch");
+} else if (!/carLogCount\s*\(/.test(statusBody2)) {
+  fail("event-log", "event_log_count is not fed by carLogCount() - a hardcoded count would promise a log that does not exist");
 } else {
   pass("event-log", `the car keeps a bounded event ring (cap ${eventCap}, oldest dropped), records boot/fault/low-heap/refusal/link edges, and serves LOG?/LOG;GET;<n>/LOG;CLEAR over the system hook, with /status carrying event_log_count`);
 }

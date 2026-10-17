@@ -745,8 +745,8 @@ const mutants = [
     why: "the STATE line no longer carries ;WIFI= ;BT= ;AUTOJOIN= - a Bluetooth-only app can never re-sync the toggles, so a panel change made from another phone survives forever in one app's memory (issue 8)" },
 
   { id: "M108", rule: "settings-round-trip", file: WSC,
-    find: '       "\\"wifi_enabled\\":%s,"\n       "\\"bt_enabled\\":%s,"\n       "\\"boot_autojoin\\":%s"',
-    repl: '       "\\"scan_disabled_note\\":\\"toggles moved to STATE only\\""',
+    find: '       "\\"wifi_enabled\\":%s,"\n       "\\"bt_enabled\\":%s,"\n       "\\"boot_autojoin\\":%s,',
+    repl: '       "\\"scan_disabled_note\\":\\"toggles moved to STATE only\\",',
     why: "the /status JSON no longer carries wifi_enabled/bt_enabled/boot_autojoin - the web transport cannot re-sync the toggles, so an app on Wi-Fi holds a stale panel (issue 8)" },
 
   { id: "M109", rule: "settings-round-trip", file: WSC,
@@ -781,8 +781,8 @@ const mutants = [
     why: "the STATE line no longer carries ;LINKCAP= - a Bluetooth-only app can never learn the car refused the second link" },
 
   { id: "M114", rule: "link-admission", file: WSC,
-    find: '       "\\"link_cap\\":%d"\n     "}",',
-    repl: '     "}",',
+    find: '       "\\"link_cap\\":%d,"\n       "\\"event_log_count\\":%lu"',
+    repl: '       "\\"event_log_count\\":%lu"',
     why: "the /status JSON no longer carries link_cap - the web transport can never learn the car refused the second link" },
 
   { id: "M115", rule: "link-admission", file: WSH,
