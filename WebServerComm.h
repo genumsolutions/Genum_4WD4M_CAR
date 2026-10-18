@@ -731,7 +731,94 @@ private:
   // FIN-40/D1: retry cadence state for a softAP() that failed to start.
   unsigned long lastApRetryMs_;
 
-  WebServer server{80};          // static object
+  // U-116: page-server power + heap gate. See handleRoot() and the
+  // contract rules (ws-page-gate / page-serve-heap) in the track files for
+  // the owner's post-1.3.9 multi-connect report.
+  //
+  // pageOff_         - the webpage server (:80/:81) is OFF while true.
+  //                    Loaded from NVS `botcfg` on boot via loadStoredWifi(),
+  //                    toggled by the app during a live session, persisted
+  //                    in NVS so a power restart keeps it.
+  //
+  // pageOffAtBoot_   - set true on boot if NVS `page_off` was true. It is
+  //                    then cleared and only re-asserted by a live
+  //                    `WIFICFG;WIFI;OFF` command, so a power restart does
+  //                    not leak into later command calls.
+  //
+  // pageOffHeld_     - true when pageOff_ is false but the heap gate is
+  //                    holding the page server down to protect the app's
+  //                    run-time (multi-connect heap freeze). The page is
+  //                    never served while this is true.
+  //
+  // serveGhostPage() - the tiny 200 response that answers a client that
+  //                    asked for / while the page server is OFF, so the
+  //                    transport layer stays up and the HTTP/WS stack is
+  //                    not killed, but no page bytes flow.
+  //
+  // serveRootBounded() is the bounded page send (F-77 budget). It is called
+  // only when pageOff_ == false; when the page server is OFF the client
+  // receives this ghost page instead of connecting to / and blocking
+  // loop() for the full HTTP_BODY_BUDGET_MS, which is what strangles the BT
+  // stack, the WS and the mode ticker during a page load (the multi-connect
+  // car heap freeze).
+  //
+  // heapReserve_     - the page-serve budget is the LAST thing the app may
+  //                    lose on a heap-constrained car. It is the spare
+  //                    above the BT-engaged floor: with BT on, free heap
+  //                    collapses ~110 kB -> ~10 kB, so a gate that keys
+  //                    only on the total is too coarse. This is the margin
+  //                    the page serve needs above what the run-time still
+  //                    has; the page is kept UP for the app while BT is
+  //                    busy, and dropped only once that reserve is truly
+  //                    gone.
+  //
+  // pageServerIsOn() - true when the page server is allowed to serve.
+  // pageServerIsHeld() - true when the page server is waiting to be
+  //                      enabled (not yet allowed by the heap gate).
+  // pageServerMustBeHeld() - true when free heap (with BT engaged) is below
+  //                          the reserve the page serve needs. This is what
+  //                          stops a multi-connect session from blocking
+  //                          loop() long enough to strangle the BT stack
+  //                          and the WS.
+  // setPageOff(bool) - toggle the page-server power and persist the choice
+  //                    to NVS so a power restart keeps it. `on = true`
+  //                    means the page server is allowed; false means the
+  //                    page server is OFF while the transport stays up.
+  //
+  // The page server is the app's last-resort heap consumer. While BT is
+  // up and free heap is near its floor, the run-time needs every spare
+  // kilobyte. Holding the page server (ghost page instead of a real
+  // transfer) keeps loop() free to feed BT, WS and the mode ticker, which
+  // is the exact mechanism that fixed the owner's "reset when BT + own
+  // hotspot together" / "freezes using the page while the app is on Wi-Fi"
+  // report.
+  bool pageOff_;
+  bool pageOffAtBoot_;
+  bool pageOffHeld_;
+
+  // Public: is the webpage server currently allowed to serve?
+  bool pageServerIsOn() const { return !pageOff_; }
+
+  // Public: is the page server currently waiting to be enabled (not yet
+  // allowed by the heap gate)?
+  bool pageServerIsHeld() const { return pageOffHeld_; }
+
+  // Heap gate: should the page server be held back to protect the app's
+  // run-time? True when free heap (with BT engaged) is below the reserve
+  // the page serve needs. This is what stops a multi-connect session from
+  // blocking loop() long enough to strangle the BT stack and the WS.
+  bool pageServerMustBeHeld() const;
+
+  // Toggle the page-server power, and persist the choice to NVS so a power
+  // restart keeps it. `on` true = page server allowed; false = page server
+  // off (transport stays up).
+  void setPageOff(bool on);
+
+  // Tiny 200 response for a client that asked for / while the page server
+  // is OFF. Keeps the transport layer and HTTP/WS stack alive without
+  // sending page bytes, so loop() is never blocked for the full page
+  // budget while the page is muted.
+  void serveGhostPage();
   WebSocketsServer ws{WS_PORT};  // static object
   bool serverRunning;
   bool startedAsAP;

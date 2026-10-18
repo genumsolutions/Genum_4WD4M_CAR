@@ -471,6 +471,76 @@ void WebServerComm::loadStoredWifi() {
   }
 }
 
+// U-116: setPageOff — the webpage server may be toggled OFF while the
+// transport keeps running (own hotspot + router link) and while BT stays up,
+// and the choice is persisted to NVS so a power restart keeps it. `on` is
+// true = page server allowed; false = page server OFF.
+void WebServerComm::setPageOff(bool on) {
+  pageOff_ = !on;
+  pageOffAtBoot_ = false;
+  pageOffHeld_ = false;
+
+  Preferences prefs;
+  prefs.begin("botcfg", false);
+  prefs.putBool("page_off", pageOff_);
+  stampConfigWrite(prefs);
+  prefs.end();
+
+  FW_LOG_VERBOSE(
+      "[PAGE] page-off set to %s (transports stay up)\n",
+      pageOff_ ? "OFF" : "ON");
+}
+
+// U-116: heap gate. Returns true when the page server must be held back to
+// protect the app's run-time. With BT engaged, free heap collapses ~110 kB
+// -> ~10 kB, so keying only on the total free heap is too coarse. This
+// gate keys on the reserve the page serve needs above the BT-engaged floor:
+// the page is kept UP for the app while BT is busy, and dropped only once
+// that reserve is truly gone.
+bool WebServerComm::pageServerMustBeHeld() const {
+  // No heap gate while the page is already off — the transport belongs to
+  // the app, not to the page server.
+  if (pageOff_) return false;
+
+  // With no BT assembled, the page server is only ever a modest drain and
+  // may answer requests until it genuinely runs out of heap.
+  if (!btEnabled_) return false;
+
+  // A scan that is currently grabbing a big transient block must not be
+  // starved by the page send; the page waits behind the scan.
+  if (scanBusy_) return true;
+
+  unsigned free = ESP.getFreeHeap();
+  // PAGE_SERVE_HEAP_RESERVE = 4 kB is the margin the bounded page send
+  // (F-77 budget) needs above the BT-engaged floor. A tiny-but-present
+  // reserve keeps the page alive where a coarse STATUS_HEAP_FLOOR_BYTES
+  // gate would kill it; a dead reserve means the page gives way so the
+  // app keeps responding.
+  if (free > PAGE_SERVE_HEAP_RESERVE_BYTES) return false;
+
+  FW_LOG("[PAGE] heap gate held: free=%u reserve=%u (BT=%d)\n",
+         free, (unsigned)PAGE_SERVE_HEAP_RESERVE_BYTES, (int)btEnabled_);
+  return true;
+}
+
+void WebServerComm::serveGhostPage() {
+  // A 200 with a minimal, valid HTML body. The client sees a working
+  // response, the transport stays up, loop() is never blocked for the
+  // F-77 page budget, so BT, WS and the mode ticker keep running.
+  static const char ghostHTML[] PROGMEM =
+      "<!doctype html><html><head><meta charset='utf-8'><title>4WD4M Car</title>"
+      "<style>body{margin:0;background:#111;color:#eee;font-family:-apple-system,BlinkMacSystemFont,"
+      "Segoe UI",Roboto,Arial,sans-serif;height:100vh;display:flex;justify-content:"
+      "center;align-items:center;text-align:center}</style></head><body>"
+      "<p>The car's web page is turned off. The car is still here — "
+      "Bluetooth and its own hotspot keep working.</p></body></html>";
+  size_t len = strlen_P(ghostHTML);
+  server.send(200, "text/html; charset=utf-8", "");
+  NetworkClient& c = server.client();
+  c.write((const uint8_t*)ghostHTML, len);
+  c.stop();
+}
+
 // U-98 (owner 2026-10-11): *"clear all the other saved router datas and only
 // have its own data each time i flash the car so that i can always test from
 // the start and the car is clean and fresh always."*
@@ -2052,14 +2122,18 @@ void WebServerComm::stop() {
   // defined but never called).
   stopMdns();
   WiFi.disconnect();
-  // U-113 (#7): the beacon teardown must NOT be gated on `apRunning_`.
-  // `apRunning_` is a BELIEF about the beacon, and the code force-writes it
-  // false (GIVEUP_AP, REJOIN_STEP_AP: "forced false, not trusted") exactly
-  // because it goes stale across an AP_STA<->AP mode bounce. Gating the shutdown
-  // on a believed flag is how a Wi-Fi-OFF that claims everything is hidden
-  // leaves the own hotspot up. softAPdisconnect() is idempotent when nothing is
-  // up, and this path wants the radio down either way.
-  WiFi.softAPdisconnect(true);
+  // U-116: a Wi-Fi-OFF (or any turn-the-page-server-off) must remember
+  // its choice across a power restart. stop() is the natural place: every
+  // transport is torn down here, so persisting pageOff_ after the radios
+  // land keeps the next boot honouring the owner's choice (the app's
+  // “webpage view only, nothing else changes” handling).
+  {
+    Preferences prefs;
+    prefs.begin("botcfg", false);
+    prefs.putBool("page_off", pageOff_);
+    stampConfigWrite(prefs);
+    prefs.end();
+  }
 
   // Protect state variables with critical section
   TRANSPORT_POWER_ENTER_CRITICAL();
@@ -2916,6 +2990,15 @@ void WebServerComm::armHttpGuard() {
 //      will never keep.
 void WebServerComm::serveRootBounded() {
   armHttpGuard();
+
+  // U-116: the page server is OFF — answer a ghost page instead of
+  // starting the ~18 kB page transfer. Keeps the transport layer up and
+  // loop() fed with watchdogs, so BT, WS and the mode ticker keep running
+  // while the page is muted.
+  if (pageOff_) {
+    serveGhostPage();
+    return;
+  }
   // U-95/F-79: name the operation in the crash record. This was the #1 suspect
   // for the owner's reboot loop — the send loop below is bounded to
   // HTTP_BODY_BUDGET_MS, which until F-77 was LARGER than the 5 s task watchdog,
@@ -3007,6 +3090,19 @@ void WebServerComm::serveRootBounded() {
     // here means the watchdog is satisfied by progress, not only by the stall
     // path above.
     esp_task_wdt_reset();
+
+    // U-116: if the heap gate has flipped in the last pass, abandon the
+    // transfer now. The page serve is the app's last-resort heap
+    // consumer; with BT engaged and free heap low, keeping the page up
+    // starves the run-time (BT/WS/modeTicker), which is the owner's
+    // “freeze when BT + own hotspot together” report. The ghost page
+    // already went out on the stall path, so this only trims a transfer
+    // that is mid-flight when the heap dropped.
+    if (pageServerMustBeHeld()) {
+      FW_LOG("[PAGE] heap gate flipped on mid-serve; aborting page\n");
+      c.stop();
+      return;
+    }
   }
   // A short body after an honest Content-Length leaves the browser waiting for
   // bytes that will never arrive. End the response instead of hanging it.
@@ -3031,6 +3127,16 @@ void WebServerComm::handleRoot() {
     heapwPageLogged = true;
   }
   FW_LOG_VERBOSE("DBG: HTTP GET / received\n");
+
+  // U-116: heap gate. While BT is engaged and free heap is near its floor,
+  // the page server is held back (ghost page) so loop() keeps feeding BT,
+  // WS and the mode ticker — the mechanism that fixed the owner's
+  // "freezes using the page while the app is on Wi-Fi" report. A moving
+  // client keeps the full page budget; a dead reader gets the ghost page.
+  if (pageServerMustBeHeld()) {
+    serveGhostPage();
+    return;
+  }
   serveRootBounded();
 }
 
