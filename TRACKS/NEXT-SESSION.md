@@ -1,4 +1,31 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-16, **P8/issue 13 close-out landed — the round is SOURCE-COMPLETE; all gates green, records + `backup` re-snapshotted, nothing device-verified (F-61)**; U-115 boot-scan-first → **1.3.12**; **P6/issue 1** dual BT+Wi-Fi link landed — app fix + a gate, firmware unchanged; **P7/issue 8** settings round-trip landed — app fixes + a gate (`settings-round-trip`), firmware still unchanged; P4 closed — E1 6/6 + status floor re-tuned to 20000; P5 issues 7+9 landed — Wi-Fi OFF now actually hides everything; **1.3.11 is FLASHED to the car (COM8); 1.3.12 is the owner flash target** — the U-115 / U-113-12..15 rows and the E3/E4 captures stay owed; app unchanged, 3.2.7 JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-17, **the six-item round is CODE-COMPLETE: P1-P8 landed phase-by-phase, P9 deferred to the owner's P8 device pass, P10 records done — all gates green, nothing device-verified (F-61)**; **1.3.13 is the owner flash target** — it carries P4 (link admission + `LINKCAP`) and P6 (the bounded event log + `LOG` verbs) on top of the already-flashed 1.3.11; **1.3.12's U-115 boot-scan change rides the same flash**; app stays **3.2.7/60** — every app phase is JS-only OTA)
+
+> **🆕 2026-10-17 ROUND — IMPLEMENTED (see `TRACKS/PLAN-2026-10-17-multiconnect-logs-connectivity.md`
+> for the live PROGRESS table + each phase's commit).** Car-side phases:
+> **P4** link admission (`50e5522`, contract rule `link-admission`, mutants
+> M110-M116) and **P6** the bounded event log (`238b7bd` + gate retarget
+> `115d253`, rule `event-log`, mutants M117-M122) — same flash, **1.3.13**.
+> App-side phases (JS-only, OTA): **P1** prompt-state decision `8b2405f` ·
+> **P2** reset strip leads with the last reset `78827b4` · **P5** LINKCAP
+> surfaced, F-88 `f5dc333` · **P3** second-link raise described `b887475` ·
+> **P7** per-car log viewer `3823014` · **P8** connectivity responsiveness +
+> the "Car network" control, F-91 `2476b2e`. **P9** (car findability) is
+> CONDITIONAL and stays deferred until the owner's P8 device pass says the app
+> cannot find the car reliably — nothing to implement or bench until then.
+> **Next session: the owner's bench pass** — `TRACKS/RUNSHEET.md` retargeted
+> (flash 1.3.13 → U-116-10..15 → the older sheets), rows in
+> `TRACKS/DEVICE-TESTS.md` + `mobile/TESTING.md`. Then, if the P8 pass shows a
+> findability gap, implement P9 against the capture.
+
+> **⏭️ PREVIOUS ROUND (2026-10-16, source-complete):** the 14-issue round — its
+> records (U-115 boot-scan-first, the dual link, the settings round-trip, P4
+> closed with the E1 6/6 + floor re-tune, Wi-Fi-OFF hides everything) all ride
+> the same flash + OTA. Its device rows (U-115-1..3, U-113-8..15, E3/E4/E5/E11,
+> Q1–Q3) are STILL owed and listed in `TRACKS/RUNSHEET.md`.
+
+---
+
+# (2026-10-16 header, kept for history)
 
 > **🆕 NEXT ROUND (2026-10-17) — PLANNING ONLY, no product byte changed.** The owner filed a
 > new six-item list: (1) dual-link BT+Wi-Fi *connect timing*, (2) the reconnect dialog (right

@@ -3,6 +3,45 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-10-17 round — the six-item round (U-116 series, flash **1.3.13** — DEVICE VERIFY PENDING)
+
+> **Nothing below is device-verified** (F-61). Car gates at the commits named in
+> `TRACKS/PLAN-2026-10-17-multiconnect-logs-connectivity.md`: syntax **9/9** ·
+> firmware-contract **0 failures** (rules `link-admission` + `event-log`) ·
+> mutate-gates **116/116**. App: vitest **821** (53 files) · `tsc --noEmit` clean ·
+> prettier clean. App is JS-only (**3.2.7 / versionCode 60** unchanged — OTA
+> channel); **1.3.13 is UNFLASHED, the owner's flash is the last step.**
+
+**Car rows (this file):**
+
+- [ ] **U-116-10 — ⭐ both links fit → both come up, `LINKCAP=1`.** Connect BT
+  first, then Wi-Fi (and the reverse): both links live, `;LINKCAP=1` on the
+  STATE line, `"link_cap":1` in `/status`, zero resets across the connect.
+- [ ] **U-116-11 — the budget absent → the SECOND link is refused, the
+  incumbent survives.** Reproduce the old freeze window (memory pressure while
+  the second transport rises): the car must NOT reset; the incumbent link keeps
+  working; `LINKCAP=0` on both surfaces with the `[LINKCAP]` serial line; the
+  refusal event appears in the log (`LOG;GET;0`).
+- [ ] **U-116-12 — 10-min both-links soak.** Serial capture across the soak:
+  zero resets, `free`/`max` from the `[HEAPW]` waterfall hold, no PANIC.
+- [ ] **U-116-14 — ⭐ the event log records real history.** After a forced
+  reset (power cycle + a fault if safely reproducible): `LOG?` answers
+  `LOG;COUNT=…`, `LOG;GET;0` shows BOOT/FAULT rows newest-first with kind,
+  boot, ms, heap, reason, phase; `/status` `event_log_count` agrees with the
+  count.
+- [ ] **U-116-15 — `LOG;CLEAR` empties, and stays empty across a boot.** Send
+  `LOG;CLEAR` → `LOG;CLEARED`; `LOG?` then answers `COUNT=0`; reboot; `LOG?`
+  shows only the new boot's events. `FACTORY;RESET` also clears the ring.
+
+**App rows live in `genumsolutions-app/mobile/TESTING.md`:** U-116-1..9, 13,
+16..20 (dialog, reset strip, dual-link ordering, LINKCAP surfacing, the
+per-car log viewer, the Car-network control).
+
+**Still owed besides the rows:** P0 evidence captures (multi-connect soak,
+reconnect timing, reset-strip screenshot) and the prior-round device debt
+(U-113-*, U-115-1..3, E3/E4/E5/E11, Q1–Q3) — order and capture commands in
+`TRACKS/RUNSHEET.md`.
+
 ## P8 close-out — the 14-issue round is SOURCE-COMPLETE; the bench is the owner's (2026-10-16)
 
 > **Nothing below is device-verified.** Every gate is green (firmware-contract **0

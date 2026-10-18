@@ -1,16 +1,21 @@
-# RUNSHEET — flash 1.3.12 + the U-113 device pass
+# RUNSHEET — flash 1.3.13 + the U-116 device pass
 
-> One sheet for the owner's next bench session. Firmware **1.3.12** (UNFLASHED;
-> **1.3.11 IS on the car**) + app **3.2.7 / versionCode 60** (the P6 + P7 JS-only
-> OTA is published; live manifest notes = `OTA · Short update (e02db5c2b4c…)`).
+> One sheet for the owner's next bench session. Firmware **1.3.13** (UNFLASHED;
+> **1.3.11 IS on the car**) + app **3.2.7 / versionCode 60** (unchanged this
+> round — every app phase is JS-only and rides the OTA channel).
 > Tick the rows in the row sheets as you go: car `TRACKS/DEVICE-TESTS.md`
-> (U-115-1..3 first — the boot-scan round — then U-113-8..15) · app
-> `mobile/TESTING.md` (U-113-1..7, U-113-16).
+> (U-116-10..15 first — the 2026-10-17 round — then U-115-1..3, then
+> U-113-8..15) · app `mobile/TESTING.md` (U-116-1..9, 13, 16..20).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
-## 0 · What this one flash carries (1.3.11 → 1.3.12)
+## 0 · What this one flash carries (1.3.11 → 1.3.13)
 
-The car is on **1.3.11** already. 1.3.12 adds **one** firmware fix on top of it:
+The car is on **1.3.11** already; 1.3.12 + 1.3.13 both ride this flash:
+
+| Round | What you should notice |
+|---|---|
+| **P4 / item F (1.3.13)** | **The car REFUSES a second link it cannot afford.** Both links normally come up as before; under the old freeze window the second raise is held back, the incumbent keeps working, and `;LINKCAP=0` / `"link_cap":0` say why (serial: `[LINKCAP] …`) |
+| **P6 / item D (1.3.13)** | **The car keeps a bounded event log.** `LOG?` → `LOG;COUNT=…;CAP=12`; `LOG;GET;0` → newest-first `K,boot,ms,heap,reason,phase` events; `LOG;CLEAR` empties; `/status` `event_log_count` agrees. BOOT/FAULT/low-heap/link-refusal/link-edge events |
 
 | Round | What you should notice |
 |---|---|
@@ -31,7 +36,7 @@ bench pass below verifies them, not re-flashes them:
 first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join ON,
 no router saved. Re-add your router in Step 5.
 
-## 1 · Flash 1.3.12 (USB)
+## 1 · Flash 1.3.13 (USB)
 
 ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 (this CH340 fails at the default 921600):

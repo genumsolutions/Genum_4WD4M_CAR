@@ -31,11 +31,11 @@ begins. If a session is interrupted, **resume from the first phase below that is
 | P3 | [A] dual-link connect ordering (APP, needs P5) | ✅ | app `b887475` |
 | P4 | [F car] link admission + `LINKCAP` (CAR) | ✅ | `50e5522` |
 | P5 | [F app] surface `LINKCAP` (absent ⇒ capable) (APP) | ✅ | app `f5dc333` |
-| P6 | [D car] bounded event log + `LOG` verbs (CAR) | ⏳ todo | — |
-| P7 | [D app] per-car log viewer off the car profile (APP) | ⏳ todo | — |
-| P8 | [E] connectivity responsiveness + "Car network" (APP) | ⏳ todo | — |
-| P9 | [E car] findability (conditional on P8) (CAR) | ⏳ todo | — |
-| P10 | close-out (ledgers, ship, backup) | ⏳ todo | — |
+| P6 | [D car] bounded event log + `LOG` verbs (CAR) | ✅ | `238b7bd` |
+| P7 | [D app] per-car log viewer off the car profile (APP) | ✅ | app `3823014` |
+| P8 | [E] connectivity responsiveness + "Car network" (APP) | ✅ | app `2476b2e` |
+| P9 | [E car] findability (conditional on P8) (CAR) | ⏳ deferred — P8 landed; gates green; waiting on device pass | — |
+| P10 | close-out (ledgers, ship, backup) | 🔧 in progress | — |
 
 Legend: ✅ done + committed · 🔧 in progress · ⏳ todo · ⛔ blocked.
 

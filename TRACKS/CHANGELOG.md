@@ -51,6 +51,37 @@ run-time starved with it. Nothing in the car could say "not now".
 optimistically. **App half** is P5 (F-88: an ABSENT `link_cap` means CAPABLE,
 never denied — the pre-1.3.13 reading).
 
+### Same flash — P6 / item D (2026-10-17): the car hands over a BOUNDED event log
+
+The owner's item 4: *see and act on the bug/reset/freeze history, tied to the
+car's unique profile*. P6 is the car's half; the app's viewer is P7.
+
+**What it is.** A HARD-BOUNDED ring (`CAR_EVENT_CAP` 12) of the facts a
+reset/freeze report is built from: every **boot**, every **fault reset** (with
+the phase/RTC evidence the restart record already assembles), each
+**below-floor status-broadcast crossing** (low heap), each latched **link
+refusal**, and each **link up/down transition**. One fixed 384-byte NVS blob
+per append — the count of writes is predictable and there is never an
+unbounded set of tiny keys. Oldest dropped at the cap; `FACTORY;RESET` dies
+with the namespace wipe, so a fresh start never resurrects history.
+
+**Wire (system hook, every mode, every transport; replies ride STATE
+`REPLY=…`, bounded ≤191 B):**
+- `LOG` / `LOG?` → `LOG;COUNT=<n>;CAP=12`
+- `LOG;GET;<n>` → newest-first window of three, `LOG;GET;<n>;<total>=K,boot,ms,
+  heap,reason,phase;…`; an empty ring answers a parseable zero (F-61: the car's
+  answer, not a guess)
+- `LOG;CLEAR` → `LOG;CLEARED`
+- `/status` gains `event_log_count` (the app's cue that there is a log to fetch)
+
+**Gates (source only — F-61):** new contract rule `event-log` + mutants
+**M117-M122**; syntax **9/9** · firmware-contract **0 failures** ·
+mutate-gates **116/116** (M108/M114 anchors retargeted after the JSON append).
+
+**Failsafe.** F-89 — an on-device log must be bounded BEFORE it is useful; a
+ring without a hard cap is a flash-exhaustion bug, so the cap is checked first.
+No secrets in entries; phases are firmware literals only (never network input).
+
 ## UNRELEASED — 1.3.12 (U-115, 2026-10-16): the boot auto-join probes the air first — an absent router no longer holds the own hotspot on a moving channel
 
 **UNFLASHED (F-61).** Owner flash target. Fixes the 2026-10-16 owner field
