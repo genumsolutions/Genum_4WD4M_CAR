@@ -312,7 +312,7 @@ removal, which had left a dead JSX fragment parked inside a JSX comment.
   `Readme.md` (1.3.12 + changelog), `TRACKS/RUNSHEET.md` (retargeted to 1.3.12 + the
   U-115/U-113 bench), `TRACKS/DEVICE-TESTS.md` (P8 close-out accounting),
   `TRACKS/CHANGELOG.md`, both `NEXT-SESSION.md`, root `RESUME-HERE.md`. **Ship:** app OTA
-  published (`3.2.7/60`, `e02db5c2b4c…`); **1.3.12 UNFLASHED** (owner flash target);
+  published **at that point** (`3.2.7/60`, `e02db5c2b4c…`, 2026-10-16 19:06 UTC); the **current live build** is P8 (`OTA · Short update (2476b2ef4df17f9376cc1cd3f5f34aa6fd0aaba6)`, same `3.2.7/60`, published 2026-10-17`). **1.3.13 UNFLASHED** (owner flash target);
   both CIs green; `backup` re-snapshotted to `main`. **Not device-verified (F-61):**
   every U-113/U-115 row, E3/E4/E5/E11 and Q1–Q3 remain the owner's bench.
 

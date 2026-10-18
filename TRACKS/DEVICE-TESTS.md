@@ -46,8 +46,7 @@ reconnect timing, reset-strip screenshot) and the prior-round device debt
 
 > **Nothing below is device-verified.** Every gate is green (firmware-contract **0
 > failures** · webpage-js **PASS** · syntax **9/9** · mutate-gates **103/103**) and the
-> app ships JS-only (**3.2.7 / versionCode 60**, OTA notes `OTA · Short update
-> (e02db5c2b4c…)`), but per F-61 a green pipeline is not evidence the car works. The 14
+> app **P8 build ships JS-only** (**3.2.7 / versionCode 60**, OTA notes `OTA · Short update (2476b2ef4df17f9376cc1cd3f5f34aa6fd0aaba6)`, published 2026-10-17). The earlier P6+P7 JS-only OTA (`e02db5c2b4c…`, published 2026-10-16 19:06 UTC) is the build the 2026-10-16 close-out record describes. Either way: per F-61 a green pipeline is not evidence the car works. The 14
 > issues are **code-complete**; the rows in both sheets are the owner's bench pass.
 
 **Row accounting across the two sheets (all DEVICE VERIFY PENDING):**

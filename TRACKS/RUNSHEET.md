@@ -69,7 +69,7 @@ Capture the first boot while you are at it (~15 s, resets the board):
 Force-close the app **twice** (close + reopen ×2) so expo-updates loads the
 published bundle. The live manifest
 (`https://bkylfnlybtsujwzropru.supabase.co/storage/v1/object/public/app-releases/release.json`)
-must read `notes: "OTA · Short update (e02db5c2b4c…)"`, `version 3.2.7`,
+must read `notes: "OTA · Short update (2476b2ef4df17f9376cc1cd3f5f34aa6fd0aaba6)"`, `version 3.2.7`, (current live build, published 2026-10-17; the earlier published build was the P6+P7 build with notes `OTA · Short update (e02db5c2b4c…)`, published 2026-10-16 19:06 UTC)
 `version_code 60` — verified live 2026-10-16 19:06 UTC. The app's About screen
 still says **3.2.7** (JS-only OTA — no APK, no bump).
 

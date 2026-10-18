@@ -154,7 +154,7 @@ mutants **M104-M109** (the three NVS writes removed, the STATE keys removed, the
 **`FW_VERSION` stays 1.3.12** — nothing in the firmware moved. P8 is the round's own
 close-out: every phase's gates are green on a clean tree (firmware-contract **0
 failures** · webpage-js **PASS** · syntax **9/9** · mutate-gates **103/103**), the app's
-P6+P7 JS-only OTA is published (`3.2.7/60`, manifest notes `e02db5c2b4c…`), both CIs are
+P6+P7 JS-only OTA **was published** at that point (`3.2.7/60`, manifest notes `e02db5c2b4c…`, 2026-10-16 19:06 UTC); the **current live build** is P8 (`OTA · Short update (2476b2ef4df17f9376cc1cd3f5f34aa6fd0aaba6)`, same `3.2.7/60`, published 2026-10-17). Both CIs are
 green on `main`, and the `backup` branch was re-snapshotted to `main`. Records refreshed:
 `Readme.md` (version snapshot + changelog 1.3.12), `TRACKS/RUNSHEET.md` (retargeted to
 the 1.3.12 bench), `TRACKS/DEVICE-TESTS.md` (the P8 close-out accounting).

@@ -1,4 +1,4 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-17, **the six-item round is CODE-COMPLETE: P1-P8 landed phase-by-phase, P9 deferred to the owner's P8 device pass, P10 records done — all gates green, nothing device-verified (F-61)**; **1.3.13 is the owner flash target** — it carries P4 (link admission + `LINKCAP`) and P6 (the bounded event log + `LOG` verbs) on top of the already-flashed 1.3.11; **1.3.12's U-115 boot-scan change rides the same flash**; app stays **3.2.7/60** — every app phase is JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-17, **the six-item round is CODE-COMPLETE: P1-P8 landed phase-by-phase, P9 deferred to the owner's P8 device pass, P10 in progress — records refresh started but not closed, all gates green, nothing device-verified (F-61)**; **1.3.13 is the owner flash target** — it carries P4 (link admission + `LINKCAP`) and P6 (the bounded event log + `LOG` verbs) on top of the already-flashed 1.3.11; **1.3.12's U-115 boot-scan change rides the same flash**; app stays **3.2.7/60** — every app phase is JS-only OTA)
 
 > **🆕 2026-10-17 ROUND — IMPLEMENTED (see `TRACKS/PLAN-2026-10-17-multiconnect-logs-connectivity.md`
 > for the live PROGRESS table + each phase's commit).** Car-side phases:
@@ -82,7 +82,7 @@
 >
 > **P8/issue 13 (close-out) landed 2026-10-16:** all gates green (contract 0 ·
 > webpage-js PASS · syntax 9/9 · mutate-gates **103/103**); the app OTA for P6+P7 is
-> **published** (`3.2.7/60`, manifest notes `e02db5c2b4c…`); `Readme.md` bumped to
+> **published at that point** (`3.2.7/60`, manifest notes `e02db5c2b4c…`); `Readme.md` bumped to
 > **1.3.12**, `TRACKS/RUNSHEET.md` retargeted to the 1.3.12 bench, both CIs green, and
 > the `backup` branch re-snapshotted. **The round is source-complete; every device row
 > is still the owner's bench (F-61).** See the P8 section below.
@@ -97,10 +97,13 @@ phase — it is the "is the round actually done, and is the record honest" pass.
 `mutate-gates.mjs` **103/103** · app `vitest` **48 files / 720 tests** ·
 `tsc --noEmit` clean · `prettier --check` clean.
 
-**Ship state:** the app's P6+P7 **JS-only OTA is published** — live manifest
-`version 3.2.7`, `version_code 60`, notes `OTA · Short update (e02db5c2b4c…)`, updated
-2026-10-16 19:06 UTC. **Firmware 1.3.12 is UNFLASHED** — the owner's flash is the last
-ship step (`TRACKS/RUNSHEET.md`). Both CIs are green on `main`.
+**Ship state (2026-10-16 record):** the app's P6+P7 **JS-only OTA was published** at that point — live manifest
+`version 3.2.7`, `version_code 60`, notes `OTA · Short update (e02db5c2b4c…)`, published **2026-10-16 19:06 UTC** as the P6+P7 build.
+
+**Firmware 1.3.12 was UNFLASHED** — the owner's flash was the last
+ship step (`TRACKS/RUNSHEET.md`). Both CIs were green on `main`.
+
+**Current ship state (published 2026-10-17):** the P8 JS-only OTA is live — manifest `version 3.2.7`, `version_code 60`, notes `OTA · Short update (2476b2ef4df17f9376cc1cd3f5f34aa6fd0aaba6)`, same **3.2.7 / 60**, no APK, no version bump. **Firmware 1.3.13 is UNFLASHED** — the owner's flash is the last ship step (`TRACKS/RUNSHEET.md`). Both CIs are green on `main`.
 
 **Records:** `Readme.md` version snapshot 1.3.11 → **1.3.12** + a 1.3.12 changelog
 entry; `TRACKS/RUNSHEET.md` retargeted **1.3.11 → 1.3.12** with the U-115/U-113 bench

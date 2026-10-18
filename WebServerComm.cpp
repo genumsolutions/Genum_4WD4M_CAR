@@ -194,7 +194,8 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     } else {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
     }
-  } else if (rest[0] == ';') {
+  } else if (strncasecmp(rest, ";PAGE", 5) == 0) {    // U-116: the webpage server (the car's web page at :80) is an    // INDEPENDENT transport of the Wi-Fi transport. A user taps "turn    // the webpage on or off" in the app and does NOT want the two    // transport toggles (t_wifi / t_bt) to move.    const char* pageArg = rest + 5;  // "" | ";ON" | ";OFF" | "?"    if (pageArg[0] == ' ' ||        (pageArg[0] == ';' &&         (pageArg[1] == '?' || pageArg[1] == ' '))) {      snprintf(reply, sizeof(reply), "WIFICFG;WIFI;PAGE;%s",               pageOff_ ? "OFF" : "ON");    } else if (strcasecmp(pageArg, ";ON") == 0 ||               strcasecmp(pageArg, ";OFF") == 0) {      bool on = (strcasecmp(pageArg, ";ON") == 0);      pageOff_ = !on;      pageOffAtBoot_ = false;      pageOffHeld_ = false;      Preferences prefs;      prefs.begin("botcfg", false);      prefs.putBool("page_off", pageOff_);      stampConfigWrite(prefs);      prefs.end();      FW_LOG_VERBOSE("[WIFICFG] web page %s
+", pageOff_ ? "OFF" : "ON");      snprintf(reply, sizeof(reply), "WIFICFG;WIFI;PAGE;%s",               pageOff_ ? "OFF" : "ON");    } else {      snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");    }  } else if (rest[0] == ';') {  } else if (rest[0] == ';') {
     // WIFICFG;<ssid>;<password> — password may be empty (open network).
     const char* ssid = rest + 1;
     const char* semi = strchr(ssid, ';');

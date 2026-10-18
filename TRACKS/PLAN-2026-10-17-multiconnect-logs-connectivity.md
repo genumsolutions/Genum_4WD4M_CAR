@@ -35,7 +35,7 @@ begins. If a session is interrupted, **resume from the first phase below that is
 | P7 | [D app] per-car log viewer off the car profile (APP) | ✅ | app `3823014` |
 | P8 | [E] connectivity responsiveness + "Car network" (APP) | ✅ | app `2476b2e` |
 | P9 | [E car] findability (conditional on P8) (CAR) | ⏳ deferred — P8 landed; gates green; waiting on device pass | — |
-| P10 | close-out (ledgers, ship, backup) | 🔧 in progress | — |
+| P10 | close-out (ledgers, ship, backup) | 🔧 in progress — records refresh started (live OTA shim re-anchored to manifest `2476b2e…`; stale “published = e02db5c2b4c…” notes qualified as the 2026-10-16 published build), ship/backup still open | — |
 
 Legend: ✅ done + committed · 🔧 in progress · ⏳ todo · ⛔ blocked.
 
