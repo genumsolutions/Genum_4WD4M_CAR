@@ -28,7 +28,11 @@ Oled_1_3::~Oled_1_3() {
 
 bool Oled_1_3::begin() {
   if (u8g2) return true;
-  u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+  // U-heap diet (2026-10-19): PAGE-BUFFER mode. The _F_ driver malloc'd a
+  // 1024-byte full frame buffer for the whole uptime; _1_ keeps only one
+  // 128-byte page and every frame is drawn through the standard u8g2
+  // firstPage/nextPage loop below - same pixels, ~900 B less heap.
+  u8g2 = new U8G2_SH1106_128X64_NONAME_1_HW_I2C(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
   if (!u8g2) return false;
   u8g2->begin();
   u8g2->enableUTF8Print();
@@ -44,7 +48,8 @@ bool Oled_1_3::begin() {
   // same fonts, same baselines — name + version + company.
   const int SCREEN_W = 128;
   const int SCREEN_H = 64;
-  u8g2->clearBuffer();
+  u8g2->firstPage();
+  do {
   u8g2->setDrawColor(1);
 
   u8g2->setFont(u8g2_font_7x13B_tr);
@@ -58,13 +63,13 @@ bool Oled_1_3::begin() {
   u8g2->drawStr((w - u8g2->getStrWidth(verBuf)) / 2, 40, verBuf);
   u8g2->setFont(u8g2_font_5x7_tr);
   u8g2->drawStr((w - u8g2->getStrWidth(l3)) / 2, 56, l3);
-  u8g2->sendBuffer();
+  } while (u8g2->nextPage());
   delay(1400);
 
-  u8g2->clearBuffer();
-  u8g2->setDrawColor(1);
+  u8g2->firstPage();
+  do {
   u8g2->drawFrame(0, 0, SCREEN_W, SCREEN_H);
-  u8g2->sendBuffer();
+  } while (u8g2->nextPage());
   lastDrawMs = millis();
   isSleeping = false;
   return true;
@@ -176,7 +181,12 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   const int LEFT_MARGIN = 4;
   const int RIGHT_MARGIN = 4;
 
-  u8g2->clearBuffer();
+  // Page-buffer mode: the WHOLE frame is drawn inside this loop - u8g2
+  // re-runs it once per page (8x, ~128 B of pixels each). All rotation /
+  // phase side effects live in tick() (U-107b), never inside this body,
+  // so re-running the drawing is pure and safe.
+  u8g2->firstPage();
+  do {
   u8g2->setDrawColor(1);
   u8g2->drawFrame(0, 0, SCREEN_W, SCREEN_H);
 
@@ -284,9 +294,7 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
       int pX = (SCREEN_W - pW) / 2;
       u8g2->drawStr(pX, pY, placeholder);
     }
-    u8g2->sendBuffer();
-    return;
-  }
+  } else {
 
   int leftX = LEFT_MARGIN;
   u8g2->setFont(fontBody);
@@ -397,8 +405,8 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   }
   u8g2->drawStr(leftX, lineBaseline[2], line3);
   u8g2->drawStr(leftX, lineBaseline[3], line4);
-
-  u8g2->sendBuffer();
+  }
+  } while (u8g2->nextPage());
 }
 
 void Oled_1_3::draw(const char* status, int speed, bool connected, const char* mode, const char* extraInfo) {

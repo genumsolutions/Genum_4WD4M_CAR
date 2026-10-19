@@ -76,7 +76,9 @@ public:
 
 
 private:
-  U8G2_SH1106_128X64_NONAME_F_HW_I2C* u8g2 = nullptr;
+  // U-heap diet (2026-10-19): page-buffer driver - 128 B page instead of a
+  // 1 KB full frame buffer (see Oled_1_3.cpp begin()).
+  U8G2_SH1106_128X64_NONAME_1_HW_I2C* u8g2 = nullptr;
 
   static constexpr size_t STATUS_BUF_LEN = 48;
   static constexpr size_t MODE_BUF_LEN = 24;
