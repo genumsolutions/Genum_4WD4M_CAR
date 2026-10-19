@@ -67,6 +67,13 @@ WebServerComm::WebServerComm()
   epochBase_ = 0;
   epochSetMs_ = 0;
   configEpoch_ = 0;
+  // U-116: webpage power defaults ON at construction; the boot load in
+  // loadStoredWifi() adopts the persisted `page_off`. Explicit init on
+  // purpose: these flags are read from handleRoot()/loop() before any
+  // other writer could touch them.
+  pageOff_ = false;
+  pageOffAtBoot_ = false;
+  pageOffHeld_ = false;
   // T-48: saved-router registry starts empty (loaded in setup() once NVS is
   // live — same timing rule as loadStoredWifi(), T-33).
   savedRouterCount_ = 0;
@@ -476,6 +483,15 @@ void WebServerComm::loadStoredWifi() {
   wifiEnabled_ = prefs.getBool("t_wifi", true);
   btEnabled_ = prefs.getBool("t_bt", true);
   bootAutojoin_ = prefs.getBool("boot_autojoin", true);
+  // U-116 (owner 2026-10-19: the app's webpage toggle "is not turning off
+  // the car's own webpage"): the PAGE verb and setPageOff() PERSIST
+  // `page_off` (and stop() re-persists it), but nothing ever READ it back
+  // - so a power cycle silently turned the page ON again and the toggle
+  // looked broken. The header promised this load since U-116 ("Loaded
+  // from NVS botcfg on boot via loadStoredWifi()"); now it is true.
+  pageOff_ = prefs.getBool("page_off", false);
+  pageOffAtBoot_ = pageOff_;   // "was OFF when this boot began" (truth)
+  pageOffHeld_ = false;
   // Belt-and-braces clamp: the car can never run with BOTH transports off.
   // The command path refuses it too; this guards a corrupted/partial NVS.
   if (!wifiEnabled_ && !btEnabled_) wifiEnabled_ = true;
@@ -3504,6 +3520,7 @@ snprintf(buf, bufLen,
        "\"bt_enabled\":%s,"
        "\"boot_autojoin\":%s,"
        "\"link_cap\":%d,"
+       "\"page_on\":%d,"
        "\"event_log_count\":%lu"
      "}",
      statusWord,
@@ -3554,6 +3571,10 @@ snprintf(buf, bufLen,
       btEnabled_ ? "true" : "false",
       bootAutojoin_ ? "true" : "false",
       linkCapCode(),
+      // U-116: is the car's own webpage serving RIGHT NOW? The app's
+      // webpage-view toggle reads this after (re)connect and shows the
+      // REAL state instead of assuming - a persisted-OFF car answers 0.
+      pageOff_ ? 0 : 1,
       // P6: how many events the car's bounded log holds — the app's cue to
       // fetch (P7 reads LOG;GET windows; 0 = nothing stored, say so honestly).
       static_cast<unsigned long>(carLogCount())

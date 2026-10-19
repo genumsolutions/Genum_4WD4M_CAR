@@ -781,8 +781,8 @@ const mutants = [
     why: "the STATE line no longer carries ;LINKCAP= - a Bluetooth-only app can never learn the car refused the second link" },
 
   { id: "M114", rule: "link-admission", file: WSC,
-    find: '       "\\"link_cap\\":%d,"\n       "\\"event_log_count\\":%lu"',
-    repl: '       "\\"event_log_count\\":%lu"',
+    find: '       "\\"link_cap\\":%d,"\n       "\\"page_on\\":%d,"\n       "\\"event_log_count\\":%lu"',
+    repl: '       "\\"page_on\\":%d,"\n       "\\"event_log_count\\":%lu"',
     why: "the /status JSON no longer carries link_cap - the web transport can never learn the car refused the second link" },
 
   { id: "M115", rule: "link-admission", file: WSH,
