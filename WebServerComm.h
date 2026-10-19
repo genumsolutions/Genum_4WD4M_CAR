@@ -411,7 +411,7 @@ public:
   // The network the car is ACTUALLY on: the joined STA SSID when associated,
   // the car's own broadcast id on its hotspot, "" when neither. The only value
   // that may be presented as the current network.
-  String joinedSsid() const;
+  void joinedSsid(char* out, size_t outLen) const;
 
   // ---- U-71 (2026-10-02): the deferred rejoin state machine ------------
   // (U-70 deferred only the `WiFi.begin()` via a `staBeginPending_` flag; U-71

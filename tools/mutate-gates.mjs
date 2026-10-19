@@ -365,7 +365,7 @@ const mutants = [
     why: "the in-flight refusal is gone — a double-tap arms a second scan over one already running, and the reply lies about both" },
 
   { id: "M34", rule: "scan-quality", file: WSC,
-    find: "      if (strcasecmp(scanNetworks_[k].bssid, bssid.c_str()) == 0) {",
+    find: "      if (strcasecmp(scanNetworks_[k].bssid, bssid) == 0) {",
     repl: "      if (strcasecmp(scanNetworks_[k].ssid, name) == 0) {",
     why: "dedupe falls back to names — two different routers broadcasting one SSID silently merge into one row, and a multi-AP router's second radio disappears" },
 
@@ -385,7 +385,7 @@ const mutants = [
     why: "the pre-truncation is back — the loop only ever sees the first SCAN_MAX_RESULTS results, before any ranking can run" },
 
   { id: "M39", rule: "scan-quality", file: WSC,
-    find: "    const String bssid = WiFi.BSSIDstr(i);\n",
+    find: "    char bssid[18];\n    WiFi.BSSIDstr(i).toCharArray(bssid, sizeof(bssid));\n",
     repl: "",
     why: "the BSSID is never captured — the dedupe key does not exist at runtime, so the per-RADIO rule cannot hold" },
 
@@ -449,7 +449,7 @@ const mutants = [
     why: "the saved-flag loop never consults the saved-router list — `saved` is guessed, not car truth, and three app modules already disagree about that rule" },
 
   { id: "M49", rule: "status-net-fields", file: WSC,
-    find: "    WiFi.softAPBroadcastIP().toString().toCharArray(bcastIp, sizeof(bcastIp));\n",
+    find: "    formatIp(bcastIp, sizeof(bcastIp), WiFi.softAPBroadcastIP());\n",
     repl: "",
     why: "the broadcast getter is never called — the directed-broadcast address (the whole point of Phase 3's IP work) stays empty and the 'find the car on this network' path has nothing to use" },
 

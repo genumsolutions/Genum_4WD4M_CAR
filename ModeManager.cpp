@@ -553,10 +553,13 @@ void ModeManager::sendStateOn(CommInterface& comm) {
     // target the user asked for still ships, as a SEPARATE field (WANT=) so a
     // switch in progress is visible and honest instead of being invisible.
     {
-      const String joined = ws ? ws->joinedSsid() : String("");
-      if (joined.length() > 0) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";SSID=%s", joined.c_str());
+      // U-heap diet: char buffer instead of the String-by-value API - this
+      // block runs on EVERY STATE tick (1.5 s) and every link event.
+      char joined[33] = "";
+      if (ws) ws->joinedSsid(joined, sizeof(joined));
+      if (joined[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";SSID=%s", joined);
       const char* want = ws ? ws->storedSsid() : "";
-      if (want[0] && joined != want) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";WANT=%s", want);
+      if (want[0] && strcmp(joined, want) != 0) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";WANT=%s", want);
     }
     if (ws && ws->apBroadcastId()[0]) snprintf(wifiKeys + strlen(wifiKeys), sizeof(wifiKeys) - strlen(wifiKeys), ";AP=%s", ws->apBroadcastId());
     char ip[32] = "";

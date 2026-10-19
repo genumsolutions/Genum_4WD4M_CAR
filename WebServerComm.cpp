@@ -421,7 +421,11 @@ bool WebServerComm::handleLogCommand(const char* cmd) {
   }
 
   // LOG / LOG? — the summary. The count is what /status's event_log_count says.
-  lastWifiReply_ = "LOG;COUNT=" + String((int)carLogCount()) + ";CAP=12";
+  // U-heap diet: snprintf instead of String concatenation (no heap churn).
+  char logSummary[48];
+  snprintf(logSummary, sizeof(logSummary), "LOG;COUNT=%u;CAP=12",
+           static_cast<unsigned>(carLogCount()));
+  lastWifiReply_ = logSummary;
   return true;
 }
 
@@ -455,8 +459,12 @@ void WebServerComm::loadStoredWifi() {
   lastGoodPass_[0] = '\0';
   Preferences prefs;
   prefs.begin("botcfg", true);
-  String ssid = prefs.getString("wifi_ssid", "");
-  String pass = prefs.getString("wifi_pass", "");
+  // U-heap diet: the VALUES (up to 65 B each) go to the stack, not the
+  // heap — boot is the tightest heap of the whole uptime (E1 waterfall).
+  char ssid[33] = "";
+  char pass[65] = "";
+  prefs.getString("wifi_ssid", ssid, sizeof(ssid));
+  prefs.getString("wifi_pass", pass, sizeof(pass));
   prefs.getString("last_ok_ssid", lastGoodSsid_, sizeof(lastGoodSsid_));
   prefs.getString("last_ok_pass", lastGoodPass_, sizeof(lastGoodPass_));
   // U-105 (1.3.5): the two transport toggles + the boot auto-join switch.
@@ -474,13 +482,13 @@ void WebServerComm::loadStoredWifi() {
   prefs.end();
   lastGoodSsid_[ROUTER_SSID_LEN - 1] = '\0';
   lastGoodPass_[ROUTER_PASS_LEN - 1] = '\0';
-  if (ssid.length() > 0 && ssid.length() <= 32 &&
-      strcasecmp(ssid.c_str(), WIFI_AP_NAME) != 0) {
-    ssid.toCharArray(storedSsid_, sizeof(storedSsid_));
-    pass.toCharArray(storedPass_, sizeof(storedPass_));
+  if (ssid[0] != '\0' && strlen(ssid) <= 32 &&
+      strcasecmp(ssid, WIFI_AP_NAME) != 0) {
+    safe_strcpy(storedSsid_, ssid, sizeof(storedSsid_));
+    safe_strcpy(storedPass_, pass, sizeof(storedPass_));
     hasStoredWifi_ = true;
   } else {
-    if (ssid.length() > 0) {
+    if (ssid[0] != '\0') {
       // U-92: a stored ACTIVE pair named like the car's own hotspot (the
       // unguarded WIFICFG path) would make boot auto-join try to associate
       // with the car's OWN beacon. Drop it and erase the NVS keys so the
@@ -588,9 +596,10 @@ void WebServerComm::serveGhostPage() {
 bool WebServerComm::wipeRoutersOnFreshFirmware() {
   Preferences prefs;
   prefs.begin("botcfg", true);
-  const String mark = prefs.getString("fw_mark", "");
+  char mark[16] = "";
+  prefs.getString("fw_mark", mark, sizeof(mark));
   prefs.end();
-  if (mark.length() > 0 && mark == FW_VERSION) return false;  // same install
+  if (mark[0] != '\0' && strcmp(mark, FW_VERSION) == 0) return false;  // same install
 
   Preferences w;
   w.begin("botcfg", false);
@@ -642,11 +651,17 @@ void WebServerComm::loadSavedRouters() {
   for (int i = 0; i < MAX_SAVED_ROUTERS; ++i) {
     static const char* sKeys[] = { "rnet0s", "rnet1s", "rnet2s", "rnet3s", "rnet4s", "rnet5s" };
     static const char* pKeys[] = { "rnet0p", "rnet1p", "rnet2p", "rnet3p", "rnet4p", "rnet5p" };
-    String s = prefs.getString(sKeys[i], "");
-    if (s.length() == 0 || s.length() >= ROUTER_SSID_LEN) break; // contiguous until first gap
-    s.toCharArray(savedRouterSsid_[i], ROUTER_SSID_LEN);
-    String p = prefs.getString(pKeys[i], "");
-    p.toCharArray(savedRouterPass_[i], ROUTER_PASS_LEN);
+    // U-heap diet: stack buffers, not String values — this loop runs up to
+    // MAX_SAVED_ROUTERS times at boot, when the heap is tightest. The
+    // returned NVS length preserves the "contiguous until first gap" rule,
+    // including treating an overlong row as the end of the list.
+    char s[ROUTER_SSID_LEN] = "";
+    const size_t sLen = prefs.getString(sKeys[i], s, sizeof(s));
+    if (sLen == 0 || sLen >= ROUTER_SSID_LEN) break; // contiguous until first gap
+    char p[ROUTER_PASS_LEN] = "";
+    prefs.getString(pKeys[i], p, sizeof(p));
+    safe_strcpy(savedRouterSsid_[i], s, ROUTER_SSID_LEN);
+    safe_strcpy(savedRouterPass_[i], p, ROUTER_PASS_LEN);
     ++savedRouterCount_;
   }
   // U-77: close the READ-ONLY handle BEFORE any write below. NVS shares one
@@ -1163,14 +1178,19 @@ void WebServerComm::collectScanIfDone() {
   // dozen entries is noise next to the scan itself.
   scanNetworks_.clear();
   for (int i = 0; i < scanCount_; ++i) {
-    const char* name = WiFi.SSID(i).c_str();
-    if (!name || !name[0]) continue;
+    // U-heap diet + use-after-free fix: `WiFi.SSID(i)` is a temporary String;
+    // the old `const char* name = ...c_str()` left `name` pointing at FREED
+    // heap the moment the statement ended (garbage names on a busy scan).
+    char name[33];
+    WiFi.SSID(i).toCharArray(name, sizeof(name));
+    if (!name[0]) continue;
     const int32_t rssi = WiFi.RSSI(i);
     const bool open = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
-    const String bssid = WiFi.BSSIDstr(i);
+    char bssid[18];
+    WiFi.BSSIDstr(i).toCharArray(bssid, sizeof(bssid));
     bool merged = false;
     for (size_t k = 0; k < scanNetworks_.size(); ++k) {
-      if (strcasecmp(scanNetworks_[k].bssid, bssid.c_str()) == 0) {
+      if (strcasecmp(scanNetworks_[k].bssid, bssid) == 0) {
         if (rssi > scanNetworks_[k].rssi) {
           scanNetworks_[k].rssi = rssi;
           scanNetworks_[k].open = open;
@@ -1182,7 +1202,7 @@ void WebServerComm::collectScanIfDone() {
     if (!merged) {
       ScannedNetwork entry;
       snprintf(entry.ssid, sizeof(entry.ssid), "%s", name);
-      snprintf(entry.bssid, sizeof(entry.bssid), "%s", bssid.c_str());
+      snprintf(entry.bssid, sizeof(entry.bssid), "%s", bssid);
       entry.rssi = rssi;
       entry.channel = static_cast<uint8_t>(WiFi.channel(i));
       entry.open = open;
@@ -1272,8 +1292,11 @@ void WebServerComm::serviceBootReachabilityScan() {
   const bool conclusive = (found >= 0);
   if (conclusive) {
     for (int i = 0; i < found; ++i) {
-      const String name = WiFi.SSID(i);
-      if (name.length() > 0 && strcasecmp(name.c_str(), storedSsid_) == 0) {
+      // U-heap diet: the boot heap is the tightest of the uptime — stack
+      // buffer instead of a String per result row.
+      char name[33];
+      WiFi.SSID(i).toCharArray(name, sizeof(name));
+      if (name[0] && strcasecmp(name, storedSsid_) == 0) {
         inRange = true;
         break;
       }
@@ -1328,7 +1351,8 @@ size_t WebServerComm::buildScanJson(char* buf, size_t bufLen) const {
   // modules already disagree about the own-network rule (U-95 Phase 4 will
   // unify them), and the car's answer is the one every consumer converges on.
   const bool staNow = (WiFi.status() == WL_CONNECTED);
-  const String curSsid = staNow ? WiFi.SSID() : String("");
+  char curSsid[33] = "";
+  if (staNow) WiFi.SSID().toCharArray(curSsid, sizeof(curSsid));
   const char* ownName = apName_.length() > 0 ? apName_.c_str() : WIFI_AP_NAME;
   size_t used = 0;
   int n = snprintf(buf, bufLen, "[");
@@ -1341,7 +1365,7 @@ size_t WebServerComm::buildScanJson(char* buf, size_t bufLen) const {
       if (strcasecmp(rowSsid, savedRouterSsid_[s]) == 0) saved = true;
     }
     const bool own = (strcasecmp(rowSsid, ownName) == 0);
-    const bool current = staNow && curSsid.equalsIgnoreCase(rowSsid);
+    const bool current = staNow && strcasecmp(curSsid, rowSsid) == 0;
     n = snprintf(buf + used, bufLen - used,
                  "%s{\"ssid\":\"%s\",\"rssi\":%d,\"open\":%s,"
                  "\"channel\":%u,\"own\":%s,\"saved\":%s,\"current\":%s}",
@@ -2251,17 +2275,20 @@ bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; 
 //   associated to a router -> that router
 //   on its own hotspot     -> its own broadcast id
 //   neither                -> "" (say nothing rather than guess)
-// Returned BY VALUE on purpose: `WiFi.SSID()` returns a temporary String, and
-// handing back its c_str() would leave the caller holding a pointer into freed
-// memory — the classic Arduino String trap, and it would have shown up as
-// garbage network names rather than an obvious crash.
-String WebServerComm::joinedSsid() const {
+// U-heap diet (2026-10-19): the CALLER hands the buffer. The old String-by-value
+// API allocated (and freed) heap on every call — and this runs on every STATE
+// tick (1.5 s) and every /status build, i.e. steady fragmentation exactly while
+// the WiFi stack is doing its own large transient allocations during a join.
+// `WiFi.SSID()` still returns a temporary String; it is copied into `out` while
+// the temporary is alive, never handed out as a dangling c_str().
+void WebServerComm::joinedSsid(char* out, size_t outLen) const {
+  if (!out || outLen == 0) return;
+  out[0] = '\0';
   if (WiFi.status() == WL_CONNECTED) {
-    const String s = WiFi.SSID();
-    if (s.length() > 0) return s;
+    WiFi.SSID().toCharArray(out, outLen);
+    if (out[0]) return;
   }
-  if (apRunning_ && apName_.length() > 0) return String(apName_);
-  return String("");
+  if (apRunning_) safe_strcpy(out, apName_.c_str(), outLen);
 }
 
 void WebServerComm::handle() {
@@ -2677,15 +2704,25 @@ bool WebServerComm::connected() {
   return WiFi.status() == WL_CONNECTED;
 }
 
+// U-heap diet (2026-10-19): IPAddress::toString() builds a temporary Arduino
+// String (heap alloc + free). This formatting runs on EVERY /status broadcast
+// (1 s ticker), the OLED tick and the STATE line — exactly when the WiFi stack
+// is busy with its own large transient blocks during a join. Formatting the
+// four octets directly puts the SAME bytes on the wire with zero heap churn.
+static void formatIp(char* buf, size_t bufLen, const IPAddress& ip) {
+  if (!buf || bufLen == 0) return;
+  snprintf(buf, bufLen, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
+
 void WebServerComm::currentIp(char* buf, size_t bufLen) {
   if (!buf || bufLen == 0) return;
   buf[0] = '\0';
   if (WiFi.status() == WL_CONNECTED) {
-    WiFi.localIP().toString().toCharArray(buf, bufLen);
+    formatIp(buf, bufLen, WiFi.localIP());
   } else if (apRunning_) {
     // Own-network session: the softAP gateway (192.168.245.1 since FIN-48) is
     // the reachable IP.
-    WiFi.softAPIP().toString().toCharArray(buf, bufLen);
+    formatIp(buf, bufLen, WiFi.softAPIP());
   }
 }
 
@@ -2765,7 +2802,7 @@ void WebServerComm::updateExtraInfo() {
     int rssi = WiFi.RSSI();
     int pct = map(constrain(rssi, -100, -50), -100, -50, 0, 100);
     char ipStr[32];
-    WiFi.localIP().toString().toCharArray(ipStr, sizeof(ipStr));
+    formatIp(ipStr, sizeof(ipStr), WiFi.localIP());
     // T-36: append the JOINED network name so the OLED can show the real SSID
     // instead of the generic "Connected" (owner report 2026-09-15). The same
     // ipStr becomes the OLED's "IP : <addr>" line (v1.2.4, owner directive
@@ -2781,7 +2818,7 @@ void WebServerComm::updateExtraInfo() {
     // the removed "[n/m]" badge, and the routers are shown in full on the page
     // and in the app.
     char ipStr[32];
-    WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
+    formatIp(ipStr, sizeof(ipStr), WiFi.softAPIP());
     // 2026-10-10: the "|Nets:<saved routers>" tail is gone with the OLED's
     // "[n/m]" badge. It had exactly one reader - the cycling index - and it was
     // a truncation hazard on the line the owner actually asked for: this buffer
@@ -3304,14 +3341,14 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   char ipStr[32] = "";
   int rssi = 0, pct = 0;
   if (WiFi.status() == WL_CONNECTED) {
-    WiFi.localIP().toString().toCharArray(ipStr, sizeof(ipStr));
+    formatIp(ipStr, sizeof(ipStr), WiFi.localIP());
     rssi = WiFi.RSSI();
     pct = map(constrain(rssi, -100, -50), -100, -50, 0, 100);
   } else if (apRunning_) {
     // R-13: in an own-network session the reachable IP is the softAP gateway
     // (192.168.245.1 since FIN-48) — announce it like the OLED already does so
     // the JSON `ip` is never empty on the own AP (app deck + tap-to-open).
-    WiFi.softAPIP().toString().toCharArray(ipStr, sizeof(ipStr));
+    formatIp(ipStr, sizeof(ipStr), WiFi.softAPIP());
   }
   // U-95 Phase 3: the contract had ONE `ip` slot, which carries the STA lease
   // when connected and the softAP gateway otherwise — so a client could not
@@ -3325,7 +3362,7 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   char bcastIp[16] = "";
   char subnetMask[16] = "";
   if (WiFi.status() == WL_CONNECTED) {
-    WiFi.localIP().toString().toCharArray(stationIp, sizeof(stationIp));
+    formatIp(stationIp, sizeof(stationIp), WiFi.localIP());
     // v1.2.3 (owner: "the last line shows the Broadcast IP of the current used
     // network"): broadcast_ip/subnet were AP-only since U-95 Phase 3 — on a
     // joined LAN they came back empty and the page/app Bcast field showed '--'.
@@ -3335,14 +3372,14 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
       IPAddress ipA = WiFi.localIP(), maskA = WiFi.subnetMask();
       IPAddress bcA(ipA[0] | (uint8_t)~maskA[0], ipA[1] | (uint8_t)~maskA[1],
                     ipA[2] | (uint8_t)~maskA[2], ipA[3] | (uint8_t)~maskA[3]);
-      bcA.toString().toCharArray(bcastIp, sizeof(bcastIp));
-      maskA.toString().toCharArray(subnetMask, sizeof(subnetMask));
+      formatIp(bcastIp, sizeof(bcastIp), bcA);
+      formatIp(subnetMask, sizeof(subnetMask), maskA);
     }
   }
   if (apRunning_) {
-    WiFi.softAPIP().toString().toCharArray(apIp, sizeof(apIp));
-    WiFi.softAPBroadcastIP().toString().toCharArray(bcastIp, sizeof(bcastIp));
-    WiFi.softAPSubnetMask().toString().toCharArray(subnetMask, sizeof(subnetMask));
+    formatIp(apIp, sizeof(apIp), WiFi.softAPIP());
+    formatIp(bcastIp, sizeof(bcastIp), WiFi.softAPBroadcastIP());
+    formatIp(subnetMask, sizeof(subnetMask), WiFi.softAPSubnetMask());
   }
   int speed = modeManager ? modeManager->getSpeed() : static_cast<int>(MIN_SPEED);
   unsigned long uptime = millis();
@@ -3385,10 +3422,12 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   // actually to that new router network and the car still show the website only
   // on its own esp hotspot."* `want` carries the requested target, so a switch
   // in progress is visible instead of indistinguishable from a finished one.
-  const String joinedSsidStr = joinedSsid();
-  const char* ssidOut = joinedSsidStr.c_str();
+  // U-heap diet: char buffer, no String — this is the per-broadcast path.
+  char joinedSsidStr[33] = "";
+  joinedSsid(joinedSsidStr, sizeof(joinedSsidStr));
+  const char* ssidOut = joinedSsidStr;
   const char* wantOut =
-    (hasStoredWifi_ && joinedSsidStr != storedSsid_) ? storedSsid_ : "";
+    (hasStoredWifi_ && strcmp(joinedSsidStr, storedSsid_) != 0) ? storedSsid_ : "";
   const char* apOut = apName_.length() > 0 ? apName_.c_str() : "";
   // T-49: saved-router names for the app/website (names only — passwords never
   // leave the car; W-14).

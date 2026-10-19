@@ -432,10 +432,6 @@ void Oled_1_3::draw(const char* status, int speed, bool connected, const char* m
   redrawNow(speed, connected);
 }
 
-void Oled_1_3::draw(const String& status, int speed, bool connected, const String& mode, const String& extraInfo) {
-  draw(status.c_str(), speed, connected, mode.c_str(), extraInfo.length() ? extraInfo.c_str() : nullptr);
-}
-
 void Oled_1_3::sleep() {
   if (!u8g2 || isSleeping) return;
   u8g2->setPowerSave(1);
