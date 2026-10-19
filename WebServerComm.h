@@ -207,6 +207,13 @@
 // rule is that the refusal EXISTS and is honest, not that this exact number is
 // final. The `link-admission` gate rule pins floor > STATUS_HEAP_FLOOR_BYTES.
 #define LINK_ADMISSION_FLOOR_BYTES 32000ul
+
+// U-116 page-serve heap gate: the margin the bounded page send (F-77
+// budget) needs above the BT-engaged floor — 4 kB, exactly the value
+// pinned by the comment at pageServerMustBeHeld(). Below this free
+// heap the page server answers the ghost page instead of the ~18 kB
+// transfer, so loop() keeps feeding BT/WS/modeTicker.
+#define PAGE_SERVE_HEAP_RESERVE_BYTES 4096ul
 // The root-page send loop: this many CONSECUTIVE zero-byte writes (one retry
 // gap each) ends the transfer for THIS pass. A client that moves resets the
 // count on every byte, so it keeps the full HTTP_BODY_BUDGET_MS; a reader that
@@ -731,6 +738,7 @@ private:
   // FIN-40/D1: retry cadence state for a softAP() that failed to start.
   unsigned long lastApRetryMs_;
 
+  WebServer server{80};          // static object
   // U-116: page-server power + heap gate. See handleRoot() and the
   // contract rules (ws-page-gate / page-serve-heap) in the track files for
   // the owner's post-1.3.9 multi-connect report.

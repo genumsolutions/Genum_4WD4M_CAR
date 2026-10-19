@@ -175,6 +175,25 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     } else {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
     }
+  } else if (strncasecmp(rest, ";AUTOJOIN", 9) == 0) {
+    // `WIFICFG;AUTOJOIN;ON|OFF` — boot auto-join the last-switched router
+    // (U-98). Default ON; persisted to NVS `botcfg/boot_autojoin`. The .ino's
+    // boot path and the U-79 resume path both honor it via armBootAutoJoin().
+    const char* arg = rest + 9;  // "" | ";ON" | ";OFF" | ";?"
+    if (arg[0] == '\0' || (arg[0] == ';' && (arg[1] == '?' || arg[1] == '\0'))) {
+      snprintf(reply, sizeof(reply), "WIFICFG;AUTOJOIN;%s", bootAutojoin_ ? "ON" : "OFF");
+    } else if (strcasecmp(arg, ";ON") == 0 || strcasecmp(arg, ";OFF") == 0) {
+      bootAutojoin_ = (strcasecmp(arg, ";ON") == 0);
+      Preferences prefs;
+      prefs.begin("botcfg", false);
+      prefs.putBool("boot_autojoin", bootAutojoin_);
+      stampConfigWrite(prefs);
+      prefs.end();
+      FW_LOG_VERBOSE("[WIFICFG] boot auto-join %s\n", bootAutojoin_ ? "ON" : "OFF");
+      snprintf(reply, sizeof(reply), "WIFICFG;AUTOJOIN;%s", bootAutojoin_ ? "ON" : "OFF");
+    } else {
+      snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
+    }
   } else if (strncasecmp(rest, ";PAGE", 5) == 0) {
     // U-116: the webpage server (the car's web page at :80) is an
     // INDEPENDENT transport of the Wi-Fi transport. A user taps "turn
@@ -204,27 +223,6 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
     }
   } else if (rest[0] == ';') {
-  } else if (strncasecmp(rest, ";AUTOJOIN", 9) == 0) {
-    // `WIFICFG;AUTOJOIN;ON|OFF` — boot auto-join the last-switched router
-    // (U-98). Default ON; persisted to NVS `botcfg/boot_autojoin`. The .ino's
-    // boot path and the U-79 resume path both honor it via armBootAutoJoin().
-    const char* arg = rest + 9;  // "" | ";ON" | ";OFF" | ";?"
-    if (arg[0] == '\0' || (arg[0] == ';' && (arg[1] == '?' || arg[1] == '\0'))) {
-      snprintf(reply, sizeof(reply), "WIFICFG;AUTOJOIN;%s", bootAutojoin_ ? "ON" : "OFF");
-    } else if (strcasecmp(arg, ";ON") == 0 || strcasecmp(arg, ";OFF") == 0) {
-      bootAutojoin_ = (strcasecmp(arg, ";ON") == 0);
-      Preferences prefs;
-      prefs.begin("botcfg", false);
-      prefs.putBool("boot_autojoin", bootAutojoin_);
-      stampConfigWrite(prefs);
-      prefs.end();
-      FW_LOG_VERBOSE("[WIFICFG] boot auto-join %s\n", bootAutojoin_ ? "ON" : "OFF");
-      snprintf(reply, sizeof(reply), "WIFICFG;AUTOJOIN;%s", bootAutojoin_ ? "ON" : "OFF");
-    } else {
-      snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
-    }
-  } else if (strncasecmp(rest, ";PAGE", 5) == 0) {    // U-116: the webpage server (the car's web page at :80) is an    // INDEPENDENT transport of the Wi-Fi transport. A user taps "turn    // the webpage on or off" in the app and does NOT want the two    // transport toggles (t_wifi / t_bt) to move.    const char* pageArg = rest + 5;  // "" | ";ON" | ";OFF" | "?"    if (pageArg[0] == '\0' ||        (pageArg[0] == ';' &&         (pageArg[1] == '?' || pageArg[1] == '\0'))) {      snprintf(reply, sizeof(reply), "WIFICFG;WIFI;PAGE;%s",               pageOff_ ? "OFF" : "ON");    } else if (strcasecmp(pageArg, ";ON") == 0 ||               strcasecmp(pageArg, ";OFF") == 0) {      bool on = (strcasecmp(pageArg, ";ON") == 0);      pageOff_ = !on;      pageOffAtBoot_ = false;      pageOffHeld_ = false;      Preferences prefs;      prefs.begin("botcfg", false);      prefs.putBool("page_off", pageOff_);      stampConfigWrite(prefs);      prefs.end();      FW_LOG_VERBOSE("[WIFICFG] web page %s
-", pageOff_ ? "OFF" : "ON");      snprintf(reply, sizeof(reply), "WIFICFG;WIFI;PAGE;%s",               pageOff_ ? "OFF" : "ON");    } else {      snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");    }  } else if (rest[0] == ';') {  } else if (rest[0] == ';') {
     // WIFICFG;<ssid>;<password> — password may be empty (open network).
     const char* ssid = rest + 1;
     const char* semi = strchr(ssid, ';');
@@ -560,7 +558,7 @@ void WebServerComm::serveGhostPage() {
   static const char ghostHTML[] PROGMEM =
       "<!doctype html><html><head><meta charset='utf-8'><title>4WD4M Car</title>"
       "<style>body{margin:0;background:#111;color:#eee;font-family:-apple-system,BlinkMacSystemFont,"
-      "Segoe UI",Roboto,Arial,sans-serif;height:100vh;display:flex;justify-content:"
+      "\"Segoe UI\",Roboto,Arial,sans-serif;height:100vh;display:flex;justify-content:"
       "center;align-items:center;text-align:center}</style></head><body>"
       "<p>The car's web page is turned off. The car is still here — "
       "Bluetooth and its own hotspot keep working.</p></body></html>";
@@ -2152,6 +2150,14 @@ void WebServerComm::stop() {
   // defined but never called).
   stopMdns();
   WiFi.disconnect();
+  // U-113 (#7): the beacon teardown must NOT be gated on `apRunning_`.
+  // `apRunning_` is a BELIEF about the beacon, and the code force-writes it
+  // false (GIVEUP_AP, REJOIN_STEP_AP: "forced false, not trusted") exactly
+  // because it goes stale across an AP_STA<->AP mode bounce. Gating the shutdown
+  // on a believed flag is how a Wi-Fi-OFF that claims everything is hidden
+  // leaves the own hotspot up. softAPdisconnect() is idempotent when nothing is
+  // up, and this path wants the radio down either way.
+  WiFi.softAPdisconnect(true);
   // U-116: a Wi-Fi-OFF (or any turn-the-page-server-off) must remember
   // its choice across a power restart. stop() is the natural place: every
   // transport is torn down here, so persisting pageOff_ after the radios
