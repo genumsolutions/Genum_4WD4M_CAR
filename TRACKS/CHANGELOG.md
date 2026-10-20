@@ -10,7 +10,38 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
 > car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
 
-## UNRELEASED — 1.3.13 (P4 / item F, 2026-10-17): the car REFUSES a second link it cannot afford — multi-connect stops starving the run-time
+## UNRELEASED — 1.3.14 (U-117/U-118, 2026-10-20): the page-server state rides the STATE line — a Bluetooth-only app can finally READ the webpage toggle
+
+**UNFLASHED (F-61).** Owner report: *"the webpage toggle off button is not
+working."* The car already HAD the toggle (`WIFICFG;WIFI;PAGE`), the
+persistence (NVS `page_off`, surviving a power cycle since U-116) and the
+serve gate (`handleRoot` reads `pageOff_`) — what it did NOT have was a way
+for an app on **Bluetooth** to learn the truth: `/status` (`page_on`) needs
+the web transport, and the STATE line — the surface a BT-only app reads
+every second — carried nothing. So the app painted an **assumed** state after
+every (re)connect: a switch that reads wrong reads broken (half of the report
+was app-side and is fixed there: `pageToggle.test.ts`, genumsolutions-app
+`14bf5c0` — parse, adopt, query-on-link-up, honest `pageOn` naming).
+
+**Fix.**
+- STATE line gains `;PAGE=ON|OFF`, fed by `WebServerComm::pageServerIsOn()` —
+  the same `pageOff_` the serve path and `/status` read, so every surface
+  tells one story.
+- `pageServerIsOn()` **declaration moved to the public section** of
+  `WebServerComm.h` (body unchanged): a private accessor cannot answer a wire
+  query.
+- `FW_VERSION` 1.3.13 → **1.3.14**.
+
+**Gates (source only — F-61):** new contract rule **`page-state`** (pins the
+STATE key + its `pageServerIsOn()` feed, `page_on` in `/status`, the NVS
+`page_off` boot load and the serve gate `pageOff_ || pageServerMustBeHeld()`)
++ mutants **M123-M126**; `check-firmware-syntax.ps1` **9/9** TUs ·
+`check-firmware-contract.mjs` **0 failures** · `check-webpage-js.mjs` PASS.
+Same-commit app consumer (wire field with no consumer is noise): app
+`pageToggle.test.ts` parses `;PAGE=` / `page_on` with F-88-shape honesty
+(absent ⇒ "don't know", never OFF).
+
+## 1.3.13 (P4 / item F, 2026-10-17): the car REFUSES a second link it cannot afford — multi-connect stops starving the run-time
 
 **UNFLASHED (F-61).** Owner flash target. Addresses the 2026-10-17 owner report
 (item 6): **connecting BOTH links at once can freeze / reset the car**, the field

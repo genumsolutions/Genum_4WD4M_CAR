@@ -617,6 +617,16 @@ void ModeManager::sendStateOn(CommInterface& comm) {
                  ws->btEnabled() ? "ON" : "OFF");
         snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";AUTOJOIN=%s",
                  ws->bootAutojoin() ? "ON" : "OFF");
+        // U-117/U-118 (2026-10-20, owner: "the webpage toggle off button is
+        // not working"): the web-page server state rides every STATE line too.
+        // Until now only `/status` carried it (`page_on`), so a Bluetooth-only
+        // app could never learn whether the car is serving its page and showed
+        // an ASSUMED off after every (re)connect — a switch that reads wrong
+        // reads broken. Absent on older firmware by definition (the key simply
+        // is not there) and the app treats absence as "don't know", never OFF.
+        // Same-commit app consumer: pageToggle.test.ts (genumsolutions-app).
+        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";PAGE=%s",
+                 ws->pageServerIsOn() ? "ON" : "OFF");
         // P4 (2026-10-17, owner item F): the link-admission verdict rides every
         // STATE line too, so a Bluetooth-only app learns whether the car can host
         // a second link WITHOUT a WS round-trip. 0 = the car refused the second

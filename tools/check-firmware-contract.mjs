@@ -1083,6 +1083,41 @@ if (!linkFloor) {
   pass("link-admission", "the car refuses a SECOND link below LINK_ADMISSION_FLOOR_BYTES, keeps the incumbent, and reports the verdict on the STATE line and in /status");
 }
 
+// U-117/U-118 (2026-10-20): THE CAR'S PAGE STATE IS PUBLISHED, AND THE
+// CHOICE SURVIVES A POWER CYCLE.
+//
+// Owner (2026-10-20): "the webpage toggle off button is not working". The car
+// already HAD the toggle (WIFICFG;WIFI;PAGE), the persistence (NVS
+// `page_off`) and the serve gate (handleRoot reads pageOff_) — but the STATE
+// line, the only surface a BLUETOOTH-only app reads, carried nothing, and
+// `/status` needs the web transport. So the app could never learn the truth
+// and painted an ASSUMED off after every (re)connect: a switch that reads
+// wrong reads broken.
+//
+// A wire field with no consumer is noise, and a consumer with no field is a
+// guess — hence the same-commit pair: `;PAGE=%s` here, and pageToggle.test.ts
+// (genumsolutions-app) parsing `;PAGE=` / `page_on` in the same round.
+//
+// Views matter (see the stripComments/code() note at the top): the NVS load
+// check needs comments blanked AND strings KEPT, so it reads stripComments of
+// the RAW source — `code()` blanks `"page_off"` and would blind the rule.
+const mmStateLits = stripComments(raw("ModeManager.cpp"));
+const statusPsLits = stripComments(body(wsc, "void WebServerComm::buildStatusJson") ?? "");
+const wscPlain = stripComments(wsc);
+if (!mmStateLits.includes(";PAGE=%s")) {
+  fail("page-state", "the STATE line does not carry ;PAGE=%s - a Bluetooth-only app can never read the car's page-server state, so its switch can only guess");
+} else if (!/pageServerIsOn\(\)/.test(mmStateLits)) {
+  fail("page-state", "the STATE PAGE key is not fed by pageServerIsOn() - the line would publish something other than the serve truth");
+} else if (!statusPsLits.includes("page_on")) {
+  fail("page-state", "/status JSON does not carry page_on - the web transport cannot read the car's page-server state");
+} else if (!wscPlain.includes('getBool("page_off"')) {
+  fail("page-state", "the boot load no longer reads NVS page_off - a turned-OFF page turns itself back ON at the next power cycle, which is exactly the toggle 'not working'");
+} else if (!/pageOff_\s*\|\|\s*pageServerMustBeHeld\(\)/.test(wscPlain)) {
+  fail("page-state", "the serve path no longer gates on pageOff_ - WIFICFG;WIFI;PAGE would answer while the page keeps being served");
+} else {
+  pass("page-state", "the page-server state rides STATE (;PAGE=) and /status (page_on), survives a reboot (NVS page_off), and the serve path honours it");
+}
+
 // P6 / item D (2026-10-17): THE CAR HANDS OVER A BOUNDED EVENT LOG.
 //
 // The owner's report (item 4): the remote needs to SEE and ACT ON the

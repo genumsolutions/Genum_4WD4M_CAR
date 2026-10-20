@@ -306,6 +306,16 @@ public:
   bool wifiEnabled() const { return wifiEnabled_; }
   bool btEnabled() const { return btEnabled_; }
   bool bootAutojoin() const { return bootAutojoin_; }
+
+  // U-117/U-118 (2026-10-20): is the car's own web page (:80/:81) serving
+  // RIGHT NOW? PUBLIC so ModeManager can publish it on every STATE line as
+  // `;PAGE=ON|OFF` — until now only `/status` carried it (`page_on`), which
+  // needs the web transport, so a Bluetooth-only app could never read the
+  // page state and showed an assumed off after every (re)connect. The body is
+  // unchanged (it lives with its members below); only the ACCESS moved — a
+  // private accessor cannot answer a wire query. Same-commit app consumer:
+  // pageToggle.test.ts (genumsolutions-app).
+  bool pageServerIsOn() const { return !pageOff_; }
   // P4 (2026-10-17): link admission — may a SECOND transport be raised right
   // now? Called by the sketch's transport-power loop ONLY when one link is
   // already up (the FIRST link is never gated). Returns false and latches the
@@ -805,7 +815,8 @@ private:
   bool pageOffHeld_;
 
   // Public: is the webpage server currently allowed to serve?
-  bool pageServerIsOn() const { return !pageOff_; }
+  // U-117 (2026-10-20): DECLARATION MOVED to the public section above (same
+  // inline body) so ModeManager's STATE line can read it — see the note there.
 
   // Public: is the page server currently waiting to be enabled (not yet
   // allowed by the heap gate)?

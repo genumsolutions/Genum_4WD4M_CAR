@@ -825,6 +825,30 @@ const mutants = [
     find: '    const bool isLogCmd = webServerComm.handleLogCommand(cmd);',
     repl: '    const bool isLogCmd = false; (void)0;',
     why: "the verbs stop riding the system hook - LOG?/LOG;GET/LOG;CLEAR fall through to the drive path and are answered by nothing, while the contract still claims the app can read them" },
+
+  // U-117/U-118 (2026-10-20): the page-server state must be PUBLISHED on the
+  // Bluetooth surface, READ BACK across a power cycle, and HONOURED by the
+  // serve path — the three claims behind "the webpage toggle off button is
+  // not working".
+  { id: "M123", rule: "page-state", file: MM,
+    find: '        snprintf(tKeys + strlen(tKeys), sizeof(tKeys) - strlen(tKeys), ";PAGE=%s",\n                 ws->pageServerIsOn() ? "ON" : "OFF");',
+    repl: '        // (the page-server state is removed from the STATE line)',
+    why: "the STATE line no longer carries ;PAGE= - a Bluetooth-only app can never read the page-server state, so its switch shows an assumed off while the car keeps serving" },
+
+  { id: "M124", rule: "page-state", file: WSC,
+    find: '  pageOff_ = prefs.getBool("page_off", false);',
+    repl: '  pageOff_ = false;',
+    why: "the boot load stops reading NVS page_off - a turned-OFF page silently turns itself back ON at every power cycle, the exact 'toggle not working' report" },
+
+  { id: "M125", rule: "page-state", file: WSC,
+    find: '  if (pageOff_ || pageServerMustBeHeld()) {',
+    repl: '  if (pageServerMustBeHeld()) {',
+    why: "the serve path no longer gates on pageOff_ - WIFICFG;WIFI;PAGE;OFF keeps answering while every HTTP GET still gets the full control page" },
+
+  { id: "M126", rule: "page-state", file: WSC,
+    find: '       "\\"page_on\\":%d,\n       "\\"event_log_count\\":%lu"',
+    repl: '       "\\"event_log_count\\":%lu"',
+    why: "the /status JSON no longer carries page_on - the web transport cannot read the page-server state, so an app on Wi-Fi holds a stale panel" },
 ];
 
 // ---- runner -------------------------------------------------------------
