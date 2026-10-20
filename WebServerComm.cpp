@@ -69,11 +69,11 @@ WebServerComm::WebServerComm()
   configEpoch_ = 0;
   // U-116: webpage power defaults ON at construction; the boot load in
   // loadStoredWifi() adopts the persisted `page_off`. Explicit init on
-  // purpose: these flags are read from handleRoot()/loop() before any
-  // other writer could touch them.
+  // purpose: this flag is read from handleRoot()/loop() before any
+  // other writer could touch it.
+  // U-119 cleansing: the write-only `pageOffAtBoot_` / `pageOffHeld_` twins
+  // are gone (nothing ever READ them; see the note in WebServerComm.h).
   pageOff_ = false;
-  pageOffAtBoot_ = false;
-  pageOffHeld_ = false;
   // T-48: saved-router registry starts empty (loaded in setup() once NVS is
   // live — same timing rule as loadStoredWifi(), T-33).
   savedRouterCount_ = 0;
@@ -216,8 +216,6 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
                strcasecmp(pageArg, ";OFF") == 0) {
       bool on = (strcasecmp(pageArg, ";ON") == 0);
       pageOff_ = !on;
-      pageOffAtBoot_ = false;
-      pageOffHeld_ = false;
       Preferences prefs;
       prefs.begin("botcfg", false);
       prefs.putBool("page_off", pageOff_);
@@ -490,8 +488,6 @@ void WebServerComm::loadStoredWifi() {
   // looked broken. The header promised this load since U-116 ("Loaded
   // from NVS botcfg on boot via loadStoredWifi()"); now it is true.
   pageOff_ = prefs.getBool("page_off", false);
-  pageOffAtBoot_ = pageOff_;   // "was OFF when this boot began" (truth)
-  pageOffHeld_ = false;
   // Belt-and-braces clamp: the car can never run with BOTH transports off.
   // The command path refuses it too; this guards a corrupted/partial NVS.
   if (!wifiEnabled_ && !btEnabled_) wifiEnabled_ = true;
@@ -529,8 +525,6 @@ void WebServerComm::loadStoredWifi() {
 // true = page server allowed; false = page server OFF.
 void WebServerComm::setPageOff(bool on) {
   pageOff_ = !on;
-  pageOffAtBoot_ = false;
-  pageOffHeld_ = false;
 
   Preferences prefs;
   prefs.begin("botcfg", false);

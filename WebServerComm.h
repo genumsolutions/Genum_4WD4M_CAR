@@ -758,15 +758,13 @@ private:
   //                    toggled by the app during a live session, persisted
   //                    in NVS so a power restart keeps it.
   //
-  // pageOffAtBoot_   - set true on boot if NVS `page_off` was true. It is
-  //                    then cleared and only re-asserted by a live
-  //                    `WIFICFG;WIFI;OFF` command, so a power restart does
-  //                    not leak into later command calls.
-  //
-  // pageOffHeld_     - true when pageOff_ is false but the heap gate is
-  //                    holding the page server down to protect the app's
-  //                    run-time (multi-connect heap freeze). The page is
-  //                    never served while this is true.
+  // U-119 cleansing (2026-10-20): `pageOffAtBoot_` and `pageOffHeld_` are
+  // DELETED — write-only members. Four sites assigned them (constructor,
+  // WIFICFG;WIFI;PAGE, loadStoredWifi(), setPageOff()) and NOTHING ever read
+  // them; `pageServerIsHeld()`, their only reader, had zero callers in the
+  // repo. The heap-hold BEHAVIOUR they named never depended on them —
+  // `pageServerMustBeHeld()` computes it live from heapReserve_, and the
+  // serve path reads `pageOff_` directly (gate rule `page-state` pins both).
   //
   // serveGhostPage() - the tiny 200 response that answers a client that
   //                    asked for / while the page server is OFF, so the
@@ -791,8 +789,6 @@ private:
   //                    gone.
   //
   // pageServerIsOn() - true when the page server is allowed to serve.
-  // pageServerIsHeld() - true when the page server is waiting to be
-  //                      enabled (not yet allowed by the heap gate).
   // pageServerMustBeHeld() - true when free heap (with BT engaged) is below
   //                          the reserve the page serve needs. This is what
   //                          stops a multi-connect session from blocking
@@ -811,16 +807,14 @@ private:
   // hotspot together" / "freezes using the page while the app is on Wi-Fi"
   // report.
   bool pageOff_;
-  bool pageOffAtBoot_;
-  bool pageOffHeld_;
 
   // Public: is the webpage server currently allowed to serve?
   // U-117 (2026-10-20): DECLARATION MOVED to the public section above (same
   // inline body) so ModeManager's STATE line can read it — see the note there.
 
   // Public: is the page server currently waiting to be enabled (not yet
-  // allowed by the heap gate)?
-  bool pageServerIsHeld() const { return pageOffHeld_; }
+  // allowed by the heap gate)? — U-119: DELETED with pageOffHeld_ (no
+  // callers); pageServerMustBeHeld() answers the live question instead.
 
   // Heap gate: should the page server be held back to protect the app's
   // run-time? True when free heap (with BT engaged) is below the reserve
