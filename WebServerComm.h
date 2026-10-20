@@ -398,15 +398,12 @@ public:
   void buildScanLine(char* buf, size_t bufLen) const;
   /** WS JSON form: `[{"ssid":…,"rssi":…,"open":true|false},…]`. */
   size_t buildScanJson(char* buf, size_t bufLen) const;
-  int savedRouterCount() const { return savedRouterCount_; }
-  const char* savedRouterSsid(int i) const {
-    return (i >= 0 && i < MAX_SAVED_ROUTERS) ? savedRouterSsid_[i] : "";
-  }
-  const char* savedRouterPass(int i) const {
-    return (i >= 0 && i < MAX_SAVED_ROUTERS) ? savedRouterPass_[i] : "";
-  }
-  // True when runtime credentials have been stored via WIFICFG.
-  bool hasStoredWifi() const { return hasStoredWifi_; }
+  // U-119b (2026-10-21) removed four accessors that had ZERO callers anywhere in
+  // this repo: savedRouterCount(), savedRouterSsid(i), savedRouterPass(i) and
+  // hasStoredWifi(). They only ever handed back the PRIVATE members below, which
+  // are read directly everywhere they are needed, so no caller was ever going to
+  // appear. What stays is what is read — the same rule the earlier dead-member
+  // sweeps applied (pageServerIsHeld() et al.).
   // SSID currently stored ("" when none) — safe to show in the app.
   //
   // U-70 (2026-10-02): THIS IS THE ROUTER WE ASKED FOR, NOT THE ONE WE ARE ON.
