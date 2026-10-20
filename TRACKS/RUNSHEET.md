@@ -1,19 +1,21 @@
-# RUNSHEET — flash 1.3.13 + the U-116 device pass
+# RUNSHEET — flash 1.3.14 + the U-117/U-116 device pass
 
-> One sheet for the owner's next bench session. Firmware **1.3.13** (UNFLASHED;
+> One sheet for the owner's next bench session. Firmware **1.3.14** (UNFLASHED;
 > **1.3.11 IS on the car**) + app **3.2.7 / versionCode 60** (unchanged this
 > round — every app phase is JS-only and rides the OTA channel).
 > Tick the rows in the row sheets as you go: car `TRACKS/DEVICE-TESTS.md`
-> (U-116-10..15 first — the 2026-10-17 round — then U-115-1..3, then
-> U-113-8..15) · app `mobile/TESTING.md` (U-116-1..9, 13, 16..20).
+> (U-117-1..3 + U-119-1 first — the 2026-10-20 round — then U-116-10..15,
+> then U-115-1..3, then U-113-8..15) · app `mobile/TESTING.md` (U-117-1..4,
+> U-118-1..4, U-119-1, then U-116-1..9, 13, 16..20).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
-## 0 · What this one flash carries (1.3.11 → 1.3.13)
+## 0 · What this one flash carries (1.3.11 → 1.3.14)
 
-The car is on **1.3.11** already; 1.3.12 + 1.3.13 both ride this flash:
+The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 all ride this flash:
 
 | Round | What you should notice |
 |---|---|
+| **U-117 (1.3.14)** | **The webpage state is on every surface.** STATE carries `;PAGE=ON|OFF` (Bluetooth-only apps finally read it), `/status` keeps `page_on`, and a turned-OFF page stays OFF across a power cycle — the "toggle not working" report had one car half and one app half, and both are in this flash |
 | **P4 / item F (1.3.13)** | **The car REFUSES a second link it cannot afford.** Both links normally come up as before; under the old freeze window the second raise is held back, the incumbent keeps working, and `;LINKCAP=0` / `"link_cap":0` say why (serial: `[LINKCAP] …`) |
 | **P6 / item D (1.3.13)** | **The car keeps a bounded event log.** `LOG?` → `LOG;COUNT=…;CAP=12`; `LOG;GET;0` → newest-first `K,boot,ms,heap,reason,phase` events; `LOG;CLEAR` empties; `/status` `event_log_count` agrees. BOOT/FAULT/low-heap/link-refusal/link-edge events |
 

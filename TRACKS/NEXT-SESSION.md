@@ -1,4 +1,23 @@
-# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-17, **the six-item round is CODE-COMPLETE: P1-P8 landed phase-by-phase, P9 deferred to the owner's P8 device pass, P10 in progress — records refresh started but not closed, all gates green, nothing device-verified (F-61)**; **1.3.13 is the owner flash target** — it carries P4 (link admission + `LINKCAP`) and P6 (the bounded event log + `LOG` verbs) on top of the already-flashed 1.3.11; **1.3.12's U-115 boot-scan change rides the same flash**; app stays **3.2.7/60** — every app phase is JS-only OTA)
+# NEXT SESSION — Genum_4WD4M_CAR (updated 2026-10-20: **U-117/U-119 landed — FW 1.3.14 queued for the owner's flash, all gates green incl. mutate 120/120**; the round header of 2026-10-17 follows: the six-item round is CODE-COMPLETE: P1-P8 landed phase-by-phase, P9 deferred to the owner's P8 device pass, P10 in progress — records refresh started but not closed, all gates green, nothing device-verified (F-61)**; **1.3.13 is the owner flash target** — it carries P4 (link admission + `LINKCAP`) and P6 (the bounded event log + `LOG` verbs) on top of the already-flashed 1.3.11; **1.3.12's U-115 boot-scan change rides the same flash**; app stays **3.2.7/60** — every app phase is JS-only OTA)
+
+> ✅ **🆕 2026-10-20 (LATEST) — U-117/U-119: the page-server state rides the wire, and the
+> write-only twins are gone (commits `ab4e050` · `6bbed68` · `e5958dd`; FW 1.3.13 →
+> **1.3.14**, UNFLASHED).** Owner: *"the webpage toggle off button is not working."* The car
+> already had the toggle + NVS `page_off` + the serve gate — what it lacked was any way for a
+> **Bluetooth-only** app to READ the state, so the app painted an assumed state after every
+> (re)connect. Fixed: STATE carries `;PAGE=ON|OFF` fed by `pageServerIsOn()` (**declaration
+> moved to the public section** — a private accessor cannot answer a wire query); new contract
+> rule **`page-state`** pins the STATE key + its feed, `page_on` in /status, the NVS boot load
+> and the serve gate; mutants **M123-M126** (M126's anchor was broken at first — missing the
+> C++ closing quote — found by running `-k page-state`, fixed in `6bbed68`). **Cleansing:**
+> `pageServerIsHeld()` (zero callers), `pageOffHeld_` and `pageOffAtBoot_` (write-only) are
+> deleted — the heap-hold behaviour never depended on them (`pageServerMustBeHeld()` computes
+> it live). Same-commit app consumer: `pageToggle.test.ts` (app `14bf5c0`). **Gates: contract
+> 0 failures · webpage-js PASS · syntax 9/9 · mutate-gates 120/120.** Rows:
+> `TRACKS/DEVICE-TESTS.md` **U-117-1..2 + U-119-1** (unticked, F-61); RUNSHEET retargeted to
+> **flash 1.3.14**. Session insurance note: `TRACKS/SESSION-2026-10-20-U117-U118.md`.
+>
+> **⏭️ 2026-10-17 round below — header kept as history.**
 
 > **🆕 2026-10-17 ROUND — IMPLEMENTED (see `TRACKS/PLAN-2026-10-17-multiconnect-logs-connectivity.md`
 > for the live PROGRESS table + each phase's commit).** Car-side phases:

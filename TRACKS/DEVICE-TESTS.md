@@ -3,6 +3,35 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-10-20 round — U-117/U-119: the page-server state is on the wire (flash **1.3.14** — DEVICE VERIFY PENDING)
+
+> Owner: *"the webpage toggle off button is not working."* The car already had
+> the toggle + NVS `page_off` + the serve gate; this flash **publishes the
+> truth** so the app can stop guessing. **Nothing below is device-verified**
+> (F-61). Car gates at these commits: contract **0 failures** (new rule
+> `page-state`) · webpage-js PASS · syntax **9/9** · mutate-gates **120/120**
+> (M123-M126). App twin: `pageToggle.test.ts` (commits `14bf5c0` + `c26b9cf`),
+> vitest **843/843**. This flash rides ON TOP of 1.3.12 + 1.3.13 (same upload).
+
+**Car rows (this file):**
+
+- [ ] **U-117-1 — ⭐ `;PAGE=` tells ONE story on every surface.** With the
+  page serving: STATE line carries `;PAGE=ON`, `/status` carries `page_on:1`,
+  OLED/page behave as serving. Turn it OFF (`WIFICFG;WIFI;PAGE;OFF` from the
+  app or console): `;PAGE=OFF` + `page_on:0` + the browser gets the GHOST
+  page; `Wi-Fi`/`BT` toggles and their NVS keys do NOT move.
+- [ ] **U-117-2 — the OFF choice survives a power cycle.** Page OFF → power
+  the car down/up → STATE answers `;PAGE=OFF` immediately at boot (NVS
+  `page_off` load), and the page still refuses (ghost).
+- [ ] **U-119-1 — cleansing changed nothing observable.** After the flash,
+  re-run U-117-1 plus one drive + one router switch: the deleted write-only
+  members (`pageOffAtBoot_`/`pageOffHeld_`) were never read, so behaviour must
+  be byte-identical to before the cleanup.
+
+**App rows live in `genumsolutions-app/mobile/TESTING.md`:** U-117-1..4,
+U-118-1..4, U-119-1 (webpage truth, the deck's reset-record removal, the
+"This phone" row, the cleansing regression pass).
+
 ## 2026-10-17 round — the six-item round (U-116 series, flash **1.3.13** — DEVICE VERIFY PENDING)
 
 > **Nothing below is device-verified** (F-61). Car gates at the commits named in
