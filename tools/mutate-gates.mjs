@@ -846,7 +846,7 @@ const mutants = [
     why: "the serve path no longer gates on pageOff_ - WIFICFG;WIFI;PAGE;OFF keeps answering while every HTTP GET still gets the full control page" },
 
   { id: "M126", rule: "page-state", file: WSC,
-    find: '       "\\"page_on\\":%d,\n       "\\"event_log_count\\":%lu"',
+    find: '       "\\"page_on\\":%d,"\n       "\\"event_log_count\\":%lu"',
     repl: '       "\\"event_log_count\\":%lu"',
     why: "the /status JSON no longer carries page_on - the web transport cannot read the page-server state, so an app on Wi-Fi holds a stale panel" },
 ];
