@@ -3216,19 +3216,32 @@ void WebServerComm::handleRoot() {
     heapwPageLogged = true;
   }
   FW_LOG_VERBOSE("DBG: HTTP GET / received\n");
-
-  // U-116: heap gate. While BT is engaged and free heap is near its floor,
-  // the page server is held back (ghost page) so loop() keeps feeding BT,
-  // WS and the mode ticker — the mechanism that fixed the owner's
-  // "freezes using the page while the app is on Wi-Fi" report. A moving
-  // client keeps the full page budget; a dead reader gets the ghost page.
-  if (pageServerMustBeHeld()) {
+  // U-116: two independent gates now protect the page server.
+  //
+  // 1) USER AUTHORITY: the page server is OFF while pageOff_ is true.
+  //    This is the intent the app's "Webpage" switch expresses — the
+  //    car-hosted page at :80/:81 is turned off while the Wi-Fi transport
+  //    (own hotspot + router link) and BT keep running. A power cycle
+  //    honours the choice because loadStoredWifi() reads NVS `page_off`.
+  //    Before this gate existed, the toggle only ever persisted the flag
+  //    and WIFICFG;WIFI;PAGE; answered it; the serve path never read it,
+  //    so a turned-OFF page still answered every HTTP GET with the full
+  //    control page.
+  //
+  // 2) HEAP GATE: while BT is engaged and free heap is near its floor,
+  //    the page server is held back (ghost page) so loop() keeps feeding
+  //    BT, WS and the mode ticker — the mechanism that fixed the owner's
+  //    "freezes using the page while the app is on Wi-Fi" report. A
+  //    moving client keeps the full page budget; a dead reader gets the
+  //    ghost page. The heap gate is invisible while the user has already
+  //    turned the page off: in that case the user authority wins and there
+  //    is no heap churn to protect.
+  if (pageOff_ || pageServerMustBeHeld()) {
     serveGhostPage();
     return;
   }
   serveRootBounded();
 }
-
 void WebServerComm::handleMove(const char* cmd) {
   armHttpGuard();  // U-77: bounded writes on every HTTP response
   // U-88 (extended to HTTP): there is ONE command path. This handler used to
