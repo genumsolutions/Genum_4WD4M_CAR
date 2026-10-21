@@ -27,7 +27,7 @@ public:
   // live transport truth. v1.2.4 (2026-10-09): the link rows render the METHOD +
   // network name and the car's CURRENT IP (the number the app shows); the
   // transport type is only surfaced as the Bluetooth status ("Bluetooth : SPP").
-  // U-107 (2026-10-13): the last two rows are now driven by setTransportToggles()
+  // U-107: the last two rows are now driven by setTransportToggles()
   // below (the U-105 toggles), so this method supplies the live link truth they
   // annotate. Default no-op keeps other displays source-compatible.
   virtual void setLinkContext(const char* /*method*/, const char* /*type*/, bool /*connected*/) {}
@@ -89,7 +89,7 @@ private:
   char modeBuf[MODE_BUF_LEN];
   char extraBuf[EXTRA_BUF_LEN];
   char modeTokenBuf[TOKEN_BUF_LEN];  // canonical token (registry truth, T-18)
-  // v1.0.1: live link method + transport type (owner OLED directive).
+  // v1.0.1: live link method + transport type.
   static constexpr size_t LINK_METHOD_LEN = 16;
   static constexpr size_t LINK_TYPE_LEN = 16;
   char linkMethodBuf[LINK_METHOD_LEN] = "None";

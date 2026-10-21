@@ -49,7 +49,7 @@
 //               branches on this value.
 #define CONFIG_TELEMETRY_PARAMETERS   "tele.parameters,frequency,1600,vysexcvr,0"
 
-// T-xx / U-107 (2026-10-13): the advertised Bluetooth SPP name, ONE source.
+// T-xx / U-107: the advertised Bluetooth SPP name, ONE source.
 // BluetoothComm::begin() passes it to SerialBT.begin(); the OLED's Bluetooth
 // frame shows it (the "real BT name", not a second hard-coded literal that can
 // drift from what the radio actually advertises). Keep in sync with CATALOG.md.

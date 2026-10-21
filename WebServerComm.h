@@ -185,7 +185,7 @@
 // allocation never happened. Must stay ABOVE the status floor: the bigger
 // transient needs the bigger cushion (gate rule `heap-guard`).
 #define SCAN_HEAP_FLOOR_BYTES 65536ul
-// P4 (2026-10-17, owner item F / issue 6): LINK ADMISSION.
+// P4: LINK ADMISSION.
 //
 // The owner's report: raising BOTH links at once can FREEZE/reset the car
 // because the ESP32 runs near its allocation floor (the field record shows
@@ -420,7 +420,7 @@ public:
   // that may be presented as the current network.
   void joinedSsid(char* out, size_t outLen) const;
 
-  // ---- U-71 (2026-10-02): the deferred rejoin state machine ------------
+  // ---- U-71: the deferred rejoin state machine ------------
   // (U-70 deferred only the `WiFi.begin()` via a `staBeginPending_` flag; U-71
   // replaces that entirely, because deferring one call still left `WiFi.mode()`
   // and `softAP()` running inside the command path.)
@@ -429,7 +429,7 @@ public:
   // switch from occupying loop() long enough to trip the 5 s task watchdog —
   // and a WDT trip is a reboot (F-24), which is the most plausible cause of
   // "the car restarted as soon as I tried to access the webpage".
-  // U-95 Phase 2 (2026-10-07): drop -> wait -> restore -> raise -> begin.
+  // U-95 Phase 2: drop -> wait -> restore -> raise -> begin.
   // U-90's step ran mode(WIFI_AP_STA) and claimed a driver restart, but the
   // installed core (WiFiGeneric.cpp:602) returns EARLY when the requested
   // mode equals the current one — and after the first switch of the car's
@@ -490,7 +490,7 @@ public:
   // `apParked_` flag were removed), so `staConnectedAtMs_` is the only beacon-
   // side state that remains. `apRunning_` is declared below with the radio
   // stack state it actually belongs to.
-  // U-105 (1.3.5, owner 2026-10-13): the own-hotspot beacon is NEVER parked.
+  // U-105: the own-hotspot beacon is NEVER parked.
   // The old power-save (U-100 `ap_psave`) and parallel-links (U-100 Phase 4
   // `allow_parallel`) switches + NVS keys are gone; updateApPowerPolicy() only
   // restores the beacon when the STA is gone. Defaults ON so a first-flash car
@@ -498,7 +498,7 @@ public:
   bool wifiEnabled_ = true;
   bool btEnabled_ = true;
   bool bootAutojoin_ = true;
-  // P4 (2026-10-17): latched when admitSecondLink() refuses a second transport.
+  // P4: latched when admitSecondLink() refuses a second transport.
   // Cleared the moment both links are up (or a transport is toggled off). Only
   // reported while both transports are enabled (see linkCapCode()).
   bool linkCapRefused_ = false;
@@ -510,7 +510,7 @@ void advanceRejoinStep();
   unsigned long modeWaitStartMs_;
   uint8_t modeDropAttempts_;
 
-  // U-75 (2026-10-02): OWNER HARD EVIDENCE - the device finally told us why.
+  // U-75: OWNER HARD EVIDENCE - the device finally told us why.
   //
   //   [BOOT] reset reason: 6 (TASK WATCHDOG (loop hung >5s))
   //
@@ -590,7 +590,7 @@ void advanceRejoinStep();
   const String& lastWifiReply() const { return lastWifiReply_; }
   void clearLastWifiReply() { lastWifiReply_ = ""; }
 
-  // ---- U-108 Phase 7 (owner 2026-10-13): fresh start + timestamps ----------
+  // ---- U-108 Phase 7: fresh start + timestamps ----------
   // The car has no RTC/NTP of its own, so the APP is the clock: on every connect
   // it sends `TIME;<unixEpoch>`, and the car derives the current epoch from that
   // base + its own millis(). Every config write then stamps `botcfg/config_epoch`
@@ -658,7 +658,7 @@ void advanceRejoinStep();
   // Public wrapper to refresh extra info immediately
   void refreshExtraInfo();
 
-  // ---- U-74 (2026-10-02): mDNS advertisement --------------------------
+  // ---- U-74: mDNS advertisement --------------------------
   // The car advertises itself as `genum-car.local` on whatever network it is
   // on, re-publishing on every network change. This exists because of a
   // STRUCTURAL consequence of AP_STA, not a UI bug: the softAP and the STA

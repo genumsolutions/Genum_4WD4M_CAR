@@ -85,7 +85,7 @@ static void trackLinkEvents(bool btNow, bool webNow) {
 // teardown arbitration they belonged to (U-105). The NVS key is still wiped on
 // a fresh install by wipeRoutersOnFreshFirmware() for residue cleanliness.
 
-// U-110 (owner 2026-10-14): bring Bluetooth advertising up and report the TRUTH.
+// U-110: bring Bluetooth advertising up and report the TRUTH.
 // Declared here and DEFINED after setup() on purpose: the crash-record gate
 // looks for the first `(motor|btComm|oled).begin(` in the file
 // and requires it to follow crashLogBegin(); defining the helper's body (which
@@ -372,7 +372,7 @@ static void maybeCheckSupplyAndBTWatchdog() {
   }
 }
 
-// U-110 (owner 2026-10-14): bring Bluetooth advertising up and report the TRUTH.
+// U-110: bring Bluetooth advertising up and report the TRUTH.
 // begin() is idempotent, so this is nearly free once SPP is running; while it
 // keeps REFUSING (the radio can be momentarily busy right after a Wi-Fi mode
 // change or a stop/start cycle) it is retried on a 2 s cadence rather than once

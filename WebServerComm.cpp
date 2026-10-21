@@ -130,7 +130,7 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     storedPass_[0] = '\0';
     snprintf(reply, sizeof(reply), "WIFICFG;CLEARED");
   } else if (strncasecmp(rest, ";WIFI", 5) == 0) {
-    // U-105 (owner 2026-10-13): two transport toggles (Wi-Fi / Bluetooth)
+    // U-105: two transport toggles (Wi-Fi / Bluetooth)
     // REPLACE the old parallel-links + space-power-save (APSAVE) switches —
     // their command branches, NVS keys and app settings are gone (removed as
     // "residues"). `WIFICFG;WIFI;ON|OFF` switches the Wi-Fi transport (own
@@ -274,7 +274,7 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
   return true;
 }
 
-// ---- U-108 Phase 7 (owner 2026-10-13): fresh start + timestamps ----
+// ---- U-108 Phase 7: fresh start + timestamps ----
 //
 //   TIME;<unixEpoch>   the APP's clock (the car has no RTC). Sent on every
 //                      connect; adopted so config writes can be stamped.
@@ -1247,7 +1247,7 @@ void WebServerComm::collectScanIfDone() {
   broadcastStatus();
 }
 
-// P7 / U-115 (2026-10-16): the boot auto-join's reachability probe.
+// P7 / U-115: the boot auto-join's reachability probe.
 //
 // "Is the router we saved actually in the air?" — asked ONCE, non-blocking,
 // before the rejoin is allowed to start. Two methods, in the same arm/kick/
@@ -1455,7 +1455,7 @@ void WebServerComm::startOwnAP() {
   // that actually raises the beacon. Placed AFTER the apName_ line so the
   // identity field is still stated (U-109: name is identity, not state).
   if (!wifiEnabled_) return;  // U-113 (#7): no beacon while the transport is off
-  // U-76 (2026-10-02): THE ROOT CAUSE, from the owner's breadcrumbs.
+  // U-76: THE ROOT CAUSE, from the owner's breadcrumbs.
   //
   //   [RADIO] rejoin/softAP
   //   [RADIO] rejoin/begin
@@ -1493,7 +1493,7 @@ void WebServerComm::startOwnAP() {
   // In WIFI_AP_STA the STA side scans/associates to a saved router; with the
   // default duty-cycling the softAP can blink out right when a phone races to
   // join `4WD4MCar_WiFi`, which surfaces as Android's intermittent "unable
-  // to connect" from the phone's Wi-Fi search/connect menus (owner report).
+  // to connect" from the phone's Wi-Fi search/connect menus.
   // setSleep(false) removes those gaps; explicit open-AP params (no password,
   // channel 1 follows the STA router in AP_STA, visible, up to 4 clients) keep
   // the broadcast rock-solid. Companion phone step (one time): forget the
@@ -1530,7 +1530,7 @@ void WebServerComm::startOwnAP() {
                       IPAddress(192, 168, 245, 1),   // gateway (the car itself)
                       IPAddress(255, 255, 255, 0));  // /24 — up to ~250 clients
   }
-  // U-72 (2026-10-02): THE AP CHANNEL MUST NOT BE PINNED WHILE A ROUTER IS JOINED.
+  // U-72: THE AP CHANNEL MUST NOT BE PINNED WHILE A ROUTER IS JOINED.
   //
   // This was `WiFi.softAP(ssid, nullptr, /*channel=*/1, ...)` unconditionally,
   // and the comment above it claimed "channel 1 follows the STA router in
@@ -1719,7 +1719,7 @@ bool WebServerComm::beginStation() {
 
 void WebServerComm::rejoinNetwork() {
   crashRtcMark("wifi-connect");
-  // U-71 (2026-10-02): THIS FUNCTION NOW DOES NO RADIO WORK AT ALL.
+  // U-71: THIS FUNCTION NOW DOES NO RADIO WORK AT ALL.
   //
   // It used to run mode(WIFI_AP_STA) -> softAP() -> WiFi.begin() synchronously,
   // in the command path, inside one call. Two separate faults lived in that:
@@ -1792,7 +1792,7 @@ void WebServerComm::rejoinNetwork() {
                  (int)rejoinStep_, hasStoredWifi_ ? storedSsid_ : "");
 }
 
-// U-75 (2026-10-02): the give-up fallback, one blocking radio call per pass.
+// U-75: the give-up fallback, one blocking radio call per pass.
 //
 // The owner's `[BOOT] reset reason: 6 (TASK WATCHDOG)` is the proof this was
 // needed: the three calls it replaces ran back to back inside ONE handle()
@@ -1805,7 +1805,7 @@ void WebServerComm::rejoinNetwork() {
 // Every branch returns immediately after advancing, so `handle()` spends at
 // most ONE driver call per loop iteration and returns, feeding the WDT and
 // giving the web server a chance to answer a request in between.
-// U-105 (owner 2026-10-13): the own-hotspot beacon is NEVER parked.
+// U-105: the own-hotspot beacon is NEVER parked.
 //
 // The old power-save switch (U-86/U-100 `ap_psave` + `WIFICFG;APSAVE`) and the
 // parallel-links switch (U-100 Phase 4 `allow_parallel`) are REMOVED per the
@@ -2220,7 +2220,7 @@ void WebServerComm::stop() {
 
 bool WebServerComm::isRunning() const { return serverRunning; }
 
-// v1.0.1 (owner OLED directive): differentiated link truth for the OLED.
+// v1.0.1: differentiated link truth for the OLED.
 bool WebServerComm::hasWsClients() { return ws.connectedClients() > 0; }
 
 // U-112: is the status broadcast currently below the heap floor? The one
@@ -2229,7 +2229,7 @@ bool WebServerComm::broadcastDeferred() {
   return ESP.getFreeHeap() < STATUS_HEAP_FLOOR_BYTES;
 }
 
-// P4 (2026-10-17, owner item F / issue 6): LINK ADMISSION.
+// P4: LINK ADMISSION.
 //
 // The FIRST link is never gated — a car with no way in is worse than a car with
 // one. This is called by the sketch's transport-power loop ONLY when the
@@ -2270,7 +2270,7 @@ int WebServerComm::linkCapCode() const {
 }
 
 bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; }
-// U-70 (2026-10-02): the CURRENT network, as opposed to the stored target.
+// U-70: the CURRENT network, as opposed to the stored target.
 //
 // The bug this fixes is the owner's 2026-10-02 report: *"the car is displaying
 // the new router in its oled but not switching actually to that new router

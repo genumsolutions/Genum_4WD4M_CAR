@@ -26,7 +26,7 @@ static const char *KEY_ELOGC  = "elogc";   // events currently stored
 // bounded memory, bounded flash, F-89.
 static CarEvent s_ev[CAR_EVENT_CAP];
 static uint16_t s_evCount = 0;
-// U-106 (2026-10-13): crash-TIME evidence mirrored from the RTC breadcrumb.
+// U-106: crash-TIME evidence mirrored from the RTC breadcrumb.
 static const char *KEY_HEAPC = "lheapc";  // free heap at the last breadcrumb
 static const char *KEY_MINH  = "lminh";   // low-water heap over the dying boot
 static const char *KEY_MILLI = "lmsec";   // millis() at the last breadcrumb

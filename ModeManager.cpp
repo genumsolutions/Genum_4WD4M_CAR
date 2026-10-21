@@ -20,7 +20,7 @@ static uint32_t defaultNow() { return millis(); }
 // Genum_SELF_BALANCE_CAR reference where it is proven on hardware).
 static TwoWD1M g_2wd1mHandler;
 
-// ---- Mode registry (D-2; v2 fleet reference, owner plan 2026-09-28) ----
+// ---- Mode registry (D-2; v2 fleet reference) ----
 // token = canonical protocol token (MODE_CMDS[] parity with the ESP remote).
 // Adding a future mode = new Mode enum value + one row here + (optional) a
 // drive handler; dispatch, STATE emission and token mapping read from this
@@ -125,7 +125,7 @@ ModeManager::ModeManager(MotorControl* motor, CommInterface* primaryComm, OledDi
   g_2wd1mHandler.reset();
 }
 
-// v1.0.1 (owner OLED directive 2026-09-28): compute the CURRENT live link.
+// v1.0.1: compute the CURRENT live link.
 // Precedence: an actively-linked controller wins, then server reachability.
 ModeManager::LinkInfo ModeManager::currentLink() const {
   // Precedence: an actively-LINKED controller wins (WS client, then BT SPP);
@@ -209,7 +209,7 @@ void ModeManager::setExtraInfo(const char* info) {
     if (oled_) oled_->draw(statusText_, speed_, isConnectedNow(), getModeString(), extraInfo_);
     return;
   }
-  // U-72 (2026-10-02): THE OLED WAS NOT REPAINTED WHEN THE NETWORK CHANGED.
+  // U-72: THE OLED WAS NOT REPAINTED WHEN THE NETWORK CHANGED.
   //
   // `setExtraInfo()` used to copy the string and nothing else. The display was
   // repainted ONLY by unrelated events - sendState(), a command, a mode change -
