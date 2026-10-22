@@ -16,6 +16,7 @@ The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 + 1.3.15 all ride thi
 | Round | What you should notice |
 |---|---|
 | **Q1 (1.3.15)** | **The boot-hop is stopped.** Power-up stays on `4WD4MCar_WiFi` (`;AUTOJOIN=OFF`, serial `boot auto-join disabled - staying on own hotspot`); only the APP's smart-link joins a router. Opt back in with `WIFICFG;AUTOJOIN;ON` — rows Q1-1/Q1-2 in `DEVICE-TESTS.md` |
+| **U-120 B (1.3.15)** | **The Webpage toggle actually works.** The app's `WIFICFG;WIFI;PAGE;…` used to be swallowed by the earlier `;WIFI` branch (always `ERROR;Syntax`, so the switch snapped back to ON) — fixed; row **U-120-B** in `DEVICE-TESTS.md` |
 | **U-117 (1.3.14)** | **The webpage state is on every surface.** STATE carries `;PAGE=ON|OFF` (Bluetooth-only apps finally read it), `/status` keeps `page_on`, and a turned-OFF page stays OFF across a power cycle — the "toggle not working" report had one car half and one app half, and both are in this flash |
 | **P4 / item F (1.3.13)** | **The car REFUSES a second link it cannot afford.** Both links normally come up as before; under the old freeze window the second raise is held back, the incumbent keeps working, and `;LINKCAP=0` / `"link_cap":0` say why (serial: `[LINKCAP] …`) |
 | **P6 / item D (1.3.13)** | **The car keeps a bounded event log.** `LOG?` → `LOG;COUNT=…;CAP=12`; `LOG;GET;0` → newest-first `K,boot,ms,heap,reason,phase` events; `LOG;CLEAR` empties; `/status` `event_log_count` agrees. BOOT/FAULT/low-heap/link-refusal/link-edge events |

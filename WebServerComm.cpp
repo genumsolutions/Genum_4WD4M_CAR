@@ -129,8 +129,18 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     storedSsid_[0] = '\0';
     storedPass_[0] = '\0';
     snprintf(reply, sizeof(reply), "WIFICFG;CLEARED");
-  } else if (strncasecmp(rest, ";WIFI", 5) == 0) {
+  } else if (strncasecmp(rest, ";WIFI", 5) == 0 &&
+             strncasecmp(rest, ";WIFI;PAGE", 10) != 0) {
     // U-105: two transport toggles (Wi-Fi / Bluetooth)
+    //
+    // U-120 B (owner 2026-10-22: *"when i turn off it automatically toggles
+    // to on"*): the nested page verb WIFICFG;WIFI;PAGE;… also starts with
+    // ";WIFI" — without the guard on the condition above this branch
+    // swallowed EVERY page toggle and query (arg = ";PAGE;…", never
+    // ""/";?"/";ON"/";OFF"), the else answered WIFICFG;ERROR;Syntax, the
+    // car never changed, and the app's switch snapped back to car truth.
+    // The guard drops the form through to the PAGE branch below; the
+    // contract rule `page-state` pins both halves.
     // REPLACE the old parallel-links + space-power-save (APSAVE) switches —
     // their command branches, NVS keys and app settings are gone (removed as
     // "residues"). `WIFICFG;WIFI;ON|OFF` switches the Wi-Fi transport (own
@@ -202,12 +212,21 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     } else {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
     }
-  } else if (strncasecmp(rest, ";PAGE", 5) == 0) {
+  } else if (strncasecmp(rest, ";WIFI;PAGE", 10) == 0 ||
+             strncasecmp(rest, ";PAGE", 5) == 0) {
     // U-116: the webpage server (the car's web page at :80) is an
     // INDEPENDENT transport of the Wi-Fi transport. A user taps "turn
     // the webpage on or off" in the app and does NOT want the two
     // transport toggles (t_wifi / t_bt) to move.
-    const char* pageArg = rest + 5;  // "" | ";ON" | ";OFF" | "?"
+    //
+    // U-120 B: BOTH forms reach this handler —
+    //   WIFICFG;WIFI;PAGE;…  the app's form (guard past ;WIFI above),
+    //   WIFICFG;PAGE;…       the short console form.
+    // Before U-120 B only the short form matched, and every real sender uses
+    // the nested one, so the page toggle had NEVER reached this code.
+    const char* pageArg = (strncasecmp(rest, ";WIFI;PAGE", 10) == 0)
+                              ? rest + 10
+                              : rest + 5;  // "" | ";ON" | ";OFF" | ";?"
     if (pageArg[0] == '\0' ||
         (pageArg[0] == ';' &&
          (pageArg[1] == '?' || pageArg[1] == '\0'))) {

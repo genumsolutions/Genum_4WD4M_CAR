@@ -867,6 +867,26 @@ const mutants = [
     find: '    // Q1 (2026-10-22): a fresh start does NOT hop to a router.\n    bootAutojoin_ = false;',
     repl: '    // Q1 (2026-10-22): a fresh start does NOT hop to a router.\n    bootAutojoin_ = true;',
     why: "FACTORY;RESET returns a board that HOPS - a fresh start is supposed to be the virgin default (boot auto-join OFF), so the wipe's clean state is wrong again" },
+
+  // U-120 B (owner 2026-10-22, "when i turn off it automatically toggles to
+  // on"): the APP's page verb WIFICFG;WIFI;PAGE;… starts with ";WIFI" and the
+  // earlier ;WIFI branch swallowed it - every toggle/query answered
+  // ERROR;Syntax, the car never changed, and the app snapped back to car
+  // truth. Three claims of the `page-state` route extension, one mutant each.
+  { id: "M130", rule: "page-state", file: WSC,
+    find: '  } else if (strncasecmp(rest, ";WIFI", 5) == 0 &&\n             strncasecmp(rest, ";WIFI;PAGE", 10) != 0) {',
+    repl: '  } else if (strncasecmp(rest, ";WIFI", 5) == 0) {',
+    why: "the ;WIFI branch swallows the nested ;WIFI;PAGE form again - every page toggle/query answers ERROR;Syntax and the switch snaps back to car truth (the exact owner report)" },
+
+  { id: "M131", rule: "page-state", file: WSC,
+    find: '  } else if (strncasecmp(rest, ";WIFI;PAGE", 10) == 0 ||\n             strncasecmp(rest, ";PAGE", 5) == 0) {',
+    repl: '  } else if (strncasecmp(rest, ";PAGE", 5) == 0) {',
+    why: "the PAGE branch stops accepting the app's nested form - WIFICFG;WIFI;PAGE;… falls past every handler (worst case into the stored-SSID branch), so the page toggle can never reach its code" },
+
+  { id: "M132", rule: "page-state", file: WSC,
+    find: '    const char* pageArg = (strncasecmp(rest, ";WIFI;PAGE", 10) == 0)\n                              ? rest + 10',
+    repl: '    const char* pageArg = (strncasecmp(rest, ";WIFI;PAGE", 10) == 0)\n                              ? rest + 5',
+    why: "the PAGE branch reads the nested form from the wrong offset (pageArg = \";PAGE;…\") - ON/OFF/? all miss and the answer is ERROR;Syntax even though the branch matched" },
 ];
 
 // ---- runner -------------------------------------------------------------

@@ -22,6 +22,13 @@
       power-cycle: the probe runs (serial `[WIFICFG] boot: checking whether …`)
       and the car rejoins the saved router when it is present; `;AUTOJOIN=ON` on
       STATE and `boot_autojoin:1` in `/status`.
+- [ ] **U-120-B — ⭐ the Webpage switch ACTUALLY turns the page off (and does
+      not snap back).** Car + app on THIS flash: tap Webpage OFF in the Remote
+      settings → serial `[WIFICFG] web page OFF`, the browser gets the GHOST
+      page, `/status` `page_on:0`, and the app switch STAYS off — before this
+      flash every `WIFICFG;WIFI;PAGE;…` answered `ERROR;Syntax` (the switch
+      flipped back to ON by itself). The link-up query answers
+      `WIFICFG;WIFI;PAGE;OFF` too (U-117-2's acceptance, finally reachable).
 
 ## 2026-10-20 round — U-117/U-119: the page-server state is on the wire (flash **1.3.14** — DEVICE VERIFY PENDING)
 

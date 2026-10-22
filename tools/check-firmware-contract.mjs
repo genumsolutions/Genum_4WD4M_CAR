@@ -1114,6 +1114,20 @@ if (!mmStateLits.includes(";PAGE=%s")) {
   fail("page-state", "the boot load no longer reads NVS page_off - a turned-OFF page turns itself back ON at the next power cycle, which is exactly the toggle 'not working'");
 } else if (!/pageOff_\s*\|\|\s*pageServerMustBeHeld\(\)/.test(wscPlain)) {
   fail("page-state", "the serve path no longer gates on pageOff_ - WIFICFG;WIFI;PAGE would answer while the page keeps being served");
+} else if (!/strncasecmp\(rest, ";WIFI", 5\) == 0 &&[\s\S]{0,80}?strncasecmp\(rest, ";WIFI;PAGE", 10\) != 0/.test(wscPlain)) {
+  // U-120 B (owner 2026-10-22, "turn off -> it toggles back to on"): THE
+  // COMMAND'S ROUTE, not just the branch's existence. Every real sender (the
+  // app's set + link-up query) uses WIFICFG;WIFI;PAGE;…, which starts with
+  // ";WIFI" — with no guard the earlier ;WIFI branch swallowed it (arg =
+  // ";PAGE;…") and answered ERROR;Syntax, so the page handler NEVER ran on
+  // any firmware version. U-116..U-117 all shipped green over this hole:
+  // the rule pinned the branch, the STATE key and the serve gate, never the
+  // reachability of the wire form. Mutants M130-M132 prove the three claims.
+  fail("page-state", "the ;WIFI branch no longer excludes the nested ;WIFI;PAGE form - it swallows every page toggle/query and answers ERROR;Syntax, the dead-toggle bug again (U-120 B)");
+} else if (!/strncasecmp\(rest, ";WIFI;PAGE", 10\) == 0 \|\|[\s\n\r]*strncasecmp\(rest, ";PAGE", 5\)/.test(wscPlain)) {
+  fail("page-state", "the WIFICFG dispatcher has no branch accepting the app's form WIFICFG;WIFI;PAGE;… - the page toggle can never reach its handler");
+} else if (!/;WIFI;PAGE", 10\) == 0\)[\s\n\r]*\?[\s\n\r]*rest \+ 10/.test(wscPlain)) {
+  fail("page-state", "the PAGE branch no longer selects the rest+10 offset for the nested ;WIFI;PAGE form - pageArg points at \";PAGE;…\" so the set/query reads garbage and answers ERROR;Syntax");
 } else {
   pass("page-state", "the page-server state rides STATE (;PAGE=) and /status (page_on), survives a reboot (NVS page_off), and the serve path honours it");
 }

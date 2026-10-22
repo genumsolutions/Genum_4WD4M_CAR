@@ -45,6 +45,39 @@ half of the default.
 (rule `boot-hop-off` new) · webpage-js PASS · mutate-gates **123/123**
 (M127-M129 new, one per fact the rule pins).
 
+### Same flash — U-120 B (2026-10-22): the page toggle's command finally REACHES its handler
+
+Owner report (this round): *"the webpage toggle is not working, when i turn off
+it automatically toggles to on."* Root cause, source-proven and never
+bench-tested (F-61): **the app sends `WIFICFG;WIFI;PAGE;ON|OFF` (set) and
+`WIFICFG;WIFI;PAGE;?` (query) — and the dispatcher checked `;WIFI` (prefix,
+length 5) BEFORE `;PAGE`, so every page command landed in the Wi-Fi-transport
+branch with `arg = ";PAGE;…"`, matched none of `""`/`;?`/`;ON`/`;OFF`, and
+answered `WIFICFG;ERROR;Syntax`.** The PAGE handler added by U-116 was
+reachable only via the bare `WIFICFG;PAGE;…` form — which NOTHING in the fleet
+sends (app, records and tests all use the nested form). So the toggle had never
+worked on ANY firmware version: the app painted its optimistic OFF, then the
+car's `;PAGE=ON` STATE truth snapped it back — exactly the report. Rounds of
+gates (`page-state` mutants M123-M126 included) pinned the branch's EXISTENCE,
+the STATE key, the NVS load and the serve gate — never the REACHABILITY of the
+wire form.
+
+**Fix.**
+- The `;WIFI` branch condition now excludes the nested form
+  (`strncasecmp(rest, ";WIFI;PAGE", 10) != 0`) so `;WIFI;PAGE;…` falls through
+  to the PAGE branch.
+- The PAGE branch accepts BOTH forms and selects `pageArg` at the matching
+  offset (`rest + 10` nested / `rest + 5` short). Reply shape unchanged
+  (`WIFICFG;WIFI;PAGE;%s`), NVS `page_off` write unchanged, app parser
+  unchanged.
+- Contract rule **`page-state` extended** with the three route claims (guard ·
+  form · offset) + mutants **M130-M132**. App twin pin: `pageToggle.test.ts`
+  now requires the PAGE reply branch to PRECEDE the generic `WIFICFG;WIFI;`
+  branch (the mirror trap on the app side), mutation-proven.
+
+**Gates:** contract 0 failures · webpage-js PASS · mutate-gates **126/126** ·
+syntax 9/9. Device row **U-120-B** (unticked, F-61).
+
 ## UNRELEASED — 1.3.14 (U-117/U-118, 2026-10-20): the page-server state rides the STATE line — a Bluetooth-only app can finally READ the webpage toggle
 
 **UNFLASHED (F-61).** Owner report: *"the webpage toggle off button is not
