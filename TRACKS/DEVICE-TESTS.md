@@ -3,6 +3,26 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-10-22 round — Q1–Q3 close-out (flash **1.3.15** — DEVICE VERIFY PENDING)
+
+> Owner confirmed the Q1–Q3 defaults (2026-10-22): Q1 = remove the toggle (done
+> in P3) **and stop the firmware boot-hop** — this flash. Q2/Q3 are app-side pins
+> (`remoteChrome.test.ts` / `bothLinksDrive.test.ts`) with no bench row of their
+> own; Q3's device half stays **U-113-14** (both links, no double-apply).
+> **Nothing below is device-verified (F-61).**
+
+**Car rows (this file):**
+
+- [ ] **Q1-1 — ⭐ the boot-hop is gone.** After the flash, re-add your router
+      (the version wipe cleared it) and power-cycle: `WIFICFG;AUTOJOIN` answers
+      `OFF`, serial logs `[WIFICFG] boot auto-join disabled - staying on own
+      hotspot`, STATE carries `;AUTOJOIN=OFF`, and the car does NOT rejoin the
+      router — it stays reachable on `4WD4MCar_WiFi`.
+- [ ] **Q1-2 — the opt-in still hops honestly.** Send `WIFICFG;AUTOJOIN;ON`,
+      power-cycle: the probe runs (serial `[WIFICFG] boot: checking whether …`)
+      and the car rejoins the saved router when it is present; `;AUTOJOIN=ON` on
+      STATE and `boot_autojoin:1` in `/status`.
+
 ## 2026-10-20 round — U-117/U-119: the page-server state is on the wire (flash **1.3.14** — DEVICE VERIFY PENDING)
 
 > Owner: *"the webpage toggle off button is not working."* The car already had

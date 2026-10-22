@@ -26,7 +26,7 @@ factory-reset that clears the whole namespace.
 | `rnet0s`..`rnet5s`, `rnet0p`..`rnet5p` | 6 saved routers (SSID/PASS) | **wipe** |
 | `t_wifi` | Wi-Fi transport toggle | **wipe → default ON** |
 | `t_bt` | Bluetooth transport toggle | **wipe → default ON** |
-| `boot_autojoin` | join last router at power-up | **wipe → default ON** |
+| `boot_autojoin` | join last router at power-up | **wipe → default OFF** (Q1, 1.3.15 — the stopped boot-hop) |
 | `mode` | last mode id | **wipe → default `4WD4M`** |
 | `spd` | last speed | **wipe → default** |
 | `relay_token` | cloud-relay token (if ever provisioned) | **wipe** |

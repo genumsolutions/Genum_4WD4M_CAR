@@ -27,7 +27,8 @@
 > so a re-flash starts clean (BLUETOOTH/Wi-Fi both ON). `last_ok_ssid/
 > pass` are now **informational** — boot auto-join reads the last-SWITCHED `wifi_ssid`, not the
 > last-good pair. U-105: `t_wifi`/`t_bt` (default ON, never both off) and `boot_autojoin` (default
-> ON) replaced the removed `ap_psave`/`allow_parallel`/`last_transport` keys.
+> **OFF** since Q1/1.3.15 — the stopped boot-hop; was ON at U-105) replaced the removed
+> `ap_psave`/`allow_parallel`/`last_transport` keys.
 >
 > **(P2, same release.)** The OLED extra row and the WS bit both used `EXTRA_INTERVAL`; they are now
 > two ticks — `EXTRA_INTERVAL` (extra row) 500 ms and `STATUS_INTERVAL` (broadcast) 1000 ms — so the

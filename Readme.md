@@ -1,4 +1,4 @@
-Version 1.3.13
+Version 1.3.15
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -20,7 +20,7 @@ no donor tags** (fresh git history, owner ruling R-2). The donor repo remains un
 | Bluetooth SPP name | **`4WD4M Car`** (PIN 1234) — `Config.h` `BT_SPP_NAME` (U-110: renamed from `4WD CAR` so the phone list, the OLED and the app match; re-pair once after the change) |
 | Wi-Fi AP SSID | **`4WD4MCar_WiFi`** (open) — `Config.h` `WIFI_AP_NAME` (1.3.5: the ONE own-hotspot name fleet-wide; the donor `WirelessCar_Wifi` and the older `4WDCar_Wifi` are fully removed) |
 | AP subnet | **192.168.245.1/24** (NOT 192.168.4.x — phone-side subnet collision is a proven past bug; the .244 subnet belongs to the WIRELESS car so two cars can coexist) |
-| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.13` — `Config.h` |
+| FW_NAME / FW_VERSION | `4WD4M Car` / `1.3.15` — `Config.h` |
 
 ## 3. Modes (fleet 9-token registry + CAPS)
 
@@ -80,6 +80,17 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **1.3.15 (2026-10-22, Q1–Q3 close-out)** — **the firmware boot-hop is
+  STOPPED.** `botcfg/boot_autojoin` defaults OFF (and FACTORY;RESET follows), so
+  a power-up stays on the own hotspot and only the app's smart-link joins a
+  router; the `WIFICFG;AUTOJOIN` verb, STATE `;AUTOJOIN=` and `/status
+  boot_autojoin` stay honest (console opt-in keeps the probe-first rejoin).
+  `check-webpage-js.mjs` pins the new default. Q2/Q3 (telemetry-first drop ·
+  both-links fan-out) are app-side pins, no firmware byte. **UNFLASHED (F-61)**
+  — owner flash target; device rows Q1-1/Q1-2.
+- **1.3.14 (2026-10-20, U-117/U-118)** — the page-server state rides the STATE
+  line (`;PAGE=ON|OFF` + public `pageServerIsOn()`), contract rule `page-state`.
+  See `TRACKS/CHANGELOG.md`. **UNFLASHED (F-61)**.
 - **1.3.13 (2026-10-17, P4 / item F)** — **the car REFUSES a second link it
   cannot afford**, so multi-connect can no longer starve the run-time (the
   2026-10-17 owner report: connecting BOTH links at once can freeze/reset the
@@ -189,7 +200,7 @@ gitignored, never committed; the sketch compiles without it).
   (`WIFICFG;PARALLEL` / `WIFICFG;APSAVE`, NVS `allow_parallel` / `ap_psave`, members `allowParallel_`
   / `apPowerSave_`) is REMOVED per owner ruling and replaced by **`WIFICFG;WIFI;ON|OFF`** (NVS
   `botcfg/t_wifi`), **`WIFICFG;BT;ON|OFF`** (NVS `botcfg/t_bt`), **`WIFICFG;AUTOJOIN;ON|OFF`** (NVS
-  `botcfg/boot_autojoin`). All three default ON; both transport toggles are clamped so they can never
+  `botcfg/boot_autojoin`). Wi-Fi + Bluetooth default ON; boot auto-join defaults OFF since Q1 (1.3.15 — the stopped boot-hop); both transport toggles are clamped so they can never
   both be OFF (handler, `loadStoredWifi()`, and the U-79 loop each enforce it). Both transports stay
   up SIMULTANEOUSLY when enabled — the "one client powers the other down" teardown
   (`saveLastTransport`/`LastTransport`/grace timer) is gone. (b) `updateApPowerPolicy()` was rewritten

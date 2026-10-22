@@ -1,6 +1,6 @@
-# RUNSHEET — flash 1.3.14 + the U-117/U-116 device pass
+# RUNSHEET — flash 1.3.15 + the U-117/U-116 + Q1 device pass
 
-> One sheet for the owner's next bench session. Firmware **1.3.14** (UNFLASHED;
+> One sheet for the owner's next bench session. Firmware **1.3.15** (UNFLASHED;
 > **1.3.11 IS on the car**) + app **3.2.7 / versionCode 60** (unchanged this
 > round — every app phase is JS-only and rides the OTA channel).
 > Tick the rows in the row sheets as you go: car `TRACKS/DEVICE-TESTS.md`
@@ -9,12 +9,13 @@
 > U-118-1..4, U-119-1, then U-116-1..9, 13, 16..20).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
-## 0 · What this one flash carries (1.3.11 → 1.3.14)
+## 0 · What this one flash carries (1.3.11 → 1.3.15)
 
-The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 all ride this flash:
+The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 + 1.3.15 all ride this flash:
 
 | Round | What you should notice |
 |---|---|
+| **Q1 (1.3.15)** | **The boot-hop is stopped.** Power-up stays on `4WD4MCar_WiFi` (`;AUTOJOIN=OFF`, serial `boot auto-join disabled - staying on own hotspot`); only the APP's smart-link joins a router. Opt back in with `WIFICFG;AUTOJOIN;ON` — rows Q1-1/Q1-2 in `DEVICE-TESTS.md` |
 | **U-117 (1.3.14)** | **The webpage state is on every surface.** STATE carries `;PAGE=ON|OFF` (Bluetooth-only apps finally read it), `/status` keeps `page_on`, and a turned-OFF page stays OFF across a power cycle — the "toggle not working" report had one car half and one app half, and both are in this flash |
 | **P4 / item F (1.3.13)** | **The car REFUSES a second link it cannot afford.** Both links normally come up as before; under the old freeze window the second raise is held back, the incumbent keeps working, and `;LINKCAP=0` / `"link_cap":0` say why (serial: `[LINKCAP] …`) |
 | **P6 / item D (1.3.13)** | **The car keeps a bounded event log.** `LOG?` → `LOG;COUNT=…;CAP=12`; `LOG;GET;0` → newest-first `K,boot,ms,heap,reason,phase` events; `LOG;CLEAR` empties; `/status` `event_log_count` agrees. BOOT/FAULT/low-heap/link-refusal/link-edge events |
@@ -35,7 +36,7 @@ bench pass below verifies them, not re-flashes them:
 | app P1..P3, P6, P7 (OTA) | the 14-issue Remote/UX + dual-link + persistence work (rows in `mobile/TESTING.md`) |
 
 ⚠ A firmware-version change wipes the saved routers + transport toggles on the
-first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join ON,
+first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join OFF (Q1),
 no router saved. Re-add your router in Step 5.
 
 ## 1 · Flash 1.3.13 (USB)
@@ -203,13 +204,14 @@ fix, so none can name this report's cause. If the car freezes:
 
 ## 10 · Still open after the pass
 
-- **Q1–Q3** (owner decisions — defaults chosen, say the word to change):
-  - **Q1** (issue 12): remove the auto-join-last-router toggle AND stop the firmware
-    boot-hop? Default = **both**.
-  - **Q2** (issue 2): if the merged row overflows on a narrow phone, drop the
-    telemetry fields FIRST and keep the chips + pills? Default = **yes**.
-  - **Q3** (issue 1): with both links live, drive over BOTH (current fan-out,
-    idempotent) or one primary? Default = **both**.
+- **Q1–Q3 — DECIDED and implemented 2026-10-22** (owner confirmed the defaults,
+  no further word needed):
+  - **Q1:** toggle removed (P3) + firmware boot-hop **STOPPED in 1.3.15**
+    (`boot_autojoin` default OFF) — bench rows **Q1-1/Q1-2** in `DEVICE-TESTS.md`.
+  - **Q2:** the merged row drops the telemetry fields FIRST at `width < 700` —
+    pinned in the app (`remoteChrome.test.ts`), no bench row.
+  - **Q3:** both-links fan-out, no primary link — pinned in the app
+    (`bothLinksDrive.test.ts`); the device half stays **U-113-14**.
 - **DB Phase 7c migration** — owner runs
   `genumsolutions-website/supabase/migrations/20261013120000_phase7c_fresh_start_cleanup.sql`
   in the Supabase SQL editor (replace `owner_user_id` first).

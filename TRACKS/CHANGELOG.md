@@ -8,7 +8,41 @@ made `Config.h` hard to read, diff and blame. The notes were worth keeping; the
 one-line dump was not. `Config.h:10` remains the source of truth for the value.
 
 > UNFLASHED. Everything from 1.2.4 down was source-only when written; the bench
-> car was still on an older build. See `TRACKS/NEXT-SESSION.md`.
+> car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
+> the current resume point.
+
+## UNRELEASED — 1.3.15 (Q1–Q3 close-out, 2026-10-22): the firmware boot-hop is STOPPED
+
+**Owner decisions confirmed 2026-10-22 — implement the Q1–Q3 defaults, no
+confirmation needed.** Q1's UI half had already landed (P3, 2026-10-15: the Remote
+panel's "Boot auto-join (car)" switch removed); this flash carries the FIRMWARE
+half of the default.
+
+- **Q1 — the car no longer hops to a router at power-up.** `botcfg/boot_autojoin`
+  now defaults **OFF** (`loadStoredWifi()`: `getBool("boot_autojoin", false)`) and
+  `FACTORY;RESET`'s RAM default follows. Boot stays on the own hotspot; the only
+  auto-join left is the APP's smart-link (`ROUTERS;USE` on car selection). The
+  verb is honest, not dead: `WIFICFG;AUTOJOIN;ON|OFF` still works (console
+  opt-in), STATE `;AUTOJOIN=` and `/status boot_autojoin` still report the truth,
+  and `armBootAutoJoin()` keeps its U-115 probe-first shape for an opted-in car.
+  `wipeRoutersOnFreshFirmware()` already removes the key on every version change,
+  so THIS flash boots AP-only regardless of any previously stored value.
+- **Gate:** `check-webpage-js.mjs` flips with it — `getBool("boot_autojoin",
+  false)` is the pinned form now and the FAIL text names Q1, so a default back to
+  ON fails the gate. `boot-scan-first` and `settings-round-trip` stay green
+  untouched (function shape and the verb's round-trip are unchanged).
+- **Q2/Q3 are app-side pins, no firmware byte** — recorded here because the
+  decisions close with this flash: Q2 pins the merged row's telemetry-first drop
+  (`MERGED_ROW_TELEMETRY_MIN_PX`; app `remoteChrome.test.ts` — exactly ONE width
+  gate, wrapping TelemetryLine); Q3 pins the both-links fan-out with
+  `chosenRadio: null` and proves no relative token (MODECYCLE) can ride it, so a
+  duplicate copy cannot double-apply (app, new `bothLinksDrive.test.ts`,
+  mutation-proven both directions).
+- `FW_VERSION` 1.3.14 → **1.3.15**.
+
+**Status: source-level only (F-61).** Device rows: `TRACKS/DEVICE-TESTS.md`
+**Q1-1..2** (unticked). Gates at this commit: syntax 9/9 · contract 0 failures ·
+webpage-js PASS · mutate-gates PENDING (recorded in the push commit).
 
 ## UNRELEASED — 1.3.14 (U-117/U-118, 2026-10-20): the page-server state rides the STATE line — a Bluetooth-only app can finally READ the webpage toggle
 

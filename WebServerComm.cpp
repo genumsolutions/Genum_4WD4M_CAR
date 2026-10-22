@@ -184,8 +184,9 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
     }
   } else if (strncasecmp(rest, ";AUTOJOIN", 9) == 0) {
     // `WIFICFG;AUTOJOIN;ON|OFF` — boot auto-join the last-switched router
-    // (U-98). Default ON; persisted to NVS `botcfg/boot_autojoin`. The .ino's
-    // boot path and the U-79 resume path both honor it via armBootAutoJoin().
+    // (U-98). Default OFF since Q1 (owner 2026-10-22: stop the firmware
+    // boot-hop); persisted to NVS `botcfg/boot_autojoin`. The .ino's boot path
+    // and the U-79 resume path both honor it via armBootAutoJoin().
     const char* arg = rest + 9;  // "" | ";ON" | ";OFF" | ";?"
     if (arg[0] == '\0' || (arg[0] == ';' && (arg[1] == '?' || arg[1] == '\0'))) {
       snprintf(reply, sizeof(reply), "WIFICFG;AUTOJOIN;%s", bootAutojoin_ ? "ON" : "OFF");
@@ -347,7 +348,8 @@ bool WebServerComm::handleFactoryCommand(const char* cmd) {
     }
     wifiEnabled_ = true;
     btEnabled_ = true;
-    bootAutojoin_ = true;
+    // Q1 (2026-10-22): a fresh start does NOT hop to a router.
+    bootAutojoin_ = false;
     configEpoch_ = 0;
     crashLogResetCounters();
     Serial.println("[FACTORY] botcfg namespace cleared - fresh start");
@@ -473,14 +475,22 @@ void WebServerComm::loadStoredWifi() {
   prefs.getString("last_ok_ssid", lastGoodSsid_, sizeof(lastGoodSsid_));
   prefs.getString("last_ok_pass", lastGoodPass_, sizeof(lastGoodPass_));
   // U-105 (1.3.5): the two transport toggles + the boot auto-join switch.
-  // Absent on a virgin board -> ALL true: a first-flash car is open on both
-  // transports at once (owner: *"for the first flash please allow both to
-  // connect by opening both methods"*). The old parallel (allow_parallel) and
-  // power-save (ap_psave) keys are gone; leftover values are wiped by
+  // The transports default true on a virgin board: a first-flash car is open
+  // on both transports at once (owner: *"for the first flash please allow both
+  // to connect by opening both methods"*). The old parallel (allow_parallel)
+  // and power-save (ap_psave) keys are gone; leftover values are wiped by
   // wipeRoutersOnFreshFirmware() (residue cleanup).
+  //
+  // Q1 (owner, 2026-10-22 — default = BOTH halves of the question): the boot
+  // auto-join now defaults OFF. The firmware does NOT hop to the last-used
+  // router at power-up any more; the app's smart-link is the only auto-join
+  // that joins a router. The verb stays honest: WIFICFG;AUTOJOIN;ON opts back
+  // in (console), STATE ;AUTOJOIN= and /status boot_autojoin report the truth,
+  // and wipeRoutersOnFreshFirmware() removes any stored choice on the next
+  // flash, so a re-flash boots AP-only.
   wifiEnabled_ = prefs.getBool("t_wifi", true);
   btEnabled_ = prefs.getBool("t_bt", true);
-  bootAutojoin_ = prefs.getBool("boot_autojoin", true);
+  bootAutojoin_ = prefs.getBool("boot_autojoin", false);
   // U-116 (owner 2026-10-19: the app's webpage toggle "is not turning off
   // the car's own webpage"): the PAGE verb and setPageOff() PERSIST
   // `page_off` (and stop() re-persists it), but nothing ever READ it back
@@ -625,7 +635,8 @@ bool WebServerComm::wipeRoutersOnFreshFirmware() {
   w.remove("last_ok_pass");
   w.remove("last_transport");
   // U-105: a fresh install returns transport config to its clean defaults
-  // (Wi-Fi ON, Bluetooth ON, boot auto-join ON). The retired switches are
+  // (Wi-Fi ON, Bluetooth ON, boot auto-join OFF — Q1 2026-10-22: the removed
+  // key means the default applies, so a re-flash never boot-hops). The retired switches are
   // erased too: `ap_psave` / `allow_parallel` from U-100 (and any partial
   // write of the new keys), so no residue from an older firmware can survive.
   w.remove("t_wifi");
@@ -2103,6 +2114,11 @@ void WebServerComm::saveLastGoodRouter() {
 }
 
 void WebServerComm::armBootAutoJoin() {
+  // Q1 (owner, 2026-10-22): the DEFAULT is now to stay put — boot does not hop
+  // to the last-used router unless the owner explicitly opted in with
+  // WIFICFG;AUTOJOIN;ON. Everything below (the U-115 probe-first shape) is
+  // unchanged so an opted-in car still rejoins honestly, and a refusal can
+  // never strand the join.
   // U-98 (2026-10-11, owner: *"the car should always go to the last switched
   // router network always; if it is not available it should show its own router
   // for the user to connect or control through the car's own webpage"*).

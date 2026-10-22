@@ -691,10 +691,13 @@ if (!/getBool\(\s*"t_bt"\s*,\s*true\s*\)/.test(fw)) {
   );
   bad++;
 }
-if (!/getBool\(\s*"boot_autojoin"\s*,\s*true\s*\)/.test(fw)) {
+// Q1 (owner 2026-10-22): the boot auto-join is the OPPOSITE default - the
+// car must NOT hop to a router at power-up; only the app's smart-link joins.
+if (!/getBool\(\s*"boot_autojoin"\s*,\s*false\s*\)/.test(fw)) {
   console.error(
-    "FAIL: the boot auto-join toggle does not default to ON in loadStoredWifi() " +
-      "(U-105)",
+    "FAIL: the boot auto-join toggle does not default to OFF in loadStoredWifi() " +
+      "(Q1, owner 2026-10-22: the firmware must not boot-hop - only the " +
+        "app's smart-link joins a router)",
   );
   bad++;
 }
