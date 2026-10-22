@@ -849,6 +849,24 @@ const mutants = [
     find: '       "\\"page_on\\":%d,"\n       "\\"event_log_count\\":%lu"',
     repl: '       "\\"event_log_count\\":%lu"',
     why: "the /status JSON no longer carries page_on - the web transport cannot read the page-server state, so an app on Wi-Fi holds a stale panel" },
+
+  // Q1 (owner 2026-10-22): the firmware boot-hop is STOPPED by default. Three
+  // source facts carry the claim (load default, arm guard, factory default) —
+  // each gets a mutant so the contract rule `boot-hop-off` cannot go decorative.
+  { id: "M127", rule: "boot-hop-off", file: WSC,
+    find: '  bootAutojoin_ = prefs.getBool("boot_autojoin", false);',
+    repl: '  bootAutojoin_ = prefs.getBool("boot_autojoin", true);',
+    why: "the boot auto-join load default flips back ON - a power-up hops to the last-used router again, undoing Q1 (the owner's stopped boot-hop)" },
+
+  { id: "M128", rule: "boot-hop-off", file: WSC,
+    find: '  if (!bootAutojoin_) {\n    FW_LOG_VERBOSE("[WIFICFG] boot auto-join disabled - staying on own hotspot\\n");\n    return;\n  }',
+    repl: '  if (false) {\n    FW_LOG_VERBOSE("[WIFICFG] boot auto-join disabled - staying on own hotspot\\n");\n    return;\n  }',
+    why: "armBootAutoJoin() stops honouring the flag - WIFICFG;AUTOJOIN;OFF reads OFF and still hops, and the stopped default changes nothing (a lying switch)" },
+
+  { id: "M129", rule: "boot-hop-off", file: WSC,
+    find: '    // Q1 (2026-10-22): a fresh start does NOT hop to a router.\n    bootAutojoin_ = false;',
+    repl: '    // Q1 (2026-10-22): a fresh start does NOT hop to a router.\n    bootAutojoin_ = true;',
+    why: "FACTORY;RESET returns a board that HOPS - a fresh start is supposed to be the virgin default (boot auto-join OFF), so the wipe's clean state is wrong again" },
 ];
 
 // ---- runner -------------------------------------------------------------

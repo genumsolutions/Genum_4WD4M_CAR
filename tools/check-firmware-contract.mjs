@@ -1231,6 +1231,26 @@ if (!wifiBr || !btBr || !ajBr) {
   pass("settings-round-trip", "each toggle persists to NVS before it is acked, answers with the state it holds, is reported on both the STATE line and the /status JSON, and the last-transport-off clamp stands");
 }
 
+// Q1 (owner, 2026-10-22 — both halves of the default): THE FIRMWARE BOOT-HOP IS
+// STOPPED. A power-up with no explicit opt-in must stay on the own hotspot —
+// only the app's smart-link joins a router. Three source facts carry that: the
+// NVS READ defaults false, armBootAutoJoin() still honours the flag (so
+// WIFICFG;AUTOJOIN;OFF can never be a lying switch, and ON still works), and
+// FACTORY;RESET returns a virgin board to that default. check-webpage-js.mjs
+// pins the load default independently with its own FAIL text (companion gate,
+// same claim, two harnesses — mutants M127-M129 prove this one).
+if (!/getBool\s*\(\s*"boot_autojoin"\s*,\s*false\s*\)/.test(wscPlain)) {
+  fail("boot-hop-off", "loadStoredWifi() no longer defaults boot_autojoin to OFF - the car hops to a router at power-up again, undoing Q1 (only the app's smart-link may join a router)");
+} else if (!bootArmBody) {
+  fail("boot-hop-off", "could not locate WebServerComm::armBootAutoJoin() - check this rule still matches the code");
+} else if (!/if\s*\(\s*!bootAutojoin_\s*\)/.test(bootArmBody)) {
+  fail("boot-hop-off", "armBootAutoJoin() no longer honours bootAutojoin_ - WIFICFG;AUTOJOIN;OFF becomes a switch that reads one way and does nothing, and the stopped default has no effect");
+} else if (!/bootAutojoin_ = false;/.test(wscPlain)) {
+  fail("boot-hop-off", "FACTORY;RESET no longer restores the virgin-board default (boot auto-join OFF) - a fresh start would hop to a router again");
+} else {
+  pass("boot-hop-off", "boot auto-join defaults OFF and is honoured (load default + arm guard + factory default): a power-up stays on the own hotspot unless WIFICFG;AUTOJOIN;ON opted in");
+}
+
 // The one thing this gate cannot check is the thing that matters most: that a
 // real car answers. That is the owner's bench, not a laptop.
 console.log("\nfirmware-contract: source checks only - no radio was touched, no car was asked.");
