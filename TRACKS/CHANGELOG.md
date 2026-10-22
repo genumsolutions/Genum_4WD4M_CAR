@@ -41,8 +41,9 @@ half of the default.
 - `FW_VERSION` 1.3.14 → **1.3.15**.
 
 **Status: source-level only (F-61).** Device rows: `TRACKS/DEVICE-TESTS.md`
-**Q1-1..2** (unticked). Gates at this commit: syntax 9/9 · contract 0 failures ·
-webpage-js PASS · mutate-gates PENDING (recorded in the push commit).
+**Q1-1..2** (unticked). Gates at this commit: syntax 9/9 · contract 0 failures
+(rule `boot-hop-off` new) · webpage-js PASS · mutate-gates **123/123**
+(M127-M129 new, one per fact the rule pins).
 
 ## UNRELEASED — 1.3.14 (U-117/U-118, 2026-10-20): the page-server state rides the STATE line — a Bluetooth-only app can finally READ the webpage toggle
 
