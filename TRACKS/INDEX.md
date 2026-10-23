@@ -4,6 +4,20 @@
 > this repo). Cross-project ledger: workspace `guide/GUIDE.md`. Master plan:
 > `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md`.
 
+**Status (2026-10-23 — U-120 round CLOSED, CI REPAIRED):** the "compile error" that blocked
+the owner's device test was **GitHub CI infrastructure, not the firmware** —
+`arduino/compile-sketches@v1` on `ubuntu-latest` (Ubuntu 26.04) fails before building (no
+Python 3.12.4 for 26.04), so every push since 2026-10-22 13:14 went red in ~16 s with the
+sketch never compiled. Fix `47920aa` pins the compile job to `ubuntu-24.04`; the real build
+now passes LOCALLY (exact flashed fqbn `esp32:esp32:esp32:PartitionScheme=huge_app`, core
+3.3.12 — **1,823,174 B / 57% flash, 79,316 B / 24% RAM**) and on CI (run `39900003615`,
+4m19s). Webpage toggle re-verified end-to-end (dispatcher guard → both-form PAGE branch →
+NVS → serve gate → `;PAGE=` on STATE) — the fix is in **1.3.15, which the owner must FLASH**;
+app↔car wire facts for U-120 C/D/E all confirmed present (`WIFICFG;WIFI;PAGE`, `ROUTERS;USE`,
+`ROUTERS;SCAN` explicit-only, `STATE ;IP=`). Final gates: syntax 9/9 · contract 0 · webpage-js
+PASS · **mutate 126/126** · CI green. Open: the owner's BENCH PASS (rows Q1-1/Q1-2/U-120-B,
+unticked, F-61). Detail: `TRACKS/SESSION-2026-10-22-U120.md` §2026-10-23.
+
 **Status (2026-09-28, later session — NO FIRMWARE CHANGE):** Phase 0 + Phase 1 DONE, CI GREEN. v2
 architecture LIVE in firmware:
 **Wi-Fi = always-on connection/setup channel (AP `4WD4MCar_WiFi` @ 192.168.245.1/24 + HTTP :80 +
