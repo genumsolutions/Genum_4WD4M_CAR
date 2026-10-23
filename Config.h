@@ -20,7 +20,7 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.15"  // see TRACKS/CHANGELOG.md
+#define FW_VERSION "1.3.16"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 
 // ---- T66 (round-9) · U-114: the telemetry-parameter config surface ----
@@ -219,3 +219,35 @@ constexpr char WIFI_AP_IP[] = "192.168.245.1";
 // How long beginStation() waits for a STORED router before the own AP is
 // declared the network (the hotspot itself is up the whole time — T-65).
 constexpr uint32_t WIFI_STA_TIMEOUT_MS = 8000u;
+
+// U-121 Phase C: default SPP (`btEnabled_`) ON so the car's car-IP coupling
+// path begins from a Bluetooth-first reachability posture and the app's
+// Connectivity panel can pick the method up as a read-only fact.
+constexpr bool DEFAULT_BT_ENABLED = true;
+
+// U-121 Phase C: default Wi-Fi station (`wifiEnabled_`) ON so a phone on the
+// car's own hotspot can raise the STA transport on demand, and the app's
+// Connectivity panel can pick the method up as a read-only fact.
+constexpr bool DEFAULT_WIFI_ENABLED = true;
+
+// U-121 Phase C: the FREEZE question on the firmware side.
+//
+// The owner's report (BT ON, Wi-Fi drops, heap collapses to ~15 KB, the car
+// still shows a link) is a heap-churn / reachability observation the app's
+// silence detector (`isCarSilent`) can see but not reproduce by itself. The
+// firmware half of that same question is: does the U-79 transport-power path
+// even ATTEMPT a Wi-Fi STA raise while BT is freshly active? This flag is the
+// only compile-time place that records the answer's shape: the shipped default
+// poses the question and does NOT attempt the raise; the bench build for the
+// question answers it by defining it true.
+//
+// Default is false for the released build. Do not flip for feature work. The
+// only thing the flag controls is whether the U-79 loop is built with the
+// BT-then-STA-raise attempt in scope; it never changes the shipped default
+// transport posture (both transports default ON and the user raises what they
+// want). Gate rule `bt-sta-from-bt-active` pins the default and the single
+// definition site; the next records line in TRACKS/CHANGELOG.md carries one
+// sentence on why the flag exists and what set it.
+const bool BT_STA_FROM_BT_ACTIVE_FREEZE_QUESTION = false;
+
+// ===== Motor / servo / trim pins =====

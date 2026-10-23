@@ -1083,6 +1083,48 @@ if (!linkFloor) {
   pass("link-admission", "the car refuses a SECOND link below LINK_ADMISSION_FLOOR_BYTES, keeps the incumbent, and reports the verdict on the STATE line and in /status");
 }
 
+// U-121 Phase E (owner 2026-10-23 — "the heap drops from 109 KB to 15 KB if
+// the Bluetooth is turned on and the WiFi drop after that and the car
+// freezes"): the STA RETRY loop is the churn that eats the last kilobytes.
+// With the BT stack engaged the free heap sits at the 13-20 kB field floor,
+// and every WiFi.disconnect()+WiFi.begin() cycle (spaced
+// WIFI_RETRY_INTERVAL_MS, capped at STA_MAX_RETRIES) runs a fresh
+// association transient above it until the allocation never happens and
+// loop() locks up — the freeze. The retry is now HEAP-GATED: below
+// STA_RETRY_HEAP_FLOOR_BYTES the attempt is DEFERRED — the capped budget and
+// the backoff stamp are untouched, so the retry resumes the pass the heap
+// recovers (e.g. once BT goes away) and the give-up settlement still follows
+// a genuinely spent budget. The defer is logged once per arm, never per pass.
+// Mutants M133-M136 in mutate-gates.mjs prove every clause.
+{
+  const staFloorM = wsh.match(/#define\s+STA_RETRY_HEAP_FLOOR_BYTES\s+(\d+)ul/);
+  const staFloor = staFloorM ? Number(staFloorM[1]) : 0;
+  const linkFloorM2 = wsh.match(/#define\s+LINK_ADMISSION_FLOOR_BYTES\s+(\d+)ul/);
+  const linkFloor2 = linkFloorM2 ? Number(linkFloorM2[1]) : 0;
+  // stripComments keeps STRING LITERALS (the defer log is one); code() blanks
+  // them, which is exactly how this rule first failed on green source.
+  const wscView = stripComments(wsc);
+  const retryAt = wscView.indexOf("staRetryCount_ < staRetryCap_");
+  const retryBlock = retryAt >= 0 ? wscView.slice(retryAt, retryAt + 2500) : "";
+  if (!staFloor) {
+    fail("sta-retry-heap", "STA_RETRY_HEAP_FLOOR_BYTES is not defined in WebServerComm.h - the STA retry loop has no heap floor and churns WiFi.begin() into a starved heap again (the BT-on + Wi-Fi-drop freeze)");
+  } else if (linkFloor2 && staFloor < linkFloor2) {
+    fail("sta-retry-heap", `STA_RETRY_HEAP_FLOOR_BYTES (${staFloor}) sits BELOW LINK_ADMISSION_FLOOR_BYTES (${linkFloor2}) - a router join costs at least as much as a standing second link, so its cushion must be too`);
+  } else if (!retryBlock) {
+    fail("sta-retry-heap", "could not locate the capped STA retry branch in handle() - check this rule still matches the code");
+  } else if (!/ESP\.getFreeHeap\(\)\s*<\s*STA_RETRY_HEAP_FLOOR_BYTES/.test(retryBlock)) {
+    fail("sta-retry-heap", "the STA retry branch no longer compares the free heap against STA_RETRY_HEAP_FLOOR_BYTES - below-floor churn is back and the freeze with it");
+  } else if (!retryBlock.includes("[REJOIN] retry deferred")) {
+    fail("sta-retry-heap", "the below-floor defer is silent - a deferred rejoin with no log is indistinguishable from a broken one (U-75 rule: name the step)");
+  } else if (!/if\s*\(!staRetryDeferLogged_\)/.test(retryBlock)) {
+    fail("sta-retry-heap", "the defer log is not one-shot - a long Bluetooth session would print a line every WIFI_RETRY_INTERVAL_MS forever (noise, not diagnostics)");
+  } else if (!/else\s*\{\s*staRetryDeferLogged_\s*=\s*false;\s*lastWifiRetryMs_\s*=\s*now;\s*staRetryCount_\+\+;/s.test(retryBlock)) {
+    fail("sta-retry-heap", "the retry no longer runs only in the ABOVE-floor branch with its budget stamp - the defer consumes the capped budget/backoff, so a long starvation exhausts the retries and settles AP-only for no real attempt");
+  } else {
+    pass("sta-retry-heap", `the STA retry is gated on STA_RETRY_HEAP_FLOOR_BYTES (${staFloor} B >= link admission): deferred below the floor, budget untouched, logged once per arm`);
+  }
+}
+
 // U-117/U-118 (2026-10-20): THE CAR'S PAGE STATE IS PUBLISHED, AND THE
 // CHOICE SURVIVES A POWER CYCLE.
 //

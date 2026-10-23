@@ -11,6 +11,44 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## UNRELEASED — 1.3.16 (U-121 Phase E, 2026-10-23): the BT-on + Wi-Fi-drop retry churn is HEAP-GATED
+
+**Owner report (2026-10-23):** *"the heap drops from 109 KB to 15 KB if the
+Bluetooth is turned on and the WiFi drop after that and the car freezes and the
+app doesn't know about that."* Two halves; this flash is the FIRMWARE half.
+The app half (the silence detector that finally KNOWS the car stopped answering)
+is app U-121 Phase D, JS-only OTA.
+
+- **Root cause (source-traced):** with the BT stack engaged the free heap sits
+  at the 13–20 kB field floor (every guard since 1.3.11 assumes exactly this).
+  A mid-session STA drop (`!startedAsAP && status != WL_CONNECTED`) arms the
+  capped retry loop — and THAT loop had **no heap gate at all**: every
+  `WIFI_RETRY_INTERVAL_MS` it ran `WiFi.disconnect()` + `WiFi.begin()`, a fresh
+  association transient needing far more than the floor, until the allocation
+  never happens and loop() locks up. Telemetry, scans, link admission and the
+  page server all refused below a floor; the one path that CHURNED the radio
+  repeatedly did not.
+- **Fix:** new `STA_RETRY_HEAP_FLOOR_BYTES` (32000 B — same cushion as
+  `LINK_ADMISSION_FLOOR_BYTES`: a join is a standing-cost operation). Below the
+  floor a retry attempt is **DEFERRED, not consumed**: neither the capped budget
+  (`staRetryCount_`/`staRetryCap_`) nor the backoff stamp (`lastWifiRetryMs_`)
+  moves, so the retry resumes on the first pass the heap is back over the floor
+  (e.g. once the BT link goes away) and the give-up settlement still follows a
+  genuinely spent budget. The incumbent link is untouched — a live car beats a
+  rejoin. The defer logs ONCE per arm (`staRetryDeferLogged_`, cleared when a
+  retry runs and on every re-arm): `[REJOIN] retry deferred: low heap (free=…
+  floor=…)`.
+- **Gate:** new contract rule `sta-retry-heap` pins the floor (present, ≥ link
+  admission), the gate itself, the one-shot log and the budget-preserving
+  defer; mutants **M133–M136** prove every clause red→green.
+- `FW_VERSION` 1.3.15 → **1.3.16**.
+
+**Status: source-level only (F-61).** Device row: `TRACKS/DEVICE-TESTS.md`
+**U-121-E** (unticked) — reproduce the owner's sequence (BT on → router drop),
+expect the defer line on serial, the BT link keeps driving, and the retry
+resumes after BT goes away. Gates at this commit: syntax · contract (`sta-retry-heap`
+new) · webpage-js · mutate **130/130** (M133–M136 new).
+
 ## UNRELEASED — 1.3.15 (Q1–Q3 close-out, 2026-10-22): the firmware boot-hop is STOPPED
 
 **Owner decisions confirmed 2026-10-22 — implement the Q1–Q3 defaults, no

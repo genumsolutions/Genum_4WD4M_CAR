@@ -207,6 +207,19 @@
 // rule is that the refusal EXISTS and is honest, not that this exact number is
 // final. The `link-admission` gate rule pins floor > STATUS_HEAP_FLOOR_BYTES.
 #define LINK_ADMISSION_FLOOR_BYTES 32000ul
+// U-121 Phase E (owner 2026-10-23 — "the heap drops from 109 KB to 15 KB if
+// the Bluetooth is turned on and the WiFi drop after that and the car
+// freezes"): the STA RETRY loop is the churn that eats the last kilobytes.
+// With the BT stack engaged the free heap sits at the 13-20 kB field floor,
+// and every retry cycle (WiFi.disconnect + WiFi.begin, spaced
+// WIFI_RETRY_INTERVAL_MS up to STA_MAX_RETRIES) runs a fresh association
+// transient well above it — repeatedly, until the allocation never happens
+// and loop() locks up. Below this floor a retry attempt is DEFERRED (budget
+// and backoff untouched — it resumes the pass the heap recovers, e.g. once
+// the BT link goes away) instead of churned. Same cushion as link admission:
+// a join is a standing-cost operation, not a status broadcast. Gate rule
+// `sta-retry-heap` pins floor >= LINK_ADMISSION_FLOOR_BYTES and the defer.
+#define STA_RETRY_HEAP_FLOOR_BYTES 32000ul
 
 // U-116 page-serve heap gate: the margin the bounded page send (F-77
 // budget) needs above the BT-engaged floor — 4 kB, exactly the value
@@ -495,8 +508,15 @@ public:
   // `allow_parallel`) switches + NVS keys are gone; updateApPowerPolicy() only
   // restores the beacon when the STA is gone. Defaults ON so a first-flash car
   // is open on both transports at once (see the getters above).
-  bool wifiEnabled_ = true;
-  bool btEnabled_ = true;
+  //
+  // U-121 Phase C: the runtime defaults follow Config.h's
+  // DEFAULT_BT_ENABLED / DEFAULT_WIFI_ENABLED so the car-IP coupling path and
+  // the app's Connectivity panel see the same initial transport posture. Both
+  // are true in the released build; the companion flag
+  // BT_STA_FROM_BT_ACTIVE_FREEZE_QUESTION in Config.h records the freeze-bench
+  // question and is NOT toggled here.
+  bool wifiEnabled_ = DEFAULT_WIFI_ENABLED;
+  bool btEnabled_ = DEFAULT_BT_ENABLED;
   bool bootAutojoin_ = true;
   // P4: latched when admitSecondLink() refuses a second transport.
   // Cleared the moment both links are up (or a transport is toggled off). Only
@@ -742,6 +762,12 @@ private:
   // FIN-40/D2: capped-STA-retry bookkeeping (see STA_MAX_RETRIES above).
   uint8_t staRetryCount_;
   bool staGiveUpLogged_;
+  // U-121 Phase E: true while the below-floor retry defer has been LOGGED for
+  // the current arm — one line per starvation episode, never one per pass
+  // (a BT session could starve the heap for minutes; a log line every 10 s
+  // for the whole session is noise). Cleared when a retry actually runs and
+  // on every re-arm (beginStation/rejoinNetwork).
+  bool staRetryDeferLogged_ = false;
   // FIN-40/D1: retry cadence state for a softAP() that failed to start.
   unsigned long lastApRetryMs_;
 

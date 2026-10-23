@@ -365,8 +365,8 @@ bool WebServerComm::handleFactoryCommand(const char* cmd) {
       savedRouterSsid_[i][0] = '\0';
       savedRouterPass_[i][0] = '\0';
     }
-    wifiEnabled_ = true;
-    btEnabled_ = true;
+    wifiEnabled_ = DEFAULT_WIFI_ENABLED;
+    btEnabled_ = DEFAULT_BT_ENABLED;
     // Q1 (2026-10-22): a fresh start does NOT hop to a router.
     bootAutojoin_ = false;
     configEpoch_ = 0;
@@ -507,8 +507,8 @@ void WebServerComm::loadStoredWifi() {
   // in (console), STATE ;AUTOJOIN= and /status boot_autojoin report the truth,
   // and wipeRoutersOnFreshFirmware() removes any stored choice on the next
   // flash, so a re-flash boots AP-only.
-  wifiEnabled_ = prefs.getBool("t_wifi", true);
-  btEnabled_ = prefs.getBool("t_bt", true);
+  wifiEnabled_ = prefs.getBool("t_wifi", DEFAULT_WIFI_ENABLED);
+  btEnabled_ = prefs.getBool("t_bt", DEFAULT_BT_ENABLED);
   bootAutojoin_ = prefs.getBool("boot_autojoin", false);
   // U-116 (owner 2026-10-19: the app's webpage toggle "is not turning off
   // the car's own webpage"): the PAGE verb and setPageOff() PERSIST
@@ -1725,6 +1725,7 @@ bool WebServerComm::beginStation() {
   WiFi.setAutoReconnect(false);
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
+  staRetryDeferLogged_ = false;
   giveUpStep_ = GIVEUP_IDLE;
   mdnsPending_ = false;
   lastMdnsRetryMs_ = 0;
@@ -1776,6 +1777,7 @@ void WebServerComm::rejoinNetwork() {
   pendingRejoin_ = hasStoredWifi_;
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
+  staRetryDeferLogged_ = false;
   connectingPending_ = false;
   // U-95 Phase 2: an explicit switch CANCELS an in-flight retry begin (the
   // U-75 give-up pattern: a stale step must never land after the user asked
@@ -2476,6 +2478,29 @@ void WebServerComm::handle() {
     unsigned long now = millis();
     if (hasStoredWifi_ && staRetryCount_ < staRetryCap_) {
       if (now - lastWifiRetryMs_ >= WIFI_RETRY_INTERVAL_MS) {
+        // U-121 Phase E (owner 2026-10-23 — "the heap drops from 109 KB to
+        // 15 KB if the Bluetooth is turned on and the WiFi drop after that
+        // and the car freezes"): the retry cycle below is the churn that eats
+        // the last kilobytes. With the BT stack engaged the free heap sits at
+        // the 13-20 kB field floor, and each WiFi.disconnect()+WiFi.begin()
+        // runs a fresh association transient well above it — every
+        // WIFI_RETRY_INTERVAL_MS, until the allocation never happens and
+        // loop() locks up. Below the floor the attempt is DEFERRED, not
+        // consumed: neither the capped budget nor the backoff stamp moves, so
+        // the retry resumes on the first pass the heap is back over the floor
+        // (e.g. once the BT link goes away) and the give-up settlement still
+        // follows once the budget genuinely spends. The incumbent link is
+        // untouched — a live car beats a rejoin. Logged once per arm, never
+        // once per pass. Gate rule `sta-retry-heap`.
+        if (ESP.getFreeHeap() < STA_RETRY_HEAP_FLOOR_BYTES) {
+          if (!staRetryDeferLogged_) {
+            staRetryDeferLogged_ = true;
+            FW_LOG("[REJOIN] retry deferred: low heap (free=%u floor=%u)\n",
+                   static_cast<unsigned>(ESP.getFreeHeap()),
+                   static_cast<unsigned>(STA_RETRY_HEAP_FLOOR_BYTES));
+          }
+        } else {
+        staRetryDeferLogged_ = false;
         lastWifiRetryMs_ = now;
         staRetryCount_++;
         // Each retry gets its OWN connect window. This branch is an `else if`
@@ -2501,6 +2526,7 @@ void WebServerComm::handle() {
         noteRadioStep("retry/disconnect");
         WiFi.disconnect();
         retryBeginPending_ = true;
+        }
       }
     } else if (hasStoredWifi_ && !staGiveUpLogged_) {
       // Budget spent: settle AP-only.

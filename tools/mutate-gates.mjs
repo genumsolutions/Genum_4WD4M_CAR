@@ -887,6 +887,32 @@ const mutants = [
     find: '    const char* pageArg = (strncasecmp(rest, ";WIFI;PAGE", 10) == 0)\n                              ? rest + 10',
     repl: '    const char* pageArg = (strncasecmp(rest, ";WIFI;PAGE", 10) == 0)\n                              ? rest + 5',
     why: "the PAGE branch reads the nested form from the wrong offset (pageArg = \";PAGE;…\") - ON/OFF/? all miss and the answer is ERROR;Syntax even though the branch matched" },
+
+  // U-121 Phase E (2026-10-23): the STA retry is heap-gated — the owner's
+  // "BT on, Wi-Fi drops, heap 109 KB -> 15 KB, the car freezes". Four
+  // mutants, one per claim the `sta-retry-heap` rule polices: the gate
+  // exists, the floor sits at/above link admission, the defer is logged
+  // ONCE per arm (not per pass), and the defer consumes NOTHING (budget +
+  // backoff stay for the resume when the heap recovers).
+  { id: "M133", rule: "sta-retry-heap", file: WSC,
+    find: '        if (ESP.getFreeHeap() < STA_RETRY_HEAP_FLOOR_BYTES) {',
+    repl: '        if (false) {',
+    why: "the STA retry no longer compares the free heap to the floor - below-floor WiFi.begin() churn is back and the BT-on + Wi-Fi-drop freeze with it" },
+
+  { id: "M134", rule: "sta-retry-heap", file: WSH,
+    find: '#define STA_RETRY_HEAP_FLOOR_BYTES 32000ul',
+    repl: '#define STA_RETRY_HEAP_FLOOR_BYTES 2000ul',
+    why: "the retry floor drops BELOW link admission - a router join (a bigger transient) is churned on less headroom than admitting a second link needs, so the gate protects nothing on the collapse path" },
+
+  { id: "M135", rule: "sta-retry-heap", file: WSC,
+    find: '          if (!staRetryDeferLogged_) {',
+    repl: '          if (true) {',
+    why: "the defer log is no longer one-shot - a Bluetooth session that starves the heap for minutes prints a line every WIFI_RETRY_INTERVAL_MS forever (noise drowning the diagnostic)" },
+
+  { id: "M136", rule: "sta-retry-heap", file: WSC,
+    find: '        if (ESP.getFreeHeap() < STA_RETRY_HEAP_FLOOR_BYTES) {\n          if (!staRetryDeferLogged_) {',
+    repl: '        if (ESP.getFreeHeap() < STA_RETRY_HEAP_FLOOR_BYTES) {\n          staRetryCount_++;\n          if (!staRetryDeferLogged_) {',
+    why: "the defer CONSUMES the capped retry budget - a long starvation exhausts STA_MAX_RETRIES without a single attempt running, so the car settles AP-only for no real reason and never rejoins after recovery" },
 ];
 
 // ---- runner -------------------------------------------------------------
