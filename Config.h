@@ -20,7 +20,7 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.16"  // see TRACKS/CHANGELOG.md
+#define FW_VERSION "1.3.17"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 
 // ---- T66 (round-9) · U-114: the telemetry-parameter config surface ----

@@ -1121,7 +1121,101 @@ if (!linkFloor) {
   } else if (!/else\s*\{\s*staRetryDeferLogged_\s*=\s*false;\s*lastWifiRetryMs_\s*=\s*now;\s*staRetryCount_\+\+;/s.test(retryBlock)) {
     fail("sta-retry-heap", "the retry no longer runs only in the ABOVE-floor branch with its budget stamp - the defer consumes the capped budget/backoff, so a long starvation exhausts the retries and settles AP-only for no real attempt");
   } else {
-    pass("sta-retry-heap", `the STA retry is gated on STA_RETRY_HEAP_FLOOR_BYTES (${staFloor} B >= link admission): deferred below the floor, budget untouched, logged once per arm`);
+    // MUTANT PROVENANCE (M136): the "the defer consumes NOTHING" clause used
+    // to be asserted only from the ABOVE-floor side — that the stamp EXISTS in
+    // the else. That half is satisfied by a mutant that moves
+    // `staRetryCount_++` INTO the below-floor branch, which then spends the
+    // capped budget while no attempt runs and still passed every check above.
+    // The defer branch is therefore isolated and asserted directly: nothing in
+    // it may touch the retry counter, the cap or the backoff stamp.
+    const floorAt = retryBlock.search(
+      /ESP\s*\.\s*getFreeHeap\(\)\s*<\s*STA_RETRY_HEAP_FLOOR_BYTES/,
+    );
+    const elseAt = floorAt >= 0 ? retryBlock.indexOf("} else {", floorAt) : -1;
+    const deferBranch =
+      floorAt >= 0 && elseAt > floorAt ? retryBlock.slice(floorAt, elseAt) : "";
+    if (!deferBranch) {
+      fail("sta-retry-heap", "could not isolate the below-floor defer branch - the budget-preserving claim is no longer checkable (the structure moved; update this rule with it)");
+    } else if (/staRetryCount_\+\+|staRetryCap_\s*=|lastWifiRetryMs_\s*=/.test(deferBranch)) {
+      fail("sta-retry-heap", "the below-floor defer CONSUMES the retry budget - the capped counter or the backoff stamp moves while no attempt runs, so a long starvation exhausts STA_MAX_RETRIES for zero real attempts, the car settles AP-only, and the resume the defer promises never happens");
+    } else {
+      pass("sta-retry-heap", `the STA retry is gated on STA_RETRY_HEAP_FLOOR_BYTES (${staFloor} B >= link admission): deferred below the floor, budget untouched (verified in the defer branch itself), logged once per arm`);
+    }
+  }
+}
+
+// U-121 Phase E2 (owner 2026-10-23 — "the car resets again and again
+// whenever i try to connect the wifi from the app"): the two STEP MACHINES an
+// explicit connect runs through — advanceRejoinStep() (the mode-drop teardown
+// walk) and giveUpStepMachine() (the failed-join settlement) — carry the
+// radio's heaviest calls (a full driver restart, a softAP bring-up, the first
+// WiFi.begin() of the switch) and were the last UNGATED radio path: 1.3.16
+// gated only the RETRY loop. With the BT stack engaged the heap sits at the
+// 13-20 kB field floor, so the first step of an app-driven connect allocated
+// against the last kilobytes and the watchdog rebooted the car — once per
+// attempt, which is the owner's "resets again and again".
+//
+// Claims, each mutation-proven (M137-M143 in mutate-gates.mjs):
+//   1. a TIME BOX is defined (<= 10000 ms): without it a chronically low heap
+//      parks the machines forever, which is the wedge the box exists to stop;
+//   2. BOTH machines consult the gate before touching the radio;
+//   3. the gate compares the real heap against STA_RETRY_HEAP_FLOOR_BYTES —
+//      the same floor the retry loop defers on, so the two paths agree;
+//   4. the defer logs ONCE per episode, never once per pass;
+//   5. the box ABANDONS rather than letting one below-floor attempt through
+//      (the telemetry defer's escape hatch would BE the reset here);
+//   6. the abandon cancels BOTH machines, keeps the car's state honest about
+//      the link it never touched, and does no radio work of its own.
+// Views: structure on code() (F-83 — prose cannot satisfy a rule); the defer
+// literal on stripComments(), which KEEPS string literals.
+{
+  const swDeferM = wsh.match(/#define\s+SWITCH_HEAP_DEFER_MAX_MS\s+(\d+)ul/);
+  const swDefer = swDeferM ? Number(swDeferM[1]) : 0;
+  const swRejoin = body(wscCode, "void WebServerComm::advanceRejoinStep") ?? "";
+  const swGive = body(wscCode, "void WebServerComm::giveUpStepMachine") ?? "";
+  const swGate = body(wscCode, "bool WebServerComm::switchRadioMayRun") ?? "";
+  const swGateLits =
+    body(stripComments(wsc), "bool WebServerComm::switchRadioMayRun") ?? "";
+  const swAbandon =
+    body(wscCode, "void WebServerComm::abandonSwitchOnLowHeap") ?? "";
+  const reGate =
+    /if\s*\(\s*rejoinStep_\s*!=\s*REJOIN_STEP_IDLE\s*&&\s*!switchRadioMayRun\(\)\s*\)\s*return\s*;/.test(
+      swRejoin,
+    );
+  const giveGate =
+    /if\s*\(\s*giveUpStep_\s*!=\s*GIVEUP_IDLE\s*&&\s*!switchRadioMayRun\(\)\s*\)\s*return\s*;/.test(
+      swGive,
+    );
+  if (!swDefer) {
+    fail("switch-heap", "SWITCH_HEAP_DEFER_MAX_MS is not defined in WebServerComm.h - the switch defer has no time box, so a chronically low heap parks the rejoin/give-up machines forever (the wedge the box exists to prevent)");
+  } else if (swDefer > 10000) {
+    fail("switch-heap", `SWITCH_HEAP_DEFER_MAX_MS is ${swDefer} ms - the below-floor defer must be time-boxed (<= 10000 ms) or an explicit connect can sit unfinished for minutes, which the owner reads as the app hanging on "connecting"`);
+  } else if (!swRejoin || !swGive) {
+    fail("switch-heap", "could not locate advanceRejoinStep()/giveUpStepMachine() - check this rule still matches the code");
+  } else if (!reGate) {
+    fail("switch-heap", "advanceRejoinStep() no longer consults switchRadioMayRun() before its steps - the app-driven connect issues its first WiFi.mode()/WiFi.begin() against a starved heap again (the owner's reset-on-connect)");
+  } else if (!giveGate) {
+    fail("switch-heap", "giveUpStepMachine() no longer consults switchRadioMayRun() - the failed-join settlement restarts the driver below the floor (the same reset, one path over)");
+  } else if (!swGate) {
+    fail("switch-heap", "could not locate switchRadioMayRun() - check this rule still matches the code");
+  } else if (!/ESP\s*\.\s*getFreeHeap\(\)\s*>=\s*STA_RETRY_HEAP_FLOOR_BYTES/.test(swGate)) {
+    fail("switch-heap", "switchRadioMayRun() no longer compares the real heap against STA_RETRY_HEAP_FLOOR_BYTES - the gate is decorative, and the switch path would disagree with the retry path it is supposed to match");
+  } else if (!/if\s*\(\s*!switchDeferStreak_\s*\)/.test(swGate)) {
+    fail("switch-heap", "the defer log is not one-shot per episode - a Bluetooth session that starves the heap prints a line every pass (noise drowning the diagnostic, the sta-retry-heap lesson)");
+  } else if (!swGateLits.includes("[RADIO] step deferred: low heap")) {
+    fail("switch-heap", "the below-floor defer is silent - a deferred switch with no serial line is indistinguishable from a broken one (U-75 rule: name the step)");
+  } else if (!/SWITCH_HEAP_DEFER_MAX_MS/.test(swGate) || !/abandonSwitchOnLowHeap\(\)\s*;/.test(swGate)) {
+    fail("switch-heap", "the time box does not ABANDON the machine - without it the box either lets a below-floor radio call through (the reset) or spins forever (the wedge); it must cancel and say so");
+  } else if (!swAbandon) {
+    fail("switch-heap", "could not locate abandonSwitchOnLowHeap() - check this rule still matches the code");
+  } else if (!/rejoinStep_\s*=\s*REJOIN_STEP_IDLE/.test(swAbandon) || !/giveUpStep_\s*=\s*GIVEUP_IDLE/.test(swAbandon)) {
+    fail("switch-heap", "the abandon does not cancel BOTH machines - one of them keeps walking after the abort and issues the very below-floor call the abort exists to prevent");
+  } else if (!/startedAsAP\s*=\s*\(\s*WiFi\s*\.\s*status\(\)\s*!=\s*WL_CONNECTED\s*\)/.test(swAbandon)) {
+    fail("switch-heap", "the abandon hard-codes startedAsAP = true - the radio was never touched, so a still-associated STA would be reported as AP-only and the SSID/IP rows would lie");
+  } else if (/WiFi\s*\.\s*(?:mode|begin|disconnect|softAP)/.test(swAbandon)) {
+    fail("switch-heap", "abandonSwitchOnLowHeap() does RADIO work - the abort path runs the very call the gate deferred (a driver restart or a begin in a starved heap IS the reset)");
+  } else {
+    pass("switch-heap", `both step machines are gated on STA_RETRY_HEAP_FLOOR_BYTES, the defer logs once per episode, and the ${swDefer} ms box abandons honestly with no radio call`);
   }
 }
 

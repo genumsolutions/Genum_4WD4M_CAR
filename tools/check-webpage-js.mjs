@@ -676,18 +676,41 @@ if (/WiFi\.mode\s*\(/.test(body)) {
 // The transport toggles are the ONLY off switches and must DEFAULT ON, so a
 // first-flash car is open on both transports at once (owner ruling). Asserted
 // on the read, not the member name.
-if (!/getBool\(\s*"t_wifi"\s*,\s*true\s*\)/.test(fw)) {
+//
+// U-121 Phase C routed the read's DEFAULT through Config.h's named constant
+// (`prefs.getBool("t_wifi", DEFAULT_WIFI_ENABLED)`), so the literal `true` this
+// rule pinned could no longer be seen and the gate went RED on source that
+// still means ON. The rule now RESOLVES the token instead of dropping the
+// assertion: a literal `true` passes, a constexpr declared `true` in Config.h
+// passes, anything else fails — the original claim, checked in both places it
+// can now live (a flipped constant and a `false` read default are both red).
+const cfgH = fs.readFileSync(path.join(here, "..", "Config.h"), "utf8");
+const transportDefaultOn = (key) => {
+  const m = new RegExp(
+    `getBool\\(\\s*"${key}"\\s*,\\s*([A-Za-z_][A-Za-z_0-9]*)\\s*\\)`,
+  ).exec(fw);
+  if (!m) return { ok: false, why: `no getBool("${key}", …) read in the firmware` };
+  const tok = m[1];
+  if (tok === "true") return { ok: true, why: "literal true" };
+  if (new RegExp(`constexpr\\s+bool\\s+${tok}\\s*=\\s*true\\s*;`).test(cfgH)) {
+    return { ok: true, why: `${tok} = true (Config.h)` };
+  }
+  return { ok: false, why: `${tok} — not a true default` };
+};
+const wifiToggle = transportDefaultOn("t_wifi");
+if (!wifiToggle.ok) {
   console.error(
     "FAIL: the Wi-Fi transport toggle does not default to ON in " +
       "loadStoredWifi() — a virgin board would come up with no own hotspot " +
-      "(U-105)",
+      `(U-105); the read defaults to ${wifiToggle.why}`,
   );
   bad++;
 }
-if (!/getBool\(\s*"t_bt"\s*,\s*true\s*\)/.test(fw)) {
+const btToggle = transportDefaultOn("t_bt");
+if (!btToggle.ok) {
   console.error(
     "FAIL: the Bluetooth transport toggle does not default to ON in " +
-      "loadStoredWifi() (U-105)",
+      `loadStoredWifi() (U-105); the read defaults to ${btToggle.why}`,
   );
   bad++;
 }

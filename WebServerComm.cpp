@@ -1876,7 +1876,90 @@ void WebServerComm::updateApPowerPolicy() {
   if (staConnectedAtMs_ == 0) staConnectedAtMs_ = millis();
 }
 
+// U-121 Phase E2 (owner 2026-10-23 — "the car resets again and again whenever
+// i try to connect the wifi from the app").
+//
+// BOTH step machines on the connect path run the radio's most expensive calls
+// — a full driver restart (WiFi.mode()), a softAP bring-up and the first
+// WiFi.begin() of a switch — and NEITHER had a heap gate. The RETRY loop got
+// one in 1.3.16 (STA_RETRY_HEAP_FLOOR_BYTES); the machines that run those same
+// calls ONCE, on demand, did not. With the BT stack engaged the free heap sits
+// at the 13-20 kB field floor, so an app-driven connect allocated against the
+// last kilobytes, loop() locked up and the task watchdog REBOOTED the car —
+// once per attempt, which is the owner's "resets again and again".
+//
+// Rule, the same shape as broadcastStatus()'s U-112 defer with one deliberate
+// difference:
+//   * above the floor — run the step, and log the recovery edge once;
+//   * below the floor — DEFER, touching nothing on the radio, logging the
+//     edge ONCE per episode (never once per pass);
+//   * below the floor for longer than SWITCH_HEAP_DEFER_MAX_MS — ABANDON
+//     (abandonSwitchOnLowHeap()) rather than run a below-floor call. The
+//     telemetry defer lets one attempt through because a status broadcast is
+//     worth the risk; a driver restart in a starved heap IS the reset.
+// Gate rule `switch-heap`.
+bool WebServerComm::switchRadioMayRun() {
+  if (ESP.getFreeHeap() >= STA_RETRY_HEAP_FLOOR_BYTES) {
+    if (switchDeferStreak_) {
+      switchDeferStreak_ = false;
+      FW_LOG("[RADIO] switch resumed: heap back over the floor (free=%u floor=%u)\n",
+             static_cast<unsigned>(ESP.getFreeHeap()),
+             static_cast<unsigned>(STA_RETRY_HEAP_FLOOR_BYTES));
+    }
+    switchDeferSinceMs_ = 0;
+    return true;
+  }
+  if (switchDeferSinceMs_ == 0) {
+    switchDeferSinceMs_ = millis();
+    if (!switchDeferStreak_) {
+      switchDeferStreak_ = true;
+      FW_LOG("[RADIO] step deferred: low heap (free=%u floor=%u)\n",
+             static_cast<unsigned>(ESP.getFreeHeap()),
+             static_cast<unsigned>(STA_RETRY_HEAP_FLOOR_BYTES));
+      // P6: one event per starvation episode, same as the status defer.
+      crashLogEvent(CAR_EV_LOWHEAP, 0, "switch-defer");
+    }
+    return false;
+  }
+  if (millis() - switchDeferSinceMs_ < SWITCH_HEAP_DEFER_MAX_MS) return false;
+  // Window spent and the heap never recovered: hand the decision to the
+  // abandon path, which resets the defer bookkeeping for the NEXT request.
+  abandonSwitchOnLowHeap();
+  return false;
+}
+
+// The honest give-up: cancel BOTH machines with NOT ONE radio call, leave the
+// link the car already has untouched, and say so on serial + STATE.
+//
+// Safe at every step: if the machine is abandoned before the MODE drop, the
+// incumbent association was never touched; if after it, the own hotspot is
+// either still up (beacon never parked) or comes back through the existing
+// AP-retry branch in handle(). Either way the phone keeps a way in, which is
+// the whole T-65 guarantee.
+void WebServerComm::abandonSwitchOnLowHeap() {
+  rejoinStep_ = REJOIN_STEP_IDLE;
+  giveUpStep_ = GIVEUP_IDLE;
+  connectingPending_ = false;
+  retryBeginPending_ = false;
+  pendingRejoin_ = false;
+  // HONEST: the radio was never touched, so the car is exactly where it was —
+  // on the router if the STA still reports connected, on its own hotspot
+  // otherwise. Reusing rejoinNetwork()'s optimistic "startedAsAP = true" here
+  // would drop the SSID/IP rows for a link that is still up.
+  startedAsAP = (WiFi.status() != WL_CONNECTED);
+  switchDeferSinceMs_ = 0;
+  switchDeferStreak_ = false;
+  FW_LOG("[RADIO] switch abandoned: low heap (free=%u floor=%u)\n",
+         static_cast<unsigned>(ESP.getFreeHeap()),
+         static_cast<unsigned>(STA_RETRY_HEAP_FLOOR_BYTES));
+  crashLogEvent(CAR_EV_LOWHEAP, 0, "switch-abort");
+  updateExtraInfo();
+  if (modeManager) modeManager->sendState();
+}
+
 void WebServerComm::giveUpStepMachine() {
+  // U-121 Phase E2: the heap gate — see switchRadioMayRun() above.
+  if (giveUpStep_ != GIVEUP_IDLE && !switchRadioMayRun()) return;
   switch (giveUpStep_) {
     case GIVEUP_IDLE:
       return;
@@ -1975,6 +2058,11 @@ bool WebServerComm::staBusy() const {
 }
 
 void WebServerComm::advanceRejoinStep() {
+  // U-121 Phase E2: the heap gate — an app-driven connect must never issue its
+  // first WiFi.mode()/WiFi.begin() against a starved heap. See
+  // switchRadioMayRun() above; the step is deferred (radio untouched), then
+  // abandoned honestly after SWITCH_HEAP_DEFER_MAX_MS.
+  if (rejoinStep_ != REJOIN_STEP_IDLE && !switchRadioMayRun()) return;
   // U-71: one radio operation per pass. Every branch returns immediately after
   // advancing, so the caller (handle()) never spends more than a single driver
   // call inside one loop iteration.

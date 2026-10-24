@@ -220,6 +220,27 @@
 // a join is a standing-cost operation, not a status broadcast. Gate rule
 // `sta-retry-heap` pins floor >= LINK_ADMISSION_FLOOR_BYTES and the defer.
 #define STA_RETRY_HEAP_FLOOR_BYTES 32000ul
+// U-121 Phase E2 (owner 2026-10-23 — "the car resets again and again whenever
+// i try to connect the wifi from the app"): the SAME floor now gates the two
+// step machines an EXPLICIT connect runs through — advanceRejoinStep() (mode
+// drop -> restore -> raise -> begin) and giveUpStepMachine() (the failed-join
+// settlement). Those carry the heaviest radio calls in the firmware (a full
+// driver restart, a softAP bring-up, the first WiFi.begin() of the switch) and
+// unlike the retry loop — which 1.3.16 gated — they had NO heap gate at all:
+// with the BT stack engaged the free heap sits at the 13-20 kB field floor, so
+// the first step of an app-driven connect allocated against the last
+// kilobytes, loop() locked and the task watchdog REBOOTED the car — once per
+// attempt, which is exactly "resets again and again".
+//
+// Below the floor a step is DEFERRED (nothing on the radio is touched) and the
+// defer is TIME-BOXED. The box does NOT let one attempt through the way the
+// telemetry defer does: a status broadcast may be worth the risk, a driver
+// restart in a starved heap IS the reset being reported. After the window the
+// machine is ABANDONED honestly (abandonSwitchOnLowHeap()) — cancelled without
+// a single radio call, with the incumbent link untouched and the truth pushed
+// on STATE — so a chronically low heap can neither crash the car nor wedge a
+// switch forever. Gate rule `switch-heap`.
+#define SWITCH_HEAP_DEFER_MAX_MS 4000ul
 
 // U-116 page-serve heap gate: the margin the bounded page send (F-77
 // budget) needs above the BT-engaged floor — 4 kB, exactly the value
@@ -565,6 +586,16 @@ void advanceRejoinStep();
   void giveUpStepMachine();
   uint8_t giveUpStep_;
 
+  // U-121 Phase E2: the heap gate BOTH step machines consult before touching
+  // the radio. Above the floor: run, and log the recovery edge once. Below:
+  // defer, logging the edge once per episode. Below for longer than
+  // SWITCH_HEAP_DEFER_MAX_MS: abandon the machine honestly instead of running
+  // a below-floor call. Gate rule `switch-heap`.
+  bool switchRadioMayRun();
+  // The honest give-up: cancel BOTH machines with no radio call, keep whatever
+  // link the car already has, and report it on serial + STATE.
+  void abandonSwitchOnLowHeap();
+
   // U-75: name the blocking step BEFORE it runs. A hang produces no serial
   // output of its own, so the last breadcrumb printed is the step that hung —
   // which turns the next occurrence from a hunt into a diagnosis. This is the
@@ -768,6 +799,12 @@ private:
   // for the whole session is noise). Cleared when a retry actually runs and
   // on every re-arm (beginStation/rejoinNetwork).
   bool staRetryDeferLogged_ = false;
+  // U-121 Phase E2: switch-path defer bookkeeping (switchRadioMayRun()).
+  // Streak = the below-floor edge has been logged for THIS episode — one line
+  // per episode, never one per pass. Since = when the machine first found the
+  // heap below the floor, the base of the SWITCH_HEAP_DEFER_MAX_MS box.
+  bool switchDeferStreak_ = false;
+  unsigned long switchDeferSinceMs_ = 0;
   // FIN-40/D1: retry cadence state for a softAP() that failed to start.
   unsigned long lastApRetryMs_;
 

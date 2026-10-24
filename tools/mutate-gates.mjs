@@ -913,6 +913,50 @@ const mutants = [
     find: '        if (ESP.getFreeHeap() < STA_RETRY_HEAP_FLOOR_BYTES) {\n          if (!staRetryDeferLogged_) {',
     repl: '        if (ESP.getFreeHeap() < STA_RETRY_HEAP_FLOOR_BYTES) {\n          staRetryCount_++;\n          if (!staRetryDeferLogged_) {',
     why: "the defer CONSUMES the capped retry budget - a long starvation exhausts STA_MAX_RETRIES without a single attempt running, so the car settles AP-only for no real reason and never rejoins after recovery" },
+
+  // U-121 Phase E2 (2026-10-23): the two STEP MACHINES an explicit connect
+  // runs through are heap-gated — the owner's "the car resets again and again
+  // whenever i try to connect the wifi from the app". Seven mutants, one per
+  // claim the `switch-heap` rule polices: both machines consult the gate, the
+  // gate reads the same floor the retry loop defers on, the defer logs once
+  // per episode, the time box is a real box, the box ABANDONS (it may not let
+  // one below-floor attempt through — that attempt IS the reset), and the
+  // abandon cancels both machines, keeps startedAsAP honest and does no radio
+  // work of its own.
+  { id: "M137", rule: "switch-heap", file: WSC,
+    find: '  if (rejoinStep_ != REJOIN_STEP_IDLE && !switchRadioMayRun()) return;',
+    repl: '  // heap gate removed (M137)',
+    why: "advanceRejoinStep() runs unguarded - the first WiFi.mode()/WiFi.begin() of an app-driven connect allocates against the BT-engaged 13-20 kB floor and the watchdog reboots the car (the owner's reset-on-connect)" },
+
+  { id: "M138", rule: "switch-heap", file: WSC,
+    find: '  if (giveUpStep_ != GIVEUP_IDLE && !switchRadioMayRun()) return;',
+    repl: '  // heap gate removed (M138)',
+    why: "giveUpStepMachine() runs unguarded - the failed-join settlement restarts the driver and brings up a softAP below the floor (the same reset, one path over)" },
+
+  { id: "M139", rule: "switch-heap", file: WSC,
+    find: '  if (ESP.getFreeHeap() >= STA_RETRY_HEAP_FLOOR_BYTES) {',
+    repl: '  if (true) {',
+    why: "the gate no longer reads the real heap against STA_RETRY_HEAP_FLOOR_BYTES - it is decorative, and the switch path would disagree with the retry path it must match" },
+
+  { id: "M140", rule: "switch-heap", file: WSC,
+    find: '    if (!switchDeferStreak_) {',
+    repl: '    if (true) {',
+    why: "the defer log is no longer one-shot per episode - a Bluetooth session that starves the heap prints a line every pass (noise drowning the diagnostic, the sta-retry-heap lesson)" },
+
+  { id: "M141", rule: "switch-heap", file: WSH,
+    find: '#define SWITCH_HEAP_DEFER_MAX_MS 4000ul',
+    repl: '#define SWITCH_HEAP_DEFER_MAX_MS 4000000ul',
+    why: "the box becomes an untimed defer - a chronically low heap parks the rejoin/give-up machines forever, so an explicit connect never finishes and the app hangs on \"connecting\"" },
+
+  { id: "M142", rule: "switch-heap", file: WSC,
+    find: '  abandonSwitchOnLowHeap();',
+    repl: '  ; // abandon removed (M142)',
+    why: "the time box does not abandon: it either lets the below-floor radio call through (the reset the gate exists to prevent) or leaves the machine spinning with no way out (the wedge)" },
+
+  { id: "M143", rule: "switch-heap", file: WSC,
+    find: '  startedAsAP = (WiFi.status() != WL_CONNECTED);',
+    repl: '  startedAsAP = true;',
+    why: "the abandon hard-codes AP-only while the radio was never touched - a still-associated STA gets reported as AP-only and the SSID/IP rows lie (the 'switch that reads wrong reads broken' rule)" },
 ];
 
 // ---- runner -------------------------------------------------------------
