@@ -11,6 +11,35 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## UNRELEASED — 1.3.18 (U-124 ⑫, 2026-10-25): the off-page response stops being a white screen
+
+**Owner report (2026-10-25):** *"webpage shows white screen in browser and
+the ip is not hidden anywhere … fix these when webpage is off and make
+things sensible."* (Car half of item ⑫; the app half — hiding the broadcast
+IP on every surface — is `genumsolutions-app`, U-124 ⑫.)
+
+- **Root cause (source-traced):** `serveGhostPage()` — the response a
+  browser gets when the Webpage toggle is OFF — called
+  `server.send(200, "text/html; charset=utf-8", "")`, which declares
+  **`Content-Length: 0`** (the empty body string), and then wrote the ghost
+  HTML *past* that declared length. The browser honoured the 0, stopped
+  reading, and rendered **nothing**: the owner's white screen. The
+  "The car's web page is turned off" message the ghost page exists to show
+  never reached the screen.
+- **Fix:** declare the real length first —
+  `server.setContentLength(len);` before the same `send(...)`, the exact
+  contract `serveRootBounded()` already keeps for the 18 kB control page.
+  One line; no behaviour change beyond the header.
+- **Pins:** contract rule **`page-state`** extended (the
+  `setContentLength(len)` → `send(200, "text/html…", "")` ordering inside
+  `serveGhostPage`) + mutant **M144** (removing the line must go red).
+
+**Gates:** contract **0 failures** · webpage-js **PASS** · syntax **9/9** ·
+mutate-gates **138/138** (M144 new — caught both directions). Status:
+**source-level only (F-61)** — bench row to be added with the app's U-124
+device rows.
+- `FW_VERSION` 1.3.17 → **1.3.18**.
+
 ## UNRELEASED — 1.3.17 (U-121 Phase E2, 2026-10-23): an app-driven Wi-Fi connect is HEAP-GATED too
 
 **Owner report (2026-10-23):** *"the car resets again and again whenever i try

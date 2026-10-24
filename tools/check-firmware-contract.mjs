@@ -1264,6 +1264,14 @@ if (!mmStateLits.includes(";PAGE=%s")) {
   fail("page-state", "the WIFICFG dispatcher has no branch accepting the app's form WIFICFG;WIFI;PAGE;… - the page toggle can never reach its handler");
 } else if (!/;WIFI;PAGE", 10\) == 0\)[\s\n\r]*\?[\s\n\r]*rest \+ 10/.test(wscPlain)) {
   fail("page-state", "the PAGE branch no longer selects the rest+10 offset for the nested ;WIFI;PAGE form - pageArg points at \";PAGE;…\" so the set/query reads garbage and answers ERROR;Syntax");
+} else if (!/setContentLength\(len\);[\s\S]{0,200}?server\.send\(200, "text\/html; charset=utf-8", ""\)/.test(stripComments(body(wsc, "void WebServerComm::serveGhostPage") ?? ""))) {
+  // U-124 ⑫ (owner 2026-10-24): "webpage shows white screen in browser …
+  // fix these when webpage is off". The ghost page's send() declared
+  // Content-Length: 0 (empty body string) and then wrote the HTML past that
+  // length — the browser honoured the 0 and rendered NOTHING: the white
+  // screen. The header must declare the real length before the send, the
+  // same contract serveRootBounded() keeps. Mutant M144 proves this claim.
+  fail("page-state", "serveGhostPage sends without declaring the real Content-Length first - the browser is promised 0 bytes and renders a WHITE SCREEN instead of the 'page is turned off' message (U-124 ⑫)");
 } else {
   pass("page-state", "the page-server state rides STATE (;PAGE=) and /status (page_on), survives a reboot (NVS page_off), and the serve path honours it");
 }

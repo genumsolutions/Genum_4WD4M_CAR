@@ -957,6 +957,11 @@ const mutants = [
     find: '  startedAsAP = (WiFi.status() != WL_CONNECTED);',
     repl: '  startedAsAP = true;',
     why: "the abandon hard-codes AP-only while the radio was never touched - a still-associated STA gets reported as AP-only and the SSID/IP rows lie (the 'switch that reads wrong reads broken' rule)" },
+
+  { id: "M144", rule: "page-state", file: WSC,
+    find: '  server.setContentLength(len);\n  server.send(200, "text/html; charset=utf-8", "");',
+    repl: '  server.send(200, "text/html; charset=utf-8", "");',
+    why: "serveGhostPage again promises Content-Length: 0 and writes the body past it - the browser renders the white screen the owner reported instead of the 'page is turned off' message (U-124 ⑫)" },
 ];
 
 // ---- runner -------------------------------------------------------------

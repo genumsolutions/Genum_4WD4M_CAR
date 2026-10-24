@@ -610,6 +610,14 @@ void WebServerComm::serveGhostPage() {
       "<p>The car's web page is turned off. The car is still here — "
       "Bluetooth and its own hotspot keep working.</p></body></html>";
   size_t len = strlen_P(ghostHTML);
+  // U-124 ⑫ (owner 2026-10-24: "webpage shows white screen in browser …
+  // when webpage is off"): this send declared Content-Length: 0 (the empty
+  // body string) and then wrote the HTML PAST that length — the browser read
+  // its promised 0 bytes and rendered nothing: the white screen. The header
+  // now declares the real length first (the same setContentLength-then-send
+  // contract serveRootBounded() uses), so the ghost page actually shows the
+  // "The car's web page is turned off" message the owner should see.
+  server.setContentLength(len);
   server.send(200, "text/html; charset=utf-8", "");
   NetworkClient& c = server.client();
   c.write((const uint8_t*)ghostHTML, len);
