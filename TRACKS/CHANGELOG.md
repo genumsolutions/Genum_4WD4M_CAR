@@ -11,6 +11,63 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## UNRELEASED — 1.3.17 (U-121 Phase E2, 2026-10-23): an app-driven Wi-Fi connect is HEAP-GATED too
+
+**Owner report (2026-10-23):** *"the car resets again and again whenever i try
+to connect the wifi from the app."*
+
+- **Root cause (source-traced):** the two STEP MACHINES an explicit connect
+  runs through — `advanceRejoinStep()` (the teardown walk: `mode(WIFI_AP)` →
+  poll → `startOwnAP()` → `mode(WIFI_AP_STA)` → `WiFi.begin()`) and
+  `giveUpStepMachine()` (the failed-join settlement) — carry the radio's
+  heaviest calls (a full driver restart, a softAP bring-up, the first
+  `WiFi.begin()` of the switch) and were the **last UNGATED radio path**:
+  1.3.16 gated only the RETRY loop. With the BT stack engaged the free heap
+  sits at the 13–20 kB field floor, so the first step of a switch allocated
+  against the last kilobytes, `loop()` locked and the task watchdog rebooted
+  the car — **once per attempt**, which is the "again and again".
+- **Fix:** both machines consult `switchRadioMayRun()` before touching the
+  radio. Above `STA_RETRY_HEAP_FLOOR_BYTES` (32000 B — the SAME floor the retry
+  defers on, so the two paths agree): the step runs, and the recovery edge is
+  logged once. Below: the step is **DEFERRED**, radio untouched, edge logged
+  once per episode (`[RADIO] step deferred: low heap (free=… floor=…)` + a
+  `CAR_EV_LOWHEAP` `switch-defer` event). Below the floor for longer than
+  `SWITCH_HEAP_DEFER_MAX_MS` (4000 ms): **ABANDON** via
+  `abandonSwitchOnLowHeap()` — BOTH machines cancelled with **not one radio
+  call**, the incumbent link left exactly as it was (`startedAsAP` re-derived
+  from `WiFi.status()`, never hard-coded), truth pushed on serial + STATE.
+  The telemetry defer's escape hatch (let one attempt through anyway) is
+  deliberately NOT used here: a status broadcast is worth the risk, a driver
+  restart in a starved heap **is** the reset.
+- **Also in this flash:** `check-webpage-js.mjs`'s two transport-default checks
+  were RED on HEAD — U-121 Phase C routed `loadStoredWifi()`'s read defaults
+  through `Config.h`'s `DEFAULT_WIFI_ENABLED` / `DEFAULT_BT_ENABLED`, and the
+  rule pinned the literal `true`. The rule now RESOLVES the token (literal
+  `true`, or `constexpr bool <token> = true;` in `Config.h`), so a `false` read
+  default **or** a flipped constant still go red — the original claim, checked
+  in both places it can live. Pre-existing red, not introduced by 1.3.17.
+- **Gate:** new contract rule `switch-heap` (both machines gated · real floor ·
+  one-shot defer log · time box ≤ 10000 ms · the box ABANDONS · the abandon
+  cancels both machines and does no radio work); mutants **M137–M143** prove
+  every clause. `sta-retry-heap` gained the check M136 always described but
+  never triggered (see the correction under 1.3.16).
+- `FW_VERSION` 1.3.16 → **1.3.17**.
+
+**Status: source-level only (F-61).** Device rows: `TRACKS/DEVICE-TESTS.md`
+**U-121-E2** (unticked) — BT on → connect the Wi-Fi FROM THE APP → serial shows
+the defer (or a clean switch when the heap allows), `crash_count` does NOT
+increment, the car does not reset. Gates at this commit: syntax **9/9** ·
+contract **0 failures** (`switch-heap` new) · webpage-js **0 failures** ·
+mutate **137/137** (M137–M143 new).
+
+> **Correction to the 1.3.17 → 1.3.16 entry below:** its gate line ("webpage-js
+> · mutate 130/130") was NOT true when written — `check-webpage-js.mjs` was
+> already red on the transport-default checks and **M136 was UNDETECTED** (the
+> `sta-retry-heap` rule asserted the budget-preserving clause only from the
+> above-floor side, which a mutant moving `staRetryCount_++` INTO the defer
+> branch satisfies). Both are fixed in 1.3.17; the harness baseline is green
+> again at 137/137.
+
 ## UNRELEASED — 1.3.16 (U-121 Phase E, 2026-10-23): the BT-on + Wi-Fi-drop retry churn is HEAP-GATED
 
 **Owner report (2026-10-23):** *"the heap drops from 109 KB to 15 KB if the

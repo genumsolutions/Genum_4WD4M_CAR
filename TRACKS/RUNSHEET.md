@@ -1,6 +1,6 @@
-# RUNSHEET — flash 1.3.15 + the U-117/U-116 + Q1 device pass
+# RUNSHEET — flash 1.3.17 + the U-121 E/E2 connect-path device pass
 
-> One sheet for the owner's next bench session. Firmware **1.3.15** (UNFLASHED;
+> One sheet for the owner's next bench session. Firmware **1.3.17** (UNFLASHED;
 > **1.3.11 IS on the car**) + app **3.2.7 / versionCode 60** (unchanged this
 > round — every app phase is JS-only and rides the OTA channel).
 > Tick the rows in the row sheets as you go: car `TRACKS/DEVICE-TESTS.md`
@@ -9,12 +9,14 @@
 > U-118-1..4, U-119-1, then U-116-1..9, 13, 16..20).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
-## 0 · What this one flash carries (1.3.11 → 1.3.15)
+## 0 · What this one flash carries (1.3.11 → 1.3.17)
 
-The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 + 1.3.15 all ride this flash:
+The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 + 1.3.15 + 1.3.16 + 1.3.17 all ride this flash:
 
 | Round | What you should notice |
 |---|---|
+| **U-121 E2 (1.3.17)** | **Connecting the Wi-Fi FROM THE APP never resets the car** — the owner's *"resets again and again whenever i try to connect the wifi"*. The switch machines' `WiFi.mode()`/`WiFi.begin()` steps now sit on the same 32000 B floor the retry defers on: below it the step is deferred with the radio untouched (`[RADIO] step deferred: low heap`), and after 4 s the switch is **abandoned honestly** (`[RADIO] switch abandoned: low heap`) rather than run into a starved heap — row **U-121-E2** |
+| **U-121 E (1.3.16)** | **The BT-on + Wi-Fi-drop retry stops churning.** Below the floor the retry is deferred with the capped budget and backoff untouched (`[REJOIN] retry deferred: low heap`), resuming the pass Bluetooth goes away — row **U-121-E** |
 | **Q1 (1.3.15)** | **The boot-hop is stopped.** Power-up stays on `4WD4MCar_WiFi` (`;AUTOJOIN=OFF`, serial `boot auto-join disabled - staying on own hotspot`); only the APP's smart-link joins a router. Opt back in with `WIFICFG;AUTOJOIN;ON` — rows Q1-1/Q1-2 in `DEVICE-TESTS.md` |
 | **U-120 B (1.3.15)** | **The Webpage toggle actually works.** The app's `WIFICFG;WIFI;PAGE;…` used to be swallowed by the earlier `;WIFI` branch (always `ERROR;Syntax`, so the switch snapped back to ON) — fixed; row **U-120-B** in `DEVICE-TESTS.md` |
 | **U-117 (1.3.14)** | **The webpage state is on every surface.** STATE carries `;PAGE=ON|OFF` (Bluetooth-only apps finally read it), `/status` keeps `page_on`, and a turned-OFF page stays OFF across a power cycle — the "toggle not working" report had one car half and one app half, and both are in this flash |

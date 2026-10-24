@@ -3,6 +3,37 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-10-23 round — U-121 E/E2: the whole connect path is heap-gated (flash **1.3.17** — DEVICE VERIFY PENDING)
+
+> Owner reports (2026-10-23): *"the heap drops from 109 KB to 15 KB if the
+> Bluetooth is turned on and the WiFi drop after that and the car freezes"* and
+> *"the car resets again and again whenever i try to connect the wifi from the
+> app."* Two heap gates, ONE flash — 1.3.16's retry gate rides this flash too,
+> and the bench car is still on **1.3.11**, so flash 1.3.17 and expect every
+> row below from that single install. **Nothing below is device-verified
+> (F-61).** Car gates at 1.3.17: syntax 9/9 · contract 0 failures (new rule
+> `switch-heap`) · webpage-js 0 failures · mutate **137/137** (M137–M143 new).
+
+- [ ] **U-121-E2 — ⭐ connecting the Wi-Fi FROM THE APP never resets the car.**
+      Flash 1.3.17, join `4WD4MCar_WiFi`, turn **Bluetooth ON** (this is the
+      starved-heap case: free heap drops to the 13–20 kB floor). From the app,
+      switch the car to a reachable router. Either the heap allows it and the
+      switch completes normally (`[RADIO] rejoin/mode-AP` → … →
+      `rejoin/begin`, STATE `;SSID=`/`;IP=` update), or the serial prints
+      `[RADIO] step deferred: low heap (free=… floor=…)` and — if the heap
+      stays low for 4 s — `[RADIO] switch abandoned: low heap (free=… floor=…)`.
+      **The car must NOT reset in either case**: `/status` `crash_count` is
+      unchanged, the incumbent link keeps working, and with Bluetooth OFF the
+      same switch runs clean.
+- [ ] **U-121-E — the BT-on + Wi-Fi-drop retry no longer churns (1.3.16's
+      gate, untested until now).** Car up with Bluetooth ON, then make the STA
+      drop (switch to a router that is out of range or has the wrong password):
+      serial shows `[REJOIN] retry deferred: low heap (free=%u floor=%u)` and
+      **no** repeating `[RADIO] retry/disconnect` churn; Bluetooth keeps
+      driving; the car does not reset. Turn Bluetooth OFF → the retry resumes
+      (joins, or settles AP-only once the budget spends), and `/status`
+      reports `"link_cap":0` while deferred with `crash_count` unchanged.
+
 ## 2026-10-22 round — Q1–Q3 close-out (flash **1.3.15** — DEVICE VERIFY PENDING)
 
 > Owner confirmed the Q1–Q3 defaults (2026-10-22): Q1 = remove the toggle (done
