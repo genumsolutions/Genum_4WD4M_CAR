@@ -3,10 +3,10 @@
 > One sheet for the owner's next bench session. Firmware **1.3.17** (UNFLASHED;
 > **1.3.11 IS on the car**) + app **3.2.7 / versionCode 60** (unchanged this
 > round — every app phase is JS-only and rides the OTA channel).
-> Tick the rows in the row sheets as you go: car `TRACKS/DEVICE-TESTS.md`
-> (U-117-1..3 + U-119-1 first — the 2026-10-20 round — then U-116-10..15,
-> then U-115-1..3, then U-113-8..15) · app `mobile/TESTING.md` (U-117-1..4,
-> U-118-1..4, U-119-1, then U-116-1..9, 13, 16..20).
+> Tick the rows in the row sheets as you go, NEWEST ROUND FIRST — car `TRACKS/DEVICE-TESTS.md`:
+> (U-121-E2 · U-121-E — this flash's own fixes — then Q1-1/Q1-2 · U-120-B · U-117-1..3 · U-119-1 · U-116-10..15,
+> U-115-1..3 · U-113-8..15) · app `mobile/TESTING.md` — U-123-1..4 · U-122-1..4 · U-121-A1..C2 + R1-A..D · U-120-C1..E3 ·
+> U-117-1..4 · U-118-1..4 · U-119-1 · U-116-1..9, 13, 16..20).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
 ## 0 · What this one flash carries (1.3.11 → 1.3.17)
@@ -42,7 +42,7 @@ bench pass below verifies them, not re-flashes them:
 first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join OFF (Q1),
 no router saved. Re-add your router in Step 5.
 
-## 1 · Flash 1.3.13 (USB)
+## 1 · Flash 1.3.17 (USB)
 
 ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 (this CH340 fails at the default 921600):
@@ -56,12 +56,12 @@ ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 > `--config-file <file>` to both commands, with that file carrying
 > `directories.data: C:\Users\caspe\AppData\Local\Arduino15`.
 
-(1.3.11 is on the car; 1.3.12 is another version-change wipe of the saved
+(1.3.11 is on the car; 1.3.17 is another version-change wipe of the saved
 routers — expected. **1.3.9 and older are superseded.**)
 
 Capture the first boot while you are at it (~15 s, resets the board):
 
-    python tools/serial_capture.py COM<port> 15 boot-1.3.12.log
+    python tools/serial_capture.py COM<port> 15 boot-1.3.17.log
 
 **Expect in that log:** `[BOOT] Restored mode=4WD4M`, the router-wipe line
 (version change), `Own AP active: 4WD4MCar_WiFi`, and
@@ -75,8 +75,8 @@ Capture the first boot while you are at it (~15 s, resets the board):
 Force-close the app **twice** (close + reopen ×2) so expo-updates loads the
 published bundle. The live manifest
 (`https://bkylfnlybtsujwzropru.supabase.co/storage/v1/object/public/app-releases/release.json`)
-must read `notes: "OTA · Short update (2476b2ef4df17f9376cc1cd3f5f34aa6fd0aaba6)"`, `version 3.2.7`, (current live build, published 2026-10-17; the earlier published build was the P6+P7 build with notes `OTA · Short update (e02db5c2b4c…)`, published 2026-10-16 19:06 UTC)
-`version_code 60` — verified live 2026-10-16 19:06 UTC. The app's About screen
+must read `notes: "OTA · Short update (9bb4850f0df39ec54c81ed64614d63c2a09f510b)"`, `version 3.2.7`, (current live build, published 2026-10-24 05:45 UTC; earlier builds: `2476b2ef…` 2026-10-17, `e02db5c2b4c…` 2026-10-16 19:06 UTC)
+`version_code 60` — verified live 2026-10-24 05:45 UTC. The app's About screen
 still says **3.2.7** (JS-only OTA — no APK, no bump).
 
 ## 3 · Bluetooth: forget and re-pair
@@ -97,7 +97,7 @@ once, re-join. Expect an `192.168.245.x` address, then open:
 
     http://192.168.245.1/status
 
-Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.12`, and the crash
+Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.17`, and the crash
 fields (`crash_count`, `reset_reason`, the phase). Also check `tele_params` reads
 `freq=1600, vyse=0` (U-114) and that `wifi_enabled`/`bt_enabled`/`boot_autojoin`
 report your actual toggles, not `1600`/`0`. The page's mode dropdown and
