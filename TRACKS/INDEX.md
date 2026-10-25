@@ -4,6 +4,23 @@
 > this repo). Cross-project ledger: workspace `guide/GUIDE.md`. Master plan:
 > `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md`.
 
+**Status (2026-10-25 — U-124 ⑫, FW 1.3.18 written, UNFLASHED):** the owner's
+*"webpage shows white screen in browser and the ip is not hidden anywhere … fix
+these when webpage is off"* — the car half is ONE line: `serveGhostPage()`
+promised `Content-Length: 0` (the empty body string) and then wrote the ghost
+HTML past it, so the browser read its promised 0 bytes and rendered **nothing**.
+`server.setContentLength(len)` now precedes the same `send(...)` — the contract
+`serveRootBounded()` already keeps — so the "The car's web page is turned off"
+message finally reaches the screen. The app half (the IP hiding on every
+surface; `hub.carPageServing` was a never-written ref whose object read
+always-truthy) is the app repo. Contract rule `page-state` extended with the
+ordering assertion + mutant **M144**; `FW_VERSION` → **1.3.18**, CHANGELOG entry
+written. Gates re-run 2026-10-25: **syntax 9/9 · contract 0 · webpage-js PASS ·
+mutate 138/138**; app side (same round) tsc 0 · vitest **934/934** · prettier
+clean. Records: `CHANGELOG` 1.3.18 · `DEVICE-TESTS` **U-124-⑫** (unticked,
+F-61) · `RUNSHEET` header → 1.3.18. Detail:
+`TRACKS/SESSION-2026-10-25-U124.md` (+ app twin).
+
 **Status (2026-10-23 — U-120 round CLOSED, CI REPAIRED):** the "compile error" that blocked
 the owner's device test was **GitHub CI infrastructure, not the firmware** —
 `arduino/compile-sketches@v1` on `ubuntu-latest` (Ubuntu 26.04) fails before building (no

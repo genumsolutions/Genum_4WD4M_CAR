@@ -36,8 +36,8 @@ IP on every surface — is `genumsolutions-app`, U-124 ⑫.)
 
 **Gates:** contract **0 failures** · webpage-js **PASS** · syntax **9/9** ·
 mutate-gates **138/138** (M144 new — caught both directions). Status:
-**source-level only (F-61)** — bench row to be added with the app's U-124
-device rows.
+**source-level only (F-61)** — bench row `TRACKS/DEVICE-TESTS.md`
+**U-124-⑫** added 2026-10-25 (unticked), alongside the app's U-124-5/U-124-6.
 - `FW_VERSION` 1.3.17 → **1.3.18**.
 
 ## UNRELEASED — 1.3.17 (U-121 Phase E2, 2026-10-23): an app-driven Wi-Fi connect is HEAP-GATED too

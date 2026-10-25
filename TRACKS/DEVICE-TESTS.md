@@ -3,6 +3,29 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-10-25 round — U-124 ⑫: the off-page response stops being a white screen (flash **1.3.18** — DEVICE VERIFY PENDING)
+
+> Owner report (2026-10-24/25): *"webpage shows white screen in browser and the
+> ip is not hidden anywhere … fix these when webpage is off and make things
+> sensible."* The car half is ONE line: `serveGhostPage()` declared
+> `Content-Length: 0` (the empty body string) and then wrote the ghost HTML
+> past it, so the browser honoured the 0 and rendered nothing. **1.3.18 rides
+> on top of 1.3.11 → 1.3.17 in the same upload**, and the bench car is still
+> on **1.3.11**. **Nothing below is device-verified (F-61).** Car gates at
+> 1.3.18: syntax 9/9 · contract 0 failures (`page-state` extended with the
+> ordering assert) · webpage-js PASS · mutate **138/138** (M144 new).
+
+- [ ] **U-124-⑫ — ⭐ the turned-off page SAYS SO instead of showing a white
+      screen.** Flash 1.3.18, join `4WD4MCar_WiFi`, turn the **Webpage toggle
+      OFF** from the app, then open the car's IP (`192.168.245.1`) in a phone
+      browser: the dark page must show **"The car's web page is turned off.
+      The car is still here — Bluetooth and its own hotspot keep working."**
+      — **never a white / blank screen**. Toggle it back ON → the real control
+      page returns. The app's own surfaces must agree in the same state: the
+      broadcast-IP chip right of Back AND the Connectivity **Control address**
+      row are BOTH absent while the page is off, and BOTH return when it is on
+      (app rows U-124-5 / U-124-6 in `mobile/TESTING.md`).
+
 ## 2026-10-23 round — U-121 E/E2: the whole connect path is heap-gated (flash **1.3.17** — DEVICE VERIFY PENDING)
 
 > Owner reports (2026-10-23): *"the heap drops from 109 KB to 15 KB if the
