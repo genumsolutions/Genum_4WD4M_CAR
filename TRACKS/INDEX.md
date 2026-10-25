@@ -64,3 +64,15 @@ device round 1** (`DEVICE-TESTS.md`, T3 now unblocked) + app U-49.
 | `NEXT-SESSION.md` | resume point |
 
 **Isolation status:** donor + 5 other repos untouched ✔ (verify before each session close).
+
+## Phase 7 — Fresh-Start Wipe Status
+
+| Deliverable | Status | Location |
+|---|---|---|
+| **1. Car `FACTORY;RESET`** | ✅ Completed (firmware 1.3.6, UNFLASHED) | `WebServerComm.cpp` + `CrashLog.cpp` — wipes `botcfg` namespace |
+| **2. App `resetCarData()`** | N/A (app repo separate) | `useControlHub.ts` — wipes AsyncStorage car keys |
+| **3. DB Migration** | ⚠️ Pending — owner runs `20261013120000_phase7c_fresh_start_cleanup.sql` in Supabase SQL Editor | `genumsolutions-website/supabase/migrations/` — deletes car `1FB608` rows + retention |
+
+_**Note:** The car firmware NVS wipe and app AsyncStorage wipe are owner-executed steps.  
+The DB migration requires running SQL in your Supabase project. All three steps must complete  
+for a full fresh start._

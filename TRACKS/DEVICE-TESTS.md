@@ -1519,3 +1519,24 @@ project is entitled to write.
 `monitor_car.py <port> [seconds]` decodes the serial console and tags the lines
 that matter. Use it in one terminal while doing something to the car in another �
 it is how the table above was captured.
+
+## Phase 7 — Fresh-Start Debug Aids
+
+| Aid | Location | Purpose |
+|-----|----------|---------|
+| **`FACTORY;RESET`** | `WebServerComm.cpp:handleFactoryCommand()` | Wipes entire `botcfg` NVS namespace; replies `FACTORY;CLEARED` |
+| **`TIME;<epoch>`** | `WebServerComm.cpp:handleFactoryCommand()` | Adopts app-provided Unix epoch; stamps `configEpoch_` on all subsequent writes |
+| **`page_off` NVS key** | `WebServerComm.cpp:setPageOff()` / `loadStoredWifi()` | Persists webpage toggle across power cycles — critical for U-124 white-screen fix |
+| **`fw_mark` NVS key** | `WebServerComm::wipeRoutersOnFreshFirmware()` | Marks firmware version that last migrated NVS; erases router keys on first boot after flash |
+| **`config_epoch`** | `WebServerComm::stampConfigWrite()` | Epoch stamp per config write; used for retention cleanup and fresh-start validation |
+| **`botcfg` namespace clear** | `Preferences::clear()` in `handleFactoryCommand()` | Only way to virginize board without re-flash (Arduino does NOT erase NVS) |
+| **CarLog `CLEAR` verb** | `CrashLog.cpp:handleLogCommand()` | Clears the in-memory event ring + flash-backed crash records |
+| **`LOG;GET;<n>`** | `CrashLog.cpp:handleLogCommand()` | Returns last N events (newest-first) with count and details — bench debugging |
+
+_**How to use after fresh start:**  
+1. Run `FACTORY;RESET` on car serial → wipes all botcfg keys  
+2. Connect app → `TIME;<epoch>` adopts app clock  
+3. Toggle webpage on/off → `page_off` persists in NVS  
+4. Flash new firmware → `wipeRoutersOnFreshFirmware()` erodes old router config  
+5. Check `/status` → `link_cap`, `crash_count`, `free_heap` for immediate diagnostics_
+
