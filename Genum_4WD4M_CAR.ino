@@ -299,14 +299,11 @@ void setup() {
   btUp = ensureBtAdvertising();
   modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
   modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
-  // U-98 → Q1 (owner, 2026-10-22): a power-up returns to the last-switched
-  // router ONLY when the auto-join setting is ON (U-105 `botcfg/boot_autojoin`,
-  // **default OFF since Q1** — stop the firmware boot-hop: at power-up the car
-  // stays on its own hotspot and the APP's smart-link is the joiner; the owner
-  // can opt back in with WIFICFG;AUTOJOIN;ON). armBootAutoJoin() no-ops when
-  // nothing is stored or the setting is off, probes the air first when armed,
-  // and the own hotspot stays up the whole time — an unreachable router just
-  // means the give-up path restores the hotspot after the budget is spent.
+  // U-98/Q1: a power-up returns to the last-switched router only when the
+  // remembered-router setting is ON (`botcfg/boot_autojoin`, default OFF).
+  // The app switch opts in through WIFICFG;AUTOJOIN;ON. armBootAutoJoin()
+  // no-ops when nothing is stored or the setting is off, probes the air first
+  // when armed, and keeps the own hotspot available if the router is absent.
   webServerComm.armBootAutoJoin();
   // U-96: motors deferred to end of setup — the H-bridge is the biggest
   // non-comms power load and the car is reachable before it loads.

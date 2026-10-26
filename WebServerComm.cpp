@@ -193,10 +193,10 @@ bool WebServerComm::handleWifiConfigCommand(const char* cmd) {
       snprintf(reply, sizeof(reply), "WIFICFG;ERROR;Syntax");
     }
   } else if (strncasecmp(rest, ";AUTOJOIN", 9) == 0) {
-    // `WIFICFG;AUTOJOIN;ON|OFF` — boot auto-join the last-switched router
-    // (U-98). Default OFF since Q1 (owner 2026-10-22: stop the firmware
-    // boot-hop); persisted to NVS `botcfg/boot_autojoin`. The .ino's boot path
-    // and the U-79 resume path both honor it via armBootAutoJoin().
+    // `WIFICFG;AUTOJOIN;ON|OFF` — opt in to boot auto-joining the last-switched
+    // router (U-98). Default OFF; the app's remembered-router switch and the
+    // console both persist this choice in NVS `botcfg/boot_autojoin`. The .ino
+    // boot path and the U-79 resume path honor it via armBootAutoJoin().
     const char* arg = rest + 9;  // "" | ";ON" | ";OFF" | ";?"
     if (arg[0] == '\0' || (arg[0] == ';' && (arg[1] == '?' || arg[1] == '\0'))) {
       snprintf(reply, sizeof(reply), "WIFICFG;AUTOJOIN;%s", bootAutojoin_ ? "ON" : "OFF");
@@ -500,13 +500,10 @@ void WebServerComm::loadStoredWifi() {
   // and power-save (ap_psave) keys are gone; leftover values are wiped by
   // wipeRoutersOnFreshFirmware() (residue cleanup).
   //
-  // Q1 (owner, 2026-10-22 — default = BOTH halves of the question): the boot
-  // auto-join now defaults OFF. The firmware does NOT hop to the last-used
-  // router at power-up any more; the app's smart-link is the only auto-join
-  // that joins a router. The verb stays honest: WIFICFG;AUTOJOIN;ON opts back
-  // in (console), STATE ;AUTOJOIN= and /status boot_autojoin report the truth,
-  // and wipeRoutersOnFreshFirmware() removes any stored choice on the next
-  // flash, so a re-flash boots AP-only.
+  // Q1: boot auto-join defaults OFF. The app's remembered-router switch opts
+  // in with WIFICFG;AUTOJOIN;ON; STATE ;AUTOJOIN= and /status boot_autojoin
+  // report the persisted choice. wipeRoutersOnFreshFirmware() clears that
+  // choice on a new firmware version, so a re-flash boots AP-only.
   wifiEnabled_ = prefs.getBool("t_wifi", DEFAULT_WIFI_ENABLED);
   btEnabled_ = prefs.getBool("t_bt", DEFAULT_BT_ENABLED);
   bootAutojoin_ = prefs.getBool("boot_autojoin", false);
@@ -2231,11 +2228,10 @@ void WebServerComm::saveLastGoodRouter() {
 }
 
 void WebServerComm::armBootAutoJoin() {
-  // Q1 (owner, 2026-10-22): the DEFAULT is now to stay put — boot does not hop
-  // to the last-used router unless the owner explicitly opted in with
-  // WIFICFG;AUTOJOIN;ON. Everything below (the U-115 probe-first shape) is
-  // unchanged so an opted-in car still rejoins honestly, and a refusal can
-  // never strand the join.
+  // The default is to stay put — boot does not hop to the last-used router
+  // unless the app or console explicitly opted in with WIFICFG;AUTOJOIN;ON.
+  // The U-115 probe-first path keeps the own hotspot available when the saved
+  // router is absent, and a refused probe never strands the join.
   // U-98 (2026-10-11, owner: *"the car should always go to the last switched
   // router network always; if it is not available it should show its own router
   // for the user to connect or control through the car's own webpage"*).

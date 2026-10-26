@@ -336,7 +336,8 @@ public:
   // `WIFICFG;BT;ON|OFF`. Both default ON so a first-flash car is open on both
   // transports at once; the car never runs with BOTH off (the command path and
   // the U-79 loop clamp). `bootAutojoin_` (NVS `botcfg/boot_autojoin`) gates
-  // the boot auto-join of the last-switched router (U-98) and ships ON.
+  // the boot auto-join of the last-switched router (U-98) and defaults OFF
+  // until the app or console explicitly enables it.
   bool wifiEnabled() const { return wifiEnabled_; }
   bool btEnabled() const { return btEnabled_; }
   bool bootAutojoin() const { return bootAutojoin_; }
@@ -538,7 +539,7 @@ public:
   // question and is NOT toggled here.
   bool wifiEnabled_ = DEFAULT_WIFI_ENABLED;
   bool btEnabled_ = DEFAULT_BT_ENABLED;
-  bool bootAutojoin_ = true;
+  bool bootAutojoin_ = false;
   // P4: latched when admitSecondLink() refuses a second transport.
   // Cleared the moment both links are up (or a transport is toggled off). Only
   // reported while both transports are enabled (see linkCapCode()).
