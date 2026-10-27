@@ -5,7 +5,7 @@
 > round — every app phase is JS-only and rides the OTA channel).
 > Tick the rows in the row sheets as you go, NEWEST ROUND FIRST — car `TRACKS/DEVICE-TESTS.md`:
 > (**U-124-⑫ — this flash's own fix — then** U-121-E2 · U-121-E · Q1-1/Q1-2 · U-120-B · U-117-1..3 · U-119-1 · U-116-10..15,
-> U-115-1..3 · U-113-8..15) · app `mobile/TESTING.md` — **U-124-1..6** · U-123-1..4 · U-122-1..4 · U-121-A1..C2 + R1-A..D · U-120-C1..E3 ·
+> U-115-1..3 · U-113-8..15) · app `mobile/TESTING.md` — **U-124-1..9** · U-123-1..4 · U-122-1..4 · U-121-A1..C2 + R1-A..D · U-120-C1..E3 ·
 > U-117-1..4 · U-118-1..4 · U-119-1 · U-116-1..9, 13, 16..20).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
@@ -15,7 +15,7 @@ The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 + 1.3.15 + 1.3.16 + 1
 
 | Round | What you should notice |
 |---|---|
-| **U-124 ⑫ (1.3.18)** | **The turned-off page finally says so.** With the Webpage toggle OFF a browser got `Content-Length: 0` and the body past it — a **white screen**; the "The car's web page is turned off" message never rendered. One line (`setContentLength(len)` before the same `send`) — row **U-124-⑫**; the app's half (the IP hiding on every surface) is app row **U-124-5/6** |
+| **U-124 ⑫ (1.3.18)** | **The turned-off page finally says so.** With the Webpage toggle OFF a browser got `Content-Length: 0` and the body past it — a **white screen**; the "The car's web page is turned off" message never rendered. One line (`setContentLength(len)` before the same `send`) — row **U-124-⑫**; the app's half (page/Wi-Fi state and IP visibility) is app row **U-124-5/6** |
 | **U-121 E2 (1.3.17)** | **Connecting the Wi-Fi FROM THE APP never resets the car** — the owner's *"resets again and again whenever i try to connect the wifi"*. The switch machines' `WiFi.mode()`/`WiFi.begin()` steps now sit on the same 32000 B floor the retry defers on: below it the step is deferred with the radio untouched (`[RADIO] step deferred: low heap`), and after 4 s the switch is **abandoned honestly** (`[RADIO] switch abandoned: low heap`) rather than run into a starved heap — row **U-121-E2** |
 | **U-121 E (1.3.16)** | **The BT-on + Wi-Fi-drop retry stops churning.** Below the floor the retry is deferred with the capped budget and backoff untouched (`[REJOIN] retry deferred: low heap`), resuming the pass Bluetooth goes away — row **U-121-E** |
 | **Q1 (1.3.15)** | **The boot-hop is stopped.** Power-up stays on `4WD4MCar_WiFi` (`;AUTOJOIN=OFF`, serial `boot auto-join disabled - staying on own hotspot`); only the APP's smart-link joins a router. Opt back in with `WIFICFG;AUTOJOIN;ON` — rows Q1-1/Q1-2 in `DEVICE-TESTS.md` |
@@ -43,7 +43,7 @@ bench pass below verifies them, not re-flashes them:
 first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join OFF (Q1),
 no router saved. Re-add your router in Step 5.
 
-## 1 · Flash 1.3.17 (USB)
+## 1 · Flash 1.3.18 (USB)
 
 ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 (this CH340 fails at the default 921600):
@@ -62,7 +62,7 @@ routers — expected. **1.3.9 and older are superseded.**)
 
 Capture the first boot while you are at it (~15 s, resets the board):
 
-    python tools/serial_capture.py COM<port> 15 boot-1.3.17.log
+    python tools/serial_capture.py COM<port> 15 boot-1.3.18.log
 
 **Expect in that log:** `[BOOT] Restored mode=4WD4M`, the router-wipe line
 (version change), `Own AP active: 4WD4MCar_WiFi`, and
