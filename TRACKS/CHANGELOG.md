@@ -11,6 +11,26 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## UNRELEASED — 1.3.19: report live heap before allowing the second link
+
+- **Root cause (source-traced):** `linkCapCode()` reported only the latched
+  transport-start refusal. If both transports had started but the classic
+  Bluetooth stack had since reduced free heap below the 32,000-byte
+  second-link floor, the app still saw `LINKCAP=1` and offered the other link.
+  The measured bench capture leaves about 21.7 kB after both transports are
+  up, inside the documented low-memory range.
+- **Fix:** when both transports are enabled, include the live free-heap check
+  in the `LINKCAP` verdict. Below the existing admission floor it now reports
+  unavailable; when either transport is disabled, the verdict remains
+  available because there is no second link to raise. This is an honest
+  admission signal, not a Bluetooth-stack reduction or a guarantee against
+  unrelated heap exhaustion.
+- **Pins:** `link-admission` contract now requires `linkCapCode()` to check
+  `ESP.getFreeHeap()` against `LINK_ADMISSION_FLOOR_BYTES`.
+- **Device verification:** pending in `TRACKS/DEVICE-TESTS.md` (U-125).
+  Firmware version changes trigger the existing first-boot config cleanup;
+  see the run sheet before flashing.
+
 ## UNRELEASED — 1.3.18 (U-124 ⑫, 2026-10-25): the off-page response stops being a white screen
 
 **Owner report (2026-10-25):** *"webpage shows white screen in browser and
@@ -1618,4 +1638,3 @@ U-79: webserver mode REMOVED (no second Wi-Fi setup); transport power policy (id
 
 ## v1.0.2 - U-77
 U-77: task-watchdog reboots eliminated — WS stalled-client heartbeat, total-bounded root-page write, per-write HTTP send cap, mDNS success/failure condition un-inverted (mDNS could never advertise), retry-branch breadcrumbs. Baseline was v1.0.0 (fresh repo from Genum_WIRELESS_CAR 1.8.4 @ d0bf8c0; renamed identity: BT "4WD CAR" / AP 4WDCar_Wifi / AP 192.168.245.1/24
-

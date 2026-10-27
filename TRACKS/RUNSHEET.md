@@ -1,20 +1,20 @@
-# RUNSHEET — flash 1.3.18 + the U-121 E/E2 connect-path device pass
+# RUNSHEET — flash 1.3.19 + the U-125 dual-link heap-admission pass
 
-> One sheet for the owner's next bench session. Firmware **1.3.18** (UNFLASHED;
-> **1.3.11 IS on the car**) + app **3.2.7 / versionCode 60** (unchanged this
-> round — every app phase is JS-only and rides the OTA channel).
+> One sheet for the owner's next bench session. Firmware **1.3.19** (UNFLASHED;
+> **1.3.11 IS on the car**) + app **3.2.8 / versionCode 61** (new signed APK).
 > Tick the rows in the row sheets as you go, NEWEST ROUND FIRST — car `TRACKS/DEVICE-TESTS.md`:
-> (**U-124-⑫ — this flash's own fix — then** U-121-E2 · U-121-E · Q1-1/Q1-2 · U-120-B · U-117-1..3 · U-119-1 · U-116-10..15,
-> U-115-1..3 · U-113-8..15) · app `mobile/TESTING.md` — **U-124-1..9** · U-123-1..4 · U-122-1..4 · U-121-A1..C2 + R1-A..D · U-120-C1..E3 ·
+> (**U-125-1/2 — this flash's own fix — then** U-124-⑫ · U-121-E2 · U-121-E · Q1-1/Q1-2 · U-120-B · U-117-1..3 · U-119-1 · U-116-10..15,
+> U-115-1..3 · U-113-8..15) · app `mobile/TESTING.md` — **U-125-1..5** · U-124-1..9 · U-123-1..4 · U-122-1..4 · U-121-A1..C2 + R1-A..D · U-120-C1..E3 ·
 > U-117-1..4 · U-118-1..4 · U-119-1 · U-116-1..9, 13, 16..20).
 > **F-61: every gate behind this build is green and none of it is device evidence.**
 
-## 0 · What this one flash carries (1.3.11 → 1.3.18)
+## 0 · What this one flash carries (1.3.11 → 1.3.19)
 
-The car is on **1.3.11** already; 1.3.12 + 1.3.13 + 1.3.14 + 1.3.15 + 1.3.16 + 1.3.17 + 1.3.18 all ride this flash:
+The car is on **1.3.11** already; 1.3.12 through 1.3.19 all ride this flash:
 
 | Round | What you should notice |
 |---|---|
+| **U-125 (1.3.19)** | **The second-link verdict follows live heap.** With both transports enabled and free heap below 32,000 B, `LINKCAP=0` is reported even if both transport services started; the app preserves the incumbent link and explains the one-link restriction. At/above the floor, it reports capacity honestly — row **U-125-1/2** |
 | **U-124 ⑫ (1.3.18)** | **The turned-off page finally says so.** With the Webpage toggle OFF a browser got `Content-Length: 0` and the body past it — a **white screen**; the "The car's web page is turned off" message never rendered. One line (`setContentLength(len)` before the same `send`) — row **U-124-⑫**; the app's half (page/Wi-Fi state and IP visibility) is app row **U-124-5/6** |
 | **U-121 E2 (1.3.17)** | **Connecting the Wi-Fi FROM THE APP never resets the car** — the owner's *"resets again and again whenever i try to connect the wifi"*. The switch machines' `WiFi.mode()`/`WiFi.begin()` steps now sit on the same 32000 B floor the retry defers on: below it the step is deferred with the radio untouched (`[RADIO] step deferred: low heap`), and after 4 s the switch is **abandoned honestly** (`[RADIO] switch abandoned: low heap`) rather than run into a starved heap — row **U-121-E2** |
 | **U-121 E (1.3.16)** | **The BT-on + Wi-Fi-drop retry stops churning.** Below the floor the retry is deferred with the capped budget and backoff untouched (`[REJOIN] retry deferred: low heap`), resuming the pass Bluetooth goes away — row **U-121-E** |
@@ -43,7 +43,7 @@ bench pass below verifies them, not re-flashes them:
 first boot (`wipeRoutersOnFreshFirmware()`): both transports ON, auto-join OFF (Q1),
 no router saved. Re-add your router in Step 5.
 
-## 1 · Flash 1.3.18 (USB)
+## 1 · Flash 1.3.19 (USB)
 
 ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 (this CH340 fails at the default 921600):
@@ -57,12 +57,12 @@ ESP32 Dev Module, **Partition Scheme = Huge APP (required)**, upload **115200**
 > `--config-file <file>` to both commands, with that file carrying
 > `directories.data: C:\Users\caspe\AppData\Local\Arduino15`.
 
-(1.3.11 is on the car; 1.3.17 is another version-change wipe of the saved
+(1.3.11 is on the car; 1.3.19 is another version-change wipe of the saved
 routers — expected. **1.3.9 and older are superseded.**)
 
 Capture the first boot while you are at it (~15 s, resets the board):
 
-    python tools/serial_capture.py COM<port> 15 boot-1.3.18.log
+    python tools/serial_capture.py COM<port> 15 boot-1.3.19.log
 
 **Expect in that log:** `[BOOT] Restored mode=4WD4M`, the router-wipe line
 (version change), `Own AP active: 4WD4MCar_WiFi`, and
@@ -71,14 +71,14 @@ Capture the first boot while you are at it (~15 s, resets the board):
 `[RADIO] skip-softAP/sta-busy`, no `[RELAY]` lines. The boot probe runs here too
 (Step 6).
 
-## 2 · Get the OTA onto the phone
+## 2 · Install the signed app APK
 
-Force-close the app **twice** (close + reopen ×2) so expo-updates loads the
-published bundle. The live manifest
-(`https://bkylfnlybtsujwzropru.supabase.co/storage/v1/object/public/app-releases/release.json`)
-must read `notes: "OTA · Short update (9bb4850f0df39ec54c81ed64614d63c2a09f510b)"`, `version 3.2.7`, (current live build, published 2026-10-24 05:45 UTC; earlier builds: `2476b2ef…` 2026-10-17, `e02db5c2b4c…` 2026-10-16 19:06 UTC)
-`version_code 60` — verified live 2026-10-24 05:45 UTC. The app's About screen
-still says **3.2.7** (JS-only OTA — no APK, no bump).
+Install **`D:\GENUM-APP-BUILD\genum-solutions-3.2.8-v61-arm64.apk`** on the
+phone (or run `adb install -r` with that file). It is signed with the same
+release key as the previous build and must update app **3.2.7/60** in place.
+Confirm About reports **3.2.8**. This round is a native APK build, not an OTA
+upload; the live release manifest remains at its last published version until
+the APK is separately uploaded.
 
 ## 3 · Bluetooth: forget and re-pair
 

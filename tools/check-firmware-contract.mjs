@@ -1067,6 +1067,8 @@ if (!linkFloor) {
   fail("link-admission", "admitSecondLink() does not return both a refusal (false) and an admit (true)");
 } else if (!/(wifiEnabled_\s*&&\s*btEnabled_)/.test(capBody)) {
   fail("link-admission", "linkCapCode() does not fold the transport toggles - with one transport off there is no second link to deny, so it must read 1");
+} else if (!/ESP\s*\.\s*getFreeHeap\(\)\s*>=\s*LINK_ADMISSION_FLOOR_BYTES/.test(capBody)) {
+  fail("link-admission", "linkCapCode() does not report the live heap floor - after the BT stack consumes memory, the app could still start a second connection into the reset range");
 } else if (!btAdmit || !/admitSecondLink\s*\(/.test(btAdmit)) {
   fail("link-admission", "the both-enabled branch does not gate the Bluetooth raise on admitSecondLink() - with Wi-Fi already up the second link is raised unconditionally again (the freeze, item 6)");
 } else if (!webAdmit || !/admitSecondLink\s*\(/.test(webAdmit)) {

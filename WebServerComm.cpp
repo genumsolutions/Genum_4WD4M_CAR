@@ -2389,13 +2389,17 @@ bool WebServerComm::admitSecondLink() {
   return true;
 }
 
-// P4: the LINKCAP report. 1 = a second link is (or could be) admitted; 0 = the
-// car refused it. Only meaningful with BOTH transports enabled — with one off
-// there is no second link to deny, so the honest answer is 1. Absent on
-// pre-1.3.13 firmware, and the app reads absence as "capable" (F-88).
+// P4: the LINKCAP report. 1 = enough heap is currently available for a second
+// link; 0 = the car refused it or the live heap is below its admission floor.
+// Checking live heap matters after boot too: the measured classic-BT stack can
+// leave only ~21.7 kB even though both transport servers started successfully.
+// Only meaningful with BOTH transports enabled — with one off there is no
+// second link to deny, so the honest answer is 1. Absent on pre-1.3.13
+// firmware, and the app reads absence as "capable" (F-88).
 int WebServerComm::linkCapCode() const {
   if (!(wifiEnabled_ && btEnabled_)) return 1;
-  return linkCapRefused_ ? 0 : 1;
+  if (linkCapRefused_) return 0;
+  return ESP.getFreeHeap() >= LINK_ADMISSION_FLOOR_BYTES ? 1 : 0;
 }
 
 bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; }

@@ -3,6 +3,30 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-10-25 round — U-125: the second-link verdict follows live heap (flash **1.3.19** — DEVICE VERIFY PENDING)
+
+> **Source-level only (F-61).** The 1.3.19 firmware now reports `LINKCAP=0`
+> when both transports are enabled and free heap is below the existing
+> 32,000-byte admission floor, even if both transport services started. This
+> addresses the measured ~21.7 kB remaining with the Bluetooth stack running.
+> The app must leave the first link usable and explain why it will not offer a
+> second link; this is admission control, not a promise that low heap cannot
+> arise for other reasons.
+
+- [ ] **U-125-1 — first link remains usable; a second link is honestly refused
+      under the floor.** Flash 1.3.19 and connect one method. Confirm the car
+      still responds to controls. When `/status` reports `link_cap:0` (or
+      STATE reports `;LINKCAP=0`), verify the app disables only the other
+      method and explains the low-memory one-link limit and safe next step.
+      Confirm `crash_count` does not increase and the incumbent method remains
+      usable.
+- [ ] **U-125-2 — capacity returns when the heap recovers.** Turn off the
+      unused transport in the car settings, or otherwise restore free heap
+      above 32,000 bytes. Confirm `LINKCAP=1`; with one transport disabled,
+      the first method remains available. On a healthy heap with both
+      transports enabled, confirm the second method is offered only when the
+      reported verdict is `1`.
+
 ## 2026-10-25 round — U-124 ⑫: the off-page response stops being a white screen (flash **1.3.18** — DEVICE VERIFY PENDING)
 
 > Owner report (2026-10-24/25): *"webpage shows white screen in browser and the
@@ -1539,4 +1563,3 @@ _**How to use after fresh start:**
 3. Toggle webpage on/off → `page_off` persists in NVS  
 4. Flash new firmware → `wipeRoutersOnFreshFirmware()` erodes old router config  
 5. Check `/status` → `link_cap`, `crash_count`, `free_heap` for immediate diagnostics_
-

@@ -357,11 +357,11 @@ public:
   // refusal when the free heap cannot carry a second link; the incumbent link
   // is left up. The verdict is reported via linkCapCode().
   bool admitSecondLink();
-  // The LINKCAP report: 1 = a second link is (or could be) admitted; 0 = the car
-  // REFUSED it. Only meaningful while BOTH transports are enabled — with one
-  // off there is no second link to deny, so the honest answer is 1. Absent on
-  // pre-1.3.13 firmware: the app must read ABSENCE as "capable" (P5/F-88), not
-  // as a denial.
+  // The LINKCAP report: 1 = enough heap is currently available for another
+  // link; 0 = the car refused it or live heap is below the admission floor.
+  // Only meaningful while BOTH transports are enabled — with one off there is
+  // no second link to deny, so the honest answer is 1. Absent on pre-1.3.13
+  // firmware: the app must read ABSENCE as "capable" (P5/F-88), not as a denial.
   int linkCapCode() const;
   // Clear the latched refusal once both links are actually up (or the owner
   // turned a transport off) — a stale refusal must not outlive its cause.
