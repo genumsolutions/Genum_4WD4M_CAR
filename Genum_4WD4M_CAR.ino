@@ -273,30 +273,34 @@ void setup() {
   webServerComm.loadSavedRouters();
   modeManager.applyBootState();
 
-  // v2 ARCHITECTURE (owner plan 2026-09-28, Phase 1): the web layer is an
-  // ALWAYS-ON connection/setup channel — NEVER a mode. Bring the AP + HTTP/WS
-  // servers up once here and leave them running for the whole uptime; both
-  // transports are wired permanently (comm_ = web, auxComm_ = BT) and polled
-  // every loop(). No mode-based comm swapping exists anymore.
-  webServerComm.beginAlwaysOn();
-  webUp = true;
-  delay(80);  // let supply settle after WiFi AP+STA power spike
-  // U-110 (owner 2026-10-14): bring Bluetooth up AFTER the Wi-Fi radio has been
-  // put into its resting AP_STA mode.
-  //
-  // This call used to run BEFORE beginAlwaysOn() — i.e. before the first
-  // esp_wifi_set_mode() — and that mode set STOP AND RESTARTS THE RADIO (see the
-  // U-99 note in WebServerComm::beginAlwaysOn()). Starting classic BT/SPP first
-  // and then re-initialising the radio left the SPP stack wedged: the car
-  // advertised and APPEARED in the phone's Bluetooth list, but every pairing
-  // attempt failed (owner field report 2026-10-14, "it appears but doesn't
-  // pair"). Bringing SPP up against an already-settled radio/coexistence arbiter
-  // is the supported order.
-  //
-  // btUp mirrors the ACTUAL bring-up. The old unconditional `btUp = true` marked
-  // a failed SerialBT.begin() as "up", so the loop's start-when-down branch never
-  // retried and the car could sit the whole uptime with no Bluetooth at all.
-  btUp = ensureBtAdvertising();
+  // v2 ARCHITECTURE (owner plan 2026-09-28, Phase 1): web and Bluetooth are
+  // permanent transport seams, but their persisted availability switches must
+  // be honoured from the first boot pass, not only after loop() runs. In
+  // Bluetooth-only mode, starting Wi-Fi here would briefly raise the radio and
+  // arm its remembered-router work despite the owner's OFF setting. When both
+  // are enabled, Wi-Fi remains first and Bluetooth is admitted only if the
+  // second-link heap budget permits it; the loop retries after the heap recovers.
+  const bool wifiEnabledAtBoot = webServerComm.wifiEnabled();
+  const bool btEnabledAtBoot = webServerComm.btEnabled();
+  if (wifiEnabledAtBoot) {
+    webServerComm.beginAlwaysOn();
+    webUp = true;
+    delay(80);  // let supply settle after WiFi AP+STA power spike
+  }
+
+  // U-110 (owner 2026-10-14): bring Bluetooth up AFTER Wi-Fi has settled into
+  // AP_STA mode when Wi-Fi is enabled. If Wi-Fi is off, Bluetooth is the first
+  // and only link and must not be subjected to the second-link heap gate.
+  if (btEnabledAtBoot) {
+    if (!webUp || webServerComm.admitSecondLink()) {
+      // btUp mirrors the ACTUAL bring-up; a failed SerialBT.begin() remains
+      // eligible for the regular retry in loop().
+      btUp = ensureBtAdvertising();
+    } else {
+      btUp = false;
+      Serial.println("[POWER] Bluetooth deferred - second link exceeds heap budget");
+    }
+  }
   modeManager.setAuxComm(&btComm);   // Bluetooth stays the aux transport
   modeManager.setComm(&webServerComm);  // comm_ = always-on web transport
   // U-98/Q1: a power-up returns to the last-switched router only when the
@@ -304,7 +308,7 @@ void setup() {
   // The app switch opts in through WIFICFG;AUTOJOIN;ON. armBootAutoJoin()
   // no-ops when nothing is stored or the setting is off, probes the air first
   // when armed, and keeps the own hotspot available if the router is absent.
-  webServerComm.armBootAutoJoin();
+  if (wifiEnabledAtBoot) webServerComm.armBootAutoJoin();
   // U-96: motors deferred to end of setup — the H-bridge is the biggest
   // non-comms power load and the car is reachable before it loads.
   delay(500);  // give the supply time to stabilize after WiFi+Bluetooth
@@ -413,11 +417,13 @@ void loop() {
     lastMode = current;
   }
 
-  // v2: the web layer is ALWAYS-ON — handle() runs unconditionally every
-  // loop (HTTP + WS + STA/AP resolution + 1 s JSON broadcast). The donor's
-  // `if (webServerComm.isRunning())` mode-gate is retired.
-  crashRtcMark("web");
-  webServerComm.handle();
+  // v2: the web layer is always available when its persisted transport switch
+  // is ON. Do not pump Wi-Fi/HTTP/WS work in Bluetooth-only operation; the
+  // Bluetooth transport and command/state path remain live independently.
+  if (webUp) {
+    crashRtcMark("web");
+    webServerComm.handle();
+  }
 
   // ===== U-79 / U-105: transport availability enforcement =============
   // The two persisted toggles (WIFICFG;WIFI / WIFICFG;BT) decide what may

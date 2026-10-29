@@ -1030,6 +1030,35 @@ if (!dualOn) {
   pass("dual-link-kept", "the both-enabled branch starts whichever link is down and stops neither - BT + own hotspot + page stay up together (issue 1)");
 }
 
+// Boot must obey the same transport policy as the steady-state loop. Previously
+// setup() always started the AP/HTTP/WS stack and Bluetooth before the first
+// policy pass, so a saved Bluetooth-only configuration still raised Wi-Fi and
+// a low-heap boot could start Bluetooth as an unadmitted second link. This rule
+// pins the boot path: each enabled switch controls its bring-up, Wi-Fi-only
+// work (including auto-join) is skipped when Wi-Fi is OFF, and the second boot
+// link uses the normal admission floor.
+const setupBody = body(inoCode, "void setup()") ?? "";
+const bootPolicyLoopBody = body(inoCode, "void loop()") ?? "";
+const bootWifiAt = setupBody.indexOf("if (wifiEnabledAtBoot)");
+const bootWifi = bootWifiAt >= 0 ? braced(setupBody, bootWifiAt) : null;
+const bootBtAt = setupBody.indexOf("if (btEnabledAtBoot)");
+const bootBt = bootBtAt >= 0 ? braced(setupBody, bootBtAt) : null;
+if (!/wifiEnabledAtBoot\s*=\s*webServerComm\.wifiEnabled\(\)/.test(setupBody) ||
+    !bootWifi || !/beginAlwaysOn\s*\(/.test(bootWifi)) {
+  fail("boot-transport-policy", "setup() does not gate the Wi-Fi bring-up on its persisted toggle - Bluetooth-only boots still raise the Wi-Fi radio");
+} else if (!/btEnabledAtBoot\s*=\s*webServerComm\.btEnabled\(\)/.test(setupBody) ||
+           !bootBt || !/ensureBtAdvertising\s*\(/.test(bootBt)) {
+  fail("boot-transport-policy", "setup() does not gate Bluetooth bring-up on its persisted toggle");
+} else if (!/admitSecondLink\s*\(/.test(bootBt)) {
+  fail("boot-transport-policy", "Bluetooth is not admitted as the second boot link - low-heap startup bypasses the link safety gate");
+} else if (!/if\s*\(\s*wifiEnabledAtBoot\s*\)\s*webServerComm\.armBootAutoJoin\s*\(/.test(setupBody)) {
+  fail("boot-transport-policy", "the boot auto-join can run while Wi-Fi is disabled");
+} else if (!/if\s*\(\s*webUp\s*\)\s*\{[\s\S]*?webServerComm\.handle\s*\(\s*\)/.test(bootPolicyLoopBody)) {
+  fail("boot-transport-policy", "the loop still pumps the Wi-Fi/HTTP/WS layer while the Wi-Fi transport is down");
+} else {
+  pass("boot-transport-policy", "startup honors both persisted toggles, gates a second link, and leaves Bluetooth-only operation free of Wi-Fi work");
+}
+
 // P4 / item F (2026-10-17): THE CAR CAN REFUSE A SECOND LINK, HONESTLY.
 //
 // The owner's report (item 6): connecting BOTH links can FREEZE/reset the car

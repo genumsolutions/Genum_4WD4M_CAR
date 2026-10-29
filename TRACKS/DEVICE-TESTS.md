@@ -3,6 +3,26 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## Unreleased boot-policy check (based on **1.3.19** — DEVICE VERIFY PENDING)
+
+> Source-level fix only: setup now honors the persisted transport toggles before
+> starting either radio, gates Bluetooth when it would be the second link, and
+> does not pump the stopped web layer in Bluetooth-only mode. Protocol and
+> fail-safe behavior are unchanged. The firmware version remains 1.3.19 to
+> avoid triggering the existing fresh-version NVS wipe.
+
+- [ ] **U-126-1 — Bluetooth-only boot stays Bluetooth-only.** Set Wi-Fi OFF and
+      Bluetooth ON, power-cycle, and verify Bluetooth advertises and carries
+      commands/STATE while the car's AP is absent. STATE must include `WIFI=OFF`,
+      `BT=ON`, and the saved `PAGE=ON|OFF` value; toggling the page through
+      Bluetooth must return the same value in the reply and following STATE.
+      Turn Wi-Fi ON and verify the remembered page choice is honored by HTTP.
+- [ ] **U-126-2 — enabled dual-link boot is safe and persistent.** With both
+      toggles ON and adequate free heap, verify Bluetooth and Wi-Fi remain
+      available together. If boot heap is below the admission floor, verify the
+      first link stays usable, `LINKCAP=0` is reported, and the second link is
+      not raised until capacity recovers; confirm there is no reset.
+
 ## 2026-10-25 round — U-125: the second-link verdict follows live heap (flash **1.3.19** — DEVICE VERIFY PENDING)
 
 > **Source-level only (F-61).** The 1.3.19 firmware now reports `LINKCAP=0`

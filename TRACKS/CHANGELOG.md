@@ -11,6 +11,27 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## UNRELEASED — Bluetooth-only boot follows persisted transport state
+
+- **Root cause (source-traced):** `setup()` unconditionally started the
+  Wi-Fi/AP/web stack and Bluetooth before the steady-state power policy ran.
+  A saved Bluetooth-only configuration therefore raised Wi-Fi temporarily and
+  could arm boot auto-join despite Wi-Fi being OFF. Startup also bypassed
+  `admitSecondLink()`, so a low-heap boot could raise both links without the
+  same protection used by later link starts.
+- **Fix:** boot brings up only enabled transports; Wi-Fi-only auto-join is
+  skipped when Wi-Fi is disabled; Bluetooth is admitted as a second link only
+  when the existing heap policy permits it. The loop no longer pumps the
+  stopped web layer in Bluetooth-only mode, leaving Bluetooth command/state
+  exchange and page-toggle synchronization intact.
+- **Compatibility:** protocol and fail-safe behavior are unchanged. `FW_VERSION`
+  remains 1.3.19 because changing it invokes the existing fresh-firmware NVS
+  cleanup, which would erase saved router and transport settings.
+- **Verification:** `check-firmware-contract.mjs` — 0 failures (including the
+  new `boot-transport-policy` rule); `check-webpage-js.mjs` — PASS;
+  `check-firmware-syntax.ps1` — 9/9 translation units parse on core 3.3.12.
+  Bench verification is added as U-126 in `TRACKS/DEVICE-TESTS.md`.
+
 ## UNRELEASED — 1.3.19: report live heap before allowing the second link
 
 - **Root cause (source-traced):** `linkCapCode()` reported only the latched

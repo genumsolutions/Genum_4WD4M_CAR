@@ -1,4 +1,4 @@
-Version 1.3.18
+Version 1.3.19
 
 # 4WD4M Car — Genum_4WD4M_CAR (v2 fleet reference design)
 
@@ -80,6 +80,15 @@ gitignored, never committed; the sketch compiles without it).
 
 ## 8. Changelog
 
+- **Unreleased (based on 1.3.19):** boot now honors the persisted Wi-Fi and
+  Bluetooth switches before raising either radio. Bluetooth-only startup no
+  longer briefly starts the Wi-Fi/AP/web stack or arms router auto-join, and a
+  low-heap boot cannot bypass second-link admission. The loop also skips web
+  handling while Wi-Fi is deliberately down; Bluetooth command/state exchange
+  remains active, including the `;PAGE=` state used to synchronize the webpage
+  toggle. `FW_VERSION` is intentionally unchanged: changing it triggers the
+  firmware's fresh-install configuration wipe, which would erase saved router
+  and transport settings. Bench coverage is pending in `TRACKS/DEVICE-TESTS.md`.
 - **1.3.15 (2026-10-22, Q1–Q3 close-out)** — **the firmware boot-hop is
   STOPPED.** `botcfg/boot_autojoin` defaults OFF (and FACTORY;RESET follows), so
   a power-up stays on the own hotspot and only the app's smart-link joins a
