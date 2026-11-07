@@ -65,7 +65,7 @@ Existing reset machinery to extend (not invent): `CrashLog.cpp` keys + `WebServe
 None carry an `updatedAt` today — Phase 7 wraps the car-related ones with a timestamp so a
 stale record is provable.
 
-## 3. Supabase — project `bkylfnlybtsujwzropru`
+## 3. Supabase — project `jxgmbodzkmxanuwfaqxo`
 
 All rows already carry timestamps **except** where noted; the gap is **retention** (crash reports
 and app logs grow forever).
