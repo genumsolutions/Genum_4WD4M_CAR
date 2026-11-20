@@ -1458,6 +1458,25 @@ if (!/getBool\s*\(\s*"boot_autojoin"\s*,\s*false\s*\)/.test(wscPlain)) {
   pass("boot-hop-off", "boot auto-join defaults OFF and is honoured (load default + arm guard + factory default): the app or console must opt in with WIFICFG;AUTOJOIN;ON");
 }
 
+// ---- core pin agreement -------------------------------------------------
+// CI and the local syntax gate must build the SAME core, or neither proves the
+// binary the owner flashes. This has drifted twice: 3.3.12 locally vs 3.3.11 in
+// CI (U-96f), then a workflow pinned to 4.0.0 while $coreV still named 3.3.12.
+// Both times every gate stayed green. Bump one, bump the other, or this fails.
+const wfText = raw(".github/workflows/arduino-ci.yml");
+const synText = raw("tools/check-firmware-syntax.ps1");
+const wfPin = (wfText.match(/name:\s*esp32:esp32\s*\n\s*version:\s*["']?([0-9]+\.[0-9]+\.[0-9]+)["']?/) || [])[1];
+const gatePin = (synText.match(/\$coreV\s*=\s*["']([0-9]+\.[0-9]+\.[0-9]+)["']/) || [])[1];
+if (!wfPin) {
+  fail("core-pin", "arduino-ci.yml has no `name: esp32:esp32` + `version: x.y.z` entry - the gate cannot tell what CI installs, so a drifted pin would go unnoticed");
+} else if (!gatePin) {
+  fail("core-pin", "check-firmware-syntax.ps1 no longer sets $coreV - the local gate would compile against some other core than CI shows");
+} else if (wfPin !== gatePin) {
+  fail("core-pin", `core versions drifted: arduino-ci.yml installs ${wfPin} while check-firmware-syntax.ps1 compiles with $coreV ${gatePin} - a green CI build would not be the core the syntax gate (or the bench) uses`);
+} else {
+  pass("core-pin", `CI and the syntax gate both build core ${wfPin}`);
+}
+
 // The one thing this gate cannot check is the thing that matters most: that a
 // real car answers. That is the owner's bench, not a laptop.
 console.log("\nfirmware-contract: source checks only - no radio was touched, no car was asked.");
