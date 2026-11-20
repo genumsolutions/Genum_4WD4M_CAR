@@ -48,7 +48,7 @@
 // available here.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -98,13 +98,21 @@ function takeSnapshot(files) {
   scratch = mkdtempSync(join(tmpdir(), "genum-mutate-"));
   for (const f of files) {
     const bytes = readBytes(f);
-    snapshot.set(f, bytes);
+    snapshot.set(f, { bytes, atime: statSync(rel(f)).atime, mtime: statSync(rel(f)).mtime });
     writeFileSync(join(scratch, f.replace(/[\\/]/g, "_")), bytes);
   }
 }
 
+// Bytes first, then the timestamps. A byte-exact restore that leaves every
+// source file stamped "modified a second ago" makes the whole tree look dirty
+// in an editor and trains the owner to ignore that signal, which is exactly how
+// a real stray edit gets waved through. Restoring atime/mtime keeps `git status`
+// clean AND the file list quiet.
 function restoreAll() {
-  for (const [f, bytes] of snapshot) writeFileSync(rel(f), bytes);
+  for (const [f, snap] of snapshot) {
+    writeFileSync(rel(f), snap.bytes);
+    utimesSync(rel(f), snap.atime, snap.mtime);
+  }
 }
 
 /** Replace `find` with `repl`, requiring the anchor to be present EXACTLY once.
@@ -1059,9 +1067,9 @@ for (const m of selected) {
 
 console.log("");
 const drifted = [];
-for (const [f, bytes] of snapshot) {
+for (const [f, snap] of snapshot) {
   const now = readBytes(f);
-  if (Buffer.compare(bytes, now) !== 0) drifted.push(f);
+  if (Buffer.compare(snap.bytes, now) !== 0) drifted.push(f);
 }
 if (drifted.length) {
   console.error(`RESTORE WAS NOT BYTE-EXACT: ${drifted.join(", ")}`);
