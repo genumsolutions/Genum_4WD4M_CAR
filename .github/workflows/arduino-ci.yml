@@ -84,9 +84,16 @@ jobs:
           fqbn: esp32:esp32:esp32:PartitionScheme=huge_app
           sketch-paths: |
             - .
+          # source-url is not optional. The runner image ships a pre-baked
+          # Arduino index whose esp32 entry lags the Espressif release feed, so
+          # `core install esp32:esp32@4.0.0` failed with "required version 4.0.0
+          # not found for platform esp32:esp32" while 4.0.0 had been public for
+          # weeks. Naming the index makes the CI install read the same feed the
+          # bench machine does.
           platforms: |
             - name: esp32:esp32
               version: 4.0.0
+              source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
           libraries: |
             - name: WebSockets
             - name: U8g2
