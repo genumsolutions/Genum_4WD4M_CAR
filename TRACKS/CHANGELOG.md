@@ -43,9 +43,11 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
   (bumping the version would trigger the fresh-firmware NVS wipe).
 - **Verification:** compiles on **core 4.0.0** (`arduino-cli 1.6.0`,
   `esp32:esp32:esp32:PartitionScheme=huge_app`) - 1,891,342 B (60%), and
-  `check-firmware-contract.mjs` reports 0 failures. `mutate-gates.mjs` was NOT run
-  (it refuses a dirty tree). **Nothing was flashed**, so the heap claims above are
-  the core's own accounting, not a bench measurement.
+  `check-firmware-contract.mjs` reports 0 failures. `mutate-gates.mjs` was deferred
+  at commit time (it refuses a dirty tree) and run afterwards on the clean tree:
+  PASS, all 138 selected mutants caught by their intended rule. **Nothing was
+  flashed**, so the heap claims above are the core's own accounting, not a bench
+  measurement.
 
 ## UNRELEASED — Bluetooth-only boot follows persisted transport state
 
