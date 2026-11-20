@@ -2683,6 +2683,33 @@ void WebServerComm::handle() {
     }
   }
 
+  // U-128 (owner 2026-11-21: "when the app disconnects the car once in the same
+  // session the car's wifi doesn't connect the next start until the car
+  // restarts"). `apRunning_` is a BELIEF about the beacon, and nothing
+  // compared it with the driver after bring-up. A bounce that never went
+  // through stop() or a rejoin step can take the AP netif down while the flag
+  // stays true — and then the FIN-40/D1 retry below never runs.
+  //
+  // The AP interface reports 0.0.0.0 whenever its netif is down, so this is a
+  // FACT from the driver, not a second belief. A dead beacon is forced back
+  // through the SAME retry path that already handles a failed softAP(), so
+  // there stays exactly one recovery machine.
+  {
+    static unsigned long lastApHealthMs = 0;
+    const unsigned long apHealthNow = millis();
+    if (wifiEnabled_ && apRunning_ && !staBusy() &&
+        apHealthNow - lastApHealthMs >= AP_HEALTH_INTERVAL_MS) {
+      lastApHealthMs = apHealthNow;
+      if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
+        TRANSPORT_POWER_ENTER_CRITICAL();
+        apRunning_ = false;
+        TRANSPORT_POWER_EXIT_CRITICAL();
+        lastApRetryMs_ = apHealthNow - AP_RETRY_INTERVAL_MS;  // retry this pass
+        FW_LOG("WARN: own AP netif is down while apRunning_ - re-arming\n");
+      }
+    }
+  }
+
   // FIN-40/D1: a softAP() that failed at bring-up (radio busy) is retried with
   // backoff until the beacon is actually up — apRunning_ only turns true on a
   // real success, so the car always ends up broadcasting its own hotspot.
@@ -3752,7 +3779,14 @@ snprintf(buf, bufLen,
       // U-116: is the car's own webpage serving RIGHT NOW? The app's
       // webpage-view toggle reads this after (re)connect and shows the
       // REAL state instead of assuming - a persisted-OFF car answers 0.
-      pageOff_ ? 0 : 1,
+      // U-128 (owner 2026-11-21: "when the wifi is off the webpage should be
+      // default off in the setting menu"). A page nobody can reach is not a
+      // page that is on: the page server lives ON the Wi-Fi transport, so a car
+      // with Wi-Fi OFF answers 0 here even when the persisted page_off flag
+      // says ON. The app's toggle then shows the truth (off) instead of an ON
+      // it could never honour, and it returns to the stored choice by itself
+      // once Wi-Fi comes back.
+      (pageOff_ || !wifiEnabled_) ? 0 : 1,
       // P6: how many events the car's bounded log holds — the app's cue to
       // fetch (P7 reads LOG;GET windows; 0 = nothing stored, say so honestly).
       static_cast<unsigned long>(carLogCount())

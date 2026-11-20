@@ -64,6 +64,12 @@
 #define BOOT_SCAN_HEAP_FLOOR_BYTES 20000ul
 // FIN-40/D1: retry cadence for a softAP() that failed to start (radio busy).
 #define AP_RETRY_INTERVAL_MS 2000ul
+// U-128 (owner 2026-11-21): how often the own-AP netif is compared with
+// `apRunning_`. A beacon that died WITHOUT going through stop() or a rejoin
+// step (channel follow, coexistence arbitration, an AP_STA<->AP switch) leaves
+// the flag true, so the AP_RETRY_INTERVAL_MS path never runs and the hotspot is
+// dead for the rest of the uptime — "works until the car is restarted".
+#define AP_HEALTH_INTERVAL_MS 3000ul
 // U-111: how long the radio stays at the low boot-window power (see
 // startOwnAP()) before handle() restores a normal level once.
 #define WIFI_BOOT_SETTLE_MS 15000ul

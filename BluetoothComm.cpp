@@ -111,6 +111,18 @@ bool BluetoothComm::begin() {
   // idempotent).
   if (started_) heapWaterfall(HEAPW_STAGE_BT);
 
+  // U-128 diagnostic: name the controller mode this boot actually produced and
+  // whether the BLE memory really went away. "The heap is short" and "the diet
+  // never took effect" are different faults with the same symptom, and only the
+  // radio can say which one a given car has. One line, first bring-up only.
+#if ESP_ARDUINO_VERSION_MAJOR >= 4
+  if (started_) {
+    Serial.printf("[BT] controller mode=%s ble-mem-released=%d\n",
+                  btGetMode() == BT_MODE_CLASSIC_BT ? "Classic BT" : "BTDM",
+                  btMemReleased(BT_MODE_BLE) ? 1 : 0);
+  }
+#endif
+
   return started_;
 }
 
