@@ -337,10 +337,29 @@ if (!hwFmt) {
 // for us (esp32-hal-bt.c btMemRelease(BT_MODE_BLE)). Drop the third argument —
 // or flip it to false — and the ~100 KB collapse comes back with every gate
 // still green, which is why the THIRD argument is the contract here.
-if (!/SerialBT\.begin\(\s*[^,)]+\s*,\s*[^,)]+\s*,\s*true\s*\)/.test(code(raw("BluetoothComm.cpp")))) {
-  fail("bt-heap", "BluetoothComm::begin() does not ask for classic-BT-only (SerialBT.begin(name, false, true)) - the default is BTDM, which allocates the BLE controller+host memory this SPP-only car never uses (issue 6)");
+//
+// REVISION (core 4.0.0, 2026-11-20): the third argument is the 3.x form ONLY.
+// 4.x rewrote BluetoothSerial - begin() has no `disableBLE` argument and always
+// starts the controller in the BUILD-TIME BTDM mode (this prebuilt core is
+// CONFIG_BTDM_CONTROLLER_MODE_BTDM) - so the diet moved to
+// btStartMode(BT_MODE_CLASSIC_BT) BEFORE begin(), which releases the BLE half
+// before esp_bt_controller_init() and is the same state the 3.x argument
+// reached. Both forms and the version guard that picks between them are the
+// contract now: dropping any one of them silently returns the car to BTDM and
+// costs ~36 kB of the heap the rest of this firmware needs.
+const btSrc = code(raw("BluetoothComm.cpp"));
+const bt3x = /SerialBT\.begin\(\s*[^,)]+\s*,\s*[^,)]+\s*,\s*true\s*\)/.test(btSrc);
+const bt4x = /btStartMode\(\s*BT_MODE_CLASSIC_BT\s*\)/.test(btSrc);
+const btGuard = /ESP_ARDUINO_VERSION_MAJOR\s*>=\s*4/.test(btSrc);
+if (!bt3x || !bt4x || !btGuard) {
+  const missing = [
+    bt3x ? null : "the 3.x call SerialBT.begin(name, false, true)",
+    bt4x ? null : "the 4.x classic-only start btStartMode(BT_MODE_CLASSIC_BT)",
+    btGuard ? null : "the ESP_ARDUINO_VERSION_MAJOR >= 4 guard that selects between them",
+  ].filter(Boolean).join(", ");
+  fail("bt-heap", `BluetoothComm::begin() does not bring the radio up classic-BT-only - missing ${missing}. The BTDM default allocates the BLE controller+host memory this SPP-only car never uses (issue 6), which on core 4.0.0 is ~36 kB of the heap the run-time needs`);
 } else {
-  pass("bt-heap", "the radio comes up ESP_BT_MODE_CLASSIC_BT, so core 3.3.12 releases the unused BLE memory before the controller starts");
+  pass("bt-heap", "the radio comes up ESP_BT_MODE_CLASSIC_BT on both cores - 3.x via begin(name,false,true), 4.x via btStartMode(BT_MODE_CLASSIC_BT) before begin()");
 }
 
 // ---- 7. the page-send loop cannot starve the watchdog (U-95/F-77) -------

@@ -206,6 +206,19 @@
 // (the owner's multi-connect soak) is owed and may move it — the point of the
 // rule is that the refusal EXISTS and is honest, not that this exact number is
 // final. The `link-admission` gate rule pins floor > STATUS_HEAP_FLOOR_BYTES.
+// MEASURED (E1 waterfall, 2026-10-15 — do not re-derive these by intuition):
+//   - the cold-boot heap AFTER the classic-BT stack is up: ~23.2 kB
+//   - the field heap with BOTH links up: 13-18 kB, and the documented reset
+//     zone is below ~14 kB (owner: "resets again and again whenever i try to
+//     connect the wifi from the app").
+// So these floors are NOT what stops both links coming up: at boot the second
+// link is admitted while the heap is still ~100 kB (Bluetooth has not
+// allocated yet), and both links then RUN at 13-23 kB. What the floors stop is
+// RE-RAISING a link into the 13-23 kB band, where a radio start / driver
+// restart / softAP bring-up cannot fit. Lowering them to "make multi-connect
+// work" re-opens exactly the reset loop above, because multi-connect already
+// works — the app is only refused a RAISE it would not survive (and the app
+// gates that refusal on "one link is live", see linkCapacity.test.ts).
 #define LINK_ADMISSION_FLOOR_BYTES 32000ul
 // U-121 Phase E (owner 2026-10-23 — "the heap drops from 109 KB to 15 KB if
 // the Bluetooth is turned on and the WiFi drop after that and the car

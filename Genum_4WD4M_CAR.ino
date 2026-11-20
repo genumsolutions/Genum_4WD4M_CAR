@@ -392,6 +392,14 @@ static bool ensureBtAdvertising() {
 }
 
 void loop() {
+  // The loop NEVER bails out on low heap. An earlier "aggressive heap guard"
+  // returned here below 16 kB - a threshold above the 13-18 kB this car actually
+  // runs at with both radios up - so the beacons stayed on while nothing consumed
+  // the command path or pumped the sockets: the owner's "connects, then freezes".
+  // The heap floors that remain live INSIDE the operations that allocate
+  // (broadcast deferral, scan refusal, join retry), where refusing is honest and
+  // reversible. Driving and the command path always run.
+  //
   // F-24: feed the loopTask watchdog every iteration.
   esp_task_wdt_reset();
   // U-106: refresh the flash-free crash breadcrumb (free-heap low-water + millis)

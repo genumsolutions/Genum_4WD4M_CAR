@@ -7,6 +7,9 @@
 #include "BluetoothComm.h"
 #include "Config.h"
 #include "CrashLog.h"   // U-106: crash-TIME breadcrumbs on the BT hot paths
+#if ESP_ARDUINO_VERSION_MAJOR >= 4
+#include "esp32-hal-bt.h"  // btStarted()/btStartMode(): the core-4.x classic-only diet
+#endif
 
 bool BluetoothComm::begin() {
   // Advertised name comes from BT_SPP_NAME (Config.h, ONE source) — since
@@ -44,7 +47,12 @@ bool BluetoothComm::begin() {
   // LEGACY pairing still gets the documented PIN instead of an empty one. It is
   // inert while SSP negotiates.
   SerialBT.enableSSP(false, false);
+#if ESP_ARDUINO_VERSION_MAJOR >= 4
+  // Core 4.x dropped setPin()'s length argument; it measures the string itself.
+  SerialBT.setPin("1234");
+#else
   SerialBT.setPin("1234", 4);
+#endif
 
   // P4 (issue 6) — the heap diet, step 1: bring the radio up CLASSIC-BT ONLY.
   //
@@ -59,9 +67,37 @@ bool BluetoothComm::begin() {
   // collapse issue 6 describes; the E1 waterfall below still reports whatever BT
   // cost remains, so the diet stays measured rather than assumed.
   //
+  // REVISION (core 4.0.0, 2026-11-20): the paragraph above is the 3.x story,
+  // where begin()'s third argument WAS the diet. 4.x removed that argument (see
+  // the guarded call below); the same ESP_BT_MODE_CLASSIC_BT state is reached by
+  // starting the controller classic-only before the host adopts it.
+  //
   // SerialBT.begin() can take time - do it outside critical section
   crashRtcMark("bt-begin");
+#if ESP_ARDUINO_VERSION_MAJOR >= 4
+  // Core 4.x — the classic-only diet, second form, and the one the field needs.
+  //
+  // 4.x REWROTE BluetoothSerial: begin() no longer takes `disableBLE` and always
+  // starts the controller in the BUILD-TIME mode. This prebuilt core is
+  // CONFIG_BTDM_CONTROLLER_MODE_BTDM, so BLE controller + host memory this
+  // SPP-only car never uses is allocated again and cannot be narrowed from
+  // begin(). Starting the controller classic-only FIRST — the same
+  // btStartMode(ESP_BT_MODE_CLASSIC_BT) that 3.x's begin(name, false, true)
+  // ended up calling — releases the BLE half BEFORE esp_bt_controller_init(),
+  // and btBluedroidHostAcquire() then adopts that already-running controller.
+  //
+  // This is not cosmetic: without it BT bring-up costs ~36 kB more, free heap
+  // lands in the 13-18 kB zone the rest of this firmware treats as critical,
+  // and the car looks connected while loop() and the WS pump do nothing.
+  if (!btStarted() && !btStartMode(BT_MODE_CLASSIC_BT)) {
+    Serial.println("[BT] WARN: classic-only start refused - continuing in the "
+                   "core's BTDM mode (heap will be short)");
+  }
+  BTStatus status = SerialBT.begin(BT_SPP_NAME, false);
+  bool success = static_cast<bool>(status);
+#else
   bool success = SerialBT.begin(BT_SPP_NAME, false, true);
+#endif
   
   TRANSPORT_POWER_ENTER_CRITICAL();
   started_ = success;

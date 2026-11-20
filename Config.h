@@ -113,6 +113,9 @@ constexpr OledSize OLED_SIZE = OledSize::OLED_1_3;
 constexpr SwitchType SWITCH_TYPE = SwitchType::MOMENTARY;
 
 // ===== PWM / timeouts =====
+// 8-bit PWM for the motor driver (LEDC high-speed timer 0). The driver speaks to
+// the IDF LEDC API (driver/ledc.h) directly, which exists on both core 3.x and
+// 4.x - the Arduino ledcSetup()/ledcWrite() wrappers are not used anywhere.
 constexpr uint32_t PWM_FREQ = 20000u;
 constexpr uint8_t PWM_RESOLUTION = 8u;
 constexpr uint32_t FAILSAFE_TIMEOUT_MS = 2000u;

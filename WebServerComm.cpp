@@ -1604,6 +1604,12 @@ void WebServerComm::startOwnAP() {
   // "the car's own hotspot won't connect").
   WiFi.setTxPower(WIFI_POWER_11dBm);
   apTxPowerLow_ = true;  // handle() raises this once the boot window has passed
+  // CRITICAL: disable WiFi sleep modulation — this prevents beacon gaps that
+  // cause Android 'obtaining IP' timeouts. Without this, the beacon can blink
+  // out right when a phone races to join 4WD4MCar_WiFi, which surfaces as
+  // Android's intermittent 'unable to connect' from the phone's Wi-Fi
+  // search/connect menus.
+  WiFi.setSleep(false);
   const bool apOk = WiFi.softAP(apName.c_str(), /*passphrase=*/nullptr,
                                 apChannel, /*ssid_hidden=*/0,
                                 /*max_connection=*/4);
@@ -2436,6 +2442,12 @@ void WebServerComm::joinedSsid(char* out, size_t outLen) const {
 
 void WebServerComm::handle() {
   crashRtcMark("web");
+  // No heap bail here. handleClient() and ws.loop() are the ONLY way a Wi-Fi
+  // command reaches the car, and the only way an app/browser WebSocket completes
+  // its handshake - so skipping them below a heap floor does not protect the
+  // run-time, it silently disconnects the transport ("connects, then nothing").
+  // The floor lives inside broadcastStatus(), time-boxed, where a defer costs
+  // cadence and never the link.
   if (serverRunning) server.handleClient();
   // U-95 Phase 1b: a fresh window for the one call here nobody can tune.
   // ws.loop() can sit inside a partial-frame read for up to
@@ -3517,6 +3529,8 @@ void WebServerComm::buildStatusJson(char* buf, size_t bufLen) {
   const char* modeName  = modeManager ? modeManager->getModeString() : "N/A";
   bool conn = modeManager ? modeManager->isConnectedNowPublic() : false;
   char statusWord[24] = "Stopped";
+  // Graceful null-guard: if modeManager is unavailable during early boot,
+  // use defaults so snprintf never dereferences a null pointer.
   if (modeManager) modeManager->getStatusWord(statusWord, sizeof(statusWord));
   char ipStr[32] = "";
   int rssi = 0, pct = 0;

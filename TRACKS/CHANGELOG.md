@@ -11,6 +11,42 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## UNRELEASED (2026-11-20) — ESP32 core 4.0.0: the radio diet, and the guards that froze the car
+
+- **Why behaviour changed after an Arduino IDE update.** The bench machine now has
+  **esp32:esp32 4.0.0** installed; this sketch is CI-pinned and documented against
+  **3.3.12**. 4.0.0 rewrote `BluetoothSerial`: `begin()` no longer takes
+  `disableBLE`, and the controller always comes up in the core's BUILD-TIME mode,
+  which for the prebuilt ESP32 package is `CONFIG_BTDM_CONTROLLER_MODE_BTDM`
+  (verified in `packages/esp32/tools/esp32-libs/4.0.0/sdkconfig`). The
+  classic-BT-only bring-up that reclaimed the unused BLE half (~36 kB) was
+  therefore lost silently, and free heap fell into the 13-18 kB zone this
+  firmware already treats as critical.
+- **The freeze was our own guard.** Two working-tree guards bailed out of the hot
+  paths on low heap: `loop()` returned before `ModeManager::run()` below 16 kB,
+  and `WebServerComm::handle()` returned before `server.handleClient()` /
+  `ws.loop()` below 20 kB. With the 4.0.0 heap both were permanently true - the
+  beacons stayed up while no command was read, no STATE was sent and no WebSocket
+  handshake completed. That is the reported "connects, then freezes, then
+  resets". Both guards are removed: driving and the command path always run, and
+  the heap floors stay inside the operations that allocate
+  (`broadcastStatus()`'s time-boxed defer, `startScan()`, the STA/switch retries).
+- **The diet, restored on both cores.** 3.x keeps `begin(name, false, true)`.
+  4.x starts the controller classic-only first -
+  `btStartMode(BT_MODE_CLASSIC_BT)` before `SerialBT.begin()` - which reaches the
+  same `ESP_BT_MODE_CLASSIC_BT` state and performs the same
+  `btMemRelease(BT_MODE_BLE)` the 3.x argument did; the 4.x host then adopts the
+  already-running controller. `setPin()` is version-guarded too (4.x dropped its
+  length argument). The `bt-heap` gate now pins BOTH forms and the
+  `ESP_ARDUINO_VERSION_MAJOR >= 4` guard that selects between them.
+- **Compatibility:** protocol, fail-safe behaviour and `FW_VERSION` are unchanged
+  (bumping the version would trigger the fresh-firmware NVS wipe).
+- **Verification:** compiles on **core 4.0.0** (`arduino-cli 1.6.0`,
+  `esp32:esp32:esp32:PartitionScheme=huge_app`) - 1,891,342 B (60%), and
+  `check-firmware-contract.mjs` reports 0 failures. `mutate-gates.mjs` was NOT run
+  (it refuses a dirty tree). **Nothing was flashed**, so the heap claims above are
+  the core's own accounting, not a bench measurement.
+
 ## UNRELEASED — Bluetooth-only boot follows persisted transport state
 
 - **Root cause (source-traced):** `setup()` unconditionally started the
