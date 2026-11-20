@@ -55,8 +55,10 @@ ruling + a ledger note BEFORE the change.
     a pass if it finds no `.ino`. A gate that compiles fewer files than it used to is worse than
     no gate: it turns an uncompiled file into a trusted one. **If you ever narrow that sweep,
     treat it as a build break.**
-    Also note the core-version split: the gate runs **3.3.12** locally while
-    `.github/workflows/arduino-ci.yml` pins **3.3.11**. They are not proving the same thing.
+    Core versions must match end to end (U-96f). Until 2026-11-20 this gate ran **3.3.12**
+    locally while `.github/workflows/arduino-ci.yml` pinned **3.3.11**, so neither proved the
+    other's build. Both are now **4.0.0** — the core the ESP32 core 4.x classic-BT bring-up
+    was written against. Bump `$coreV` and the workflow pin in the same commit or they drift.
 14. **A green gate is not a build.** `tools/check-firmware-syntax.ps1` proves the sources PARSE.
     The Arduino CI job is the real build. Neither proves behaviour, and neither substitutes for
     flashing. F-61 stands.

@@ -10,6 +10,9 @@ live drive mode (4WD4M) over BOTH Bluetooth and Wi-Fi, unique on-air identity.
   (tracked files only — no donor history, no tags, no `secrets.h`, no `build/`).
 - The donor repo is FROZEN for this work: no changes until the Phase-4 fleet port (and even
   then, one car at a time, owner-driven).
+- **Fleet note 2026-11-20:** the v1 2WD1M repo `Genum_2WD1M_CAR` (FW ≤ 1.0.11) is retired in
+  favour of `Genum_2WD1M_CAR_NEW`. It is frozen at `cac54f6` and tracks `origin/main`; only
+  the `_NEW` repo is built and flashed.
 
 ## Compatibility contract (old cars ↔ new car)
 - The app talks to BOTH generations, and keys off CAPS, never off car identity, for behaviour

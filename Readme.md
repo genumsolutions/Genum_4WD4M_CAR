@@ -56,13 +56,15 @@ Legacy alias `BT`/`BLUETOOTH` → 4WD4M still accepted (fleet convention).
 Same bill of materials and wiring as the donor hardware (the 4WD4M testbed IS the former
 WIRELESS-car hardware refit): ESP32 DevKit, L298N (4 × brushed motors, skid-steer), 1.3" SH1106
 OLED (I2C), Li-ion pack. Pins in `Config.h`. Libraries: WebSockets 2.7.2, U8g2, ESP32 core
-3.3.11 (WebServer/BluetoothSerial/Preferences ship with the core).
+4.0.0 (the CI pin; WebServer/BluetoothSerial/Preferences ship with the core, and
+`BluetoothComm::begin()` version-guards the SPP bring-up so the sketch still
+builds on 3.3.x).
 
 ## 6. Build Metadata
 
 | Item | Value |
 |---|---|
-| Board | ESP32 Dev Module (`esp32:esp32:esp32`, core 3.3.11) |
+| Board | ESP32 Dev Module (`esp32:esp32:esp32`, core 4.0.0 — CI pin) |
 | Partition | **`huge_app` REQUIRED** (same as donor) |
 | Flash baud | 115200 |
 | Baseline build | donor 1.8.4 measured 1,740,754 B (55%) / RAM 69,492 B (21%) — current figures reported by the CI compile gate |

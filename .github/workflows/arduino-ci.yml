@@ -3,7 +3,7 @@ name: Arduino CI — Genum_4WD4M_CAR
 # Compile-gate the 4WD4M car firmware. This job does NOT touch any device:
 # it proves the sketch still compiles for the exact fqbn the owner flashes
 # (`esp32:esp32:esp32:PartitionScheme=huge_app` — README: Huge APP **REQUIRED**,
-# Arduino core 3.3.12) and reports the flash/SRAM deltas so the round-13 matrix
+# Arduino core 4.0.0) and reports the flash/SRAM deltas so the round-13 matrix
 # rows (R-20/R-20b, T-71a) that currently read "compile figures PENDING" get
 # real numbers.
 #
@@ -63,7 +63,7 @@ jobs:
     # its actions/setup-python step cannot find its pinned Python 3.12.4 for
     # 26.04 ("The version '3.12.4' with architecture 'x64' was not found"), so
     # three pushes in a row went red in ~16 s with the sketch never compiled.
-    # 24.04 ships that Python and still runs the ESP32 3.3.12 build; move back
+    # 24.04 ships that Python and still runs the ESP32 4.0.0 build; move back
     # to -latest only once the action's Python pin supports it.
     runs-on: ubuntu-24.04
     # The deltas report reads the base branch's sketches-report artifact over the
@@ -86,7 +86,7 @@ jobs:
             - .
           platforms: |
             - name: esp32:esp32
-              version: 3.3.12
+              version: 4.0.0
           libraries: |
             - name: WebSockets
             - name: U8g2

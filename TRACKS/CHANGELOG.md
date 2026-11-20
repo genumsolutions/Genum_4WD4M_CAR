@@ -14,7 +14,7 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 ## UNRELEASED (2026-11-20) — ESP32 core 4.0.0: the radio diet, and the guards that froze the car
 
 - **Why behaviour changed after an Arduino IDE update.** The bench machine now has
-  **esp32:esp32 4.0.0** installed; this sketch is CI-pinned and documented against
+  **esp32:esp32 4.0.0** installed; this sketch was CI-pinned and documented against
   **3.3.12**. 4.0.0 rewrote `BluetoothSerial`: `begin()` no longer takes
   `disableBLE`, and the controller always comes up in the core's BUILD-TIME mode,
   which for the prebuilt ESP32 package is `CONFIG_BTDM_CONTROLLER_MODE_BTDM`
@@ -48,6 +48,14 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
   PASS, all 138 selected mutants caught by their intended rule. **Nothing was
   flashed**, so the heap claims above are the core's own accounting, not a bench
   measurement.
+- **CI now pins the core the car runs (2026-11-20).** `arduino-ci.yml` and the syntax
+  gate's `$coreV` both moved to **4.0.0**, so CI stops building a core this firmware
+  never runs. The gate had also rotted on the bench machine: it pinned toolchain
+  `esp-x32\2601` (3.3.12's directory; 4.0.0 ships `2512`) and assumed a non-redirected
+  sketchbook at `%USERPROFILE%\Documents\Arduino\libraries`, so it failed with "xtensa
+  gcc not found" and then "U8g2lib.h not found" before compiling anything. Both are
+  resolved by lookup now. Verified: syntax 9/9, contract 0 failures, real 4.0.0 build
+  1,891,342 B (60%) / 81,344 B (24%).
 
 ## UNRELEASED — Bluetooth-only boot follows persisted transport state
 

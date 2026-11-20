@@ -21,7 +21,7 @@
 # uncompiled file into a trusted one.
 #
 # The include set below was derived from the real Arduino build layout on this
-# machine (core 3.3.12 + esp32-libs 3.3.12 + sketchbook libraries). Three
+# machine (core 4.0.0 + esp32-libs 4.0.0 + sketchbook libraries). Three
 # orderings matter and are easy to get wrong:
 #
 #   1. -DESP32 must NOT be defined. Config.h declares
@@ -56,15 +56,31 @@ param([string[]]$Files = @())
 $ErrorActionPreference = "Stop"
 
 $repo   = Split-Path -Parent $PSScriptRoot
-$coreV  = "3.3.12"
+$coreV  = "4.0.0"
 $libsV  = $coreV
 $arduino = Join-Path $env:LOCALAPPDATA "Arduino15\packages\esp32"
 $fw     = Join-Path $arduino "hardware\esp32\$coreV"
 $esp32libs = Join-Path $arduino "tools\esp32-libs\$libsV"
-$sketchLib = Join-Path $env:USERPROFILE "Documents\Arduino\libraries"
+# Arduino's sketchbook moves with folder redirection: on a OneDrive-managed
+# profile %USERPROFILE%\Documents\Arduino does not exist and the libraries live
+# under %OneDrive%\Documents\Arduino instead. Take the first that is there,
+# rather than silently compiling without U8g2 and WebSockets.
+$sketchLib = @(
+  (Join-Path $env:USERPROFILE "Documents\Arduino\libraries"),
+  (Join-Path $env:OneDrive "Documents\Arduino\libraries")
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if (-not $sketchLib) { Write-Error "Arduino sketchbook libraries not found (Documents or OneDrive Documents)"; exit 2 }
 
-$gcc = Join-Path $arduino "tools\esp-x32\2601\bin\xtensa-esp-elf-gcc.exe"
-if (-not (Test-Path $gcc)) { Write-Error "xtensa gcc not found at $gcc"; exit 2 }
+# The xtensa toolchain directory is versioned per core release (3.3.12 shipped
+# esp-x32\2601, 4.0.0 ships esp-x32\2512), so resolve it instead of pinning it.
+# A pinned number is exactly how this gate dies with "xtensa gcc not found"
+# after a core bump, before compiling a single translation unit.
+$gcc = Get-ChildItem (Join-Path $arduino "tools\esp-x32") -Directory -ErrorAction SilentlyContinue |
+       Sort-Object Name -Descending |
+       ForEach-Object { Join-Path $_.FullName "bin\xtensa-esp-elf-gcc.exe" } |
+       Where-Object { Test-Path $_ } |
+       Select-Object -First 1
+if (-not $gcc) { Write-Error "xtensa gcc not found under $arduino\tools\esp-x32"; exit 2 }
 if (-not (Test-Path $esp32libs)) { Write-Error "esp32-libs not found at $esp32libs"; exit 2 }
 
 # Arch/generated config first, then component includes shortest-first.
@@ -85,6 +101,10 @@ $first = @(
   "$esp32libs\include\soc\esp32\register",
   "$esp32libs\include\soc\esp32\include\soc",
   "$esp32libs\include\newlib\platform_include",
+  # core 4.0.0 moved esp_newlib.h out of newlib/platform_include into
+  # esp_libc/platform_include. Both are listed: -I on a path that does not
+  # exist is harmless, and this keeps one gate covering 3.x and 4.x.
+  "$esp32libs\include\esp_libc\platform_include",
   "$esp32libs\include\bt\host\bluedroid\api\include\api",
   "$esp32libs\include\bt\host\bluedroid\api\include",
   "$esp32libs\include\http_parser",
