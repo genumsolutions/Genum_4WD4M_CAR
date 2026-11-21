@@ -50,7 +50,7 @@ jobs:
     # reply handler against the firmware's real strings, asserting that a
     # refusal is never rendered as a success. Kept separate from `compile` so a
     # page bug and a build break are reported as different failures.
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
     steps:
@@ -72,7 +72,7 @@ jobs:
     # Separate from `compile` so "the transport is half-wired" and "the build
     # broke" are different failures, and so the failure text is about the
     # contract rather than a compiler message about a translation unit.
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
     steps:
