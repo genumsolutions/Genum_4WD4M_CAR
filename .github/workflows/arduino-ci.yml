@@ -18,8 +18,30 @@ name: Arduino CI — Genum_4WD4M_CAR
 on:
   push:
     branches: [main]
+    paths:
+      - '**/*.ino'
+      - '**/*.h'
+      - '**/*.cpp'
+      - '**/*.c'
+      - '**/*.json'
+      - '**/*.md'
+      - 'tools/**'
+      - '.github/workflows/arduino-ci.yml'
+      - 'secrets.h.example'
   pull_request:
+    paths:
+      - '**/*.ino'
+      - '**/*.h'
+      - '**/*.cpp'
+      - '**/*.c'
+      - '**/*.json'
+      - 'tools/**'
+      - '.github/workflows/arduino-ci.yml'
   workflow_dispatch:
+
+concurrency:
+  group: arduino-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   page-js:
