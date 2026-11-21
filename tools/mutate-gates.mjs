@@ -656,14 +656,17 @@ const mutants = [
   // own beacon broadcasting. Three independent ways back to that state, one per
   // assert in `wifi-off-hides-ap` - plus the two `page-always-on` regressions
   // (a client gate on the page, and a parked beacon while Wi-Fi is on).
+  // U-129: suspendAP() issues the same softAPdisconnect(), so the anchor carries
+  // the comment line that only stop()'s teardown has — a bare call is no longer
+  // unique and a silently-inert mutant would report itself as a good gate.
   { id: "M91", rule: "wifi-off-hides-ap", file: WSC,
-    find: "WiFi.softAPdisconnect(true);",
-    repl: "if (apRunning_) WiFi.softAPdisconnect(true);",
+    find: "up, and this path wants the radio down either way.\n  WiFi.softAPdisconnect(true);",
+    repl: "up, and this path wants the radio down either way.\n  if (apRunning_) WiFi.softAPdisconnect(true);",
     why: "the teardown is gated on the believed flag again - stop() skips softAPdisconnect() whenever apRunning_ is stale, which is exactly the AP_STA<->AP bounce the flag is force-written around (issue 7's 'the hotspot is still there')" },
 
   { id: "M92", rule: "wifi-off-hides-ap", file: WSC,
-    find: "if (wifiEnabled_ && !apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {",
-    repl: "if (!apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {",
+    find: "if (wifiEnabled_ && !apRunning_ && !apSuspended_ &&\n        apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {",
+    repl: "if (!apRunning_ && !apSuspended_ &&\n        apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {",
     why: "handle()'s AP retry no longer checks the transport switch - stop() clears apRunning_, so the very next pass re-creates the beacon ~2 s after Wi-Fi OFF and nothing ever takes it down again" },
 
   { id: "M93", rule: "wifi-off-hides-ap", file: WSC,
