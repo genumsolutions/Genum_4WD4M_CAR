@@ -319,3 +319,4 @@ gitignored, never committed; the sketch compiles without it).
   identity rename (BT `4WD CAR` · AP `4WDCar_Wifi` · AP 192.168.245.1/24 · FW_NAME `4WD4M Car`),
   fresh git history. v2 re-architecture (always-on Wi-Fi channel, Wi-Fi drive in 4WD4M, ESP_SER/
   ESP_CLI → CS) lands in Phase 1 of the reference plan.
+// ci: trigger fresh workflow runs after permission fixes
