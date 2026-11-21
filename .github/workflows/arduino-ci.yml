@@ -29,6 +29,8 @@ jobs:
     # refusal is never rendered as a success. Kept separate from `compile` so a
     # page bug and a build break are reported as different failures.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,6 +51,8 @@ jobs:
     # broke" are different failures, and so the failure text is about the
     # contract rather than a compiler message about a translation unit.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
