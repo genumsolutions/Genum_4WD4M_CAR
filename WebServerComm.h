@@ -226,6 +226,25 @@
 // works — the app is only refused a RAISE it would not survive (and the app
 // gates that refusal on "one link is live", see linkCapacity.test.ts).
 #define LINK_ADMISSION_FLOOR_BYTES 32000ul
+// U-129 (owner 2026-11-21 — "at first boot show both networks open… when one
+// gets connected turn off the other method… both open up once the car is
+// disconnected"): ONE LIVE LINK AT A TIME.
+//
+// Both radios are OFFERED at boot and again after every disconnect, so whichever
+// method the owner prefers is always available. The moment a client attaches to
+// one, the sketch parks the other (see suspendAP() / BluetoothComm::stop()) and
+// re-opens it after `LINK_OWNER_HOLD_MS` of silence. Nothing ever runs with two
+// SERVING links, so the measured both-links floor (21.7 kB free / 10.2 kB
+// largest block, TRACKS/DEVICE-TESTS.md) is no longer a running state:
+//   - Bluetooth live, own AP parked:   ~81 kB free  (boot 181.9 - BT 100.4)
+//   - own AP live, Bluetooth parked:   ~123 kB free (boot 181.9 - AP 58.3)
+// Both are above every floor in this file by a wide margin.
+//
+// The hold is what keeps the re-open from flapping: a phone that drops its link
+// for a second (screen off, Wi-Fi roaming) must not cause the other radio to be
+// torn down and re-raised around it. It is short enough that a deliberate
+// disconnect feels immediate.
+#define LINK_OWNER_HOLD_MS 4000ul
 // U-121 Phase E (owner 2026-10-23 — "the heap drops from 109 KB to 15 KB if
 // the Bluetooth is turned on and the WiFi drop after that and the car
 // freezes"): the STA RETRY loop is the churn that eats the last kilobytes.
@@ -385,6 +404,28 @@ public:
   // Clear the latched refusal once both links are actually up (or the owner
   // turned a transport off) — a stale refusal must not outlive its cause.
   void clearLinkCapRefusal() { linkCapRefused_ = false; }
+
+  // ---- U-129: exclusive link ownership (owner 2026-11-21) ----
+  // Is the own AP parked right now because Bluetooth owns the link? While true,
+  // the beacon is deliberately down (the Wi-Fi TRANSPORT is still enabled — the
+  // owner's setting never changed) and handle() must not re-create it.
+  bool apSuspended() const { return apSuspended_; }
+  // Park the own AP + page server so Bluetooth has the heap to itself. NOT a
+  // transport stop: no setting is persisted, the persisted page_off choice is
+  // untouched, and resumeAP() brings the same beacon back. Does nothing if the
+  // AP is already parked.
+  void suspendAP();
+  // Undo suspendAP(): clear the park and let the ONE existing AP bring-up path
+  // (handle()'s FIN-40/D1 retry -> startOwnAP()) re-create the beacon this pass.
+  void resumeAP();
+  // Driver FACTS the sketch's arbitration reads: live stations on the own AP,
+  // and whether the beacon netif currently has an address at all.
+  uint8_t apStationCount();
+  bool apIsUp();
+  // The sketch's arbitration tells this module whether the SIBLING link (BT) is
+  // parked, so linkCapCode() can report the honest "no second link right now"
+  // verdict the app's multi-connect gate already consumes.
+  void setOtherLinkParked(bool parked) { otherLinkParked_ = parked; }
   // T-48 (round-5): saved-router registry commands — ROUTERS;LIST /
   // ROUTERS;ADD;<ssid>;<pass> / ROUTERS;USE;<ssid> / ROUTERS;DEL;<ssid>.
   // True when the line was a ROUTERS command (consumed). USE stores the pair
@@ -924,6 +965,13 @@ private:
   // `apRunning_` = the softAP interface is up (the CLAIM, forced false in a few
   // places by FIN-40/D1). The old park flag that lived beside it was removed.
   bool apRunning_;
+  // U-129: the own AP is PARKED by the exclusive-link arbitration (Bluetooth
+  // owns the link). Distinct from !apRunning_ ("not up yet / failed"): the
+  // handle() retry ignores a suspended AP by design.
+  bool apSuspended_ = false;
+  // U-129: the OTHER transport (Bluetooth) is parked by the same arbitration.
+  // Only linkCapCode() reads it.
+  bool otherLinkParked_ = false;
   // U-111: true while the AP radio is still on the low boot-window power
   // (startOwnAP() sets it; handle() raises to full power once, after the settle
   // window — re-armed by every bring-up so a late softAP() also ends at full

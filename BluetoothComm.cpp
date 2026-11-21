@@ -144,7 +144,7 @@ void BluetoothComm::stop() {
   // SerialBT.end() can take time - do it outside critical section
   SerialBT.end();
   
-  Serial.println("[BT] stopped (transport disabled)");
+  Serial.println("[BT] stopped");
 }
 
 // T-7b recovery for a WEDGED BT stack (used only by the prolonged-disconnect

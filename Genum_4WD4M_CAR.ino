@@ -391,6 +391,117 @@ static bool ensureBtAdvertising() {
   return btComm.begin();
 }
 
+// U-129 (owner 2026-11-21): EXCLUSIVE LINK OWNERSHIP.
+//
+// The owner's rule, verbatim: *"at first boot show both network open for the
+// connection and when one gets connected turn off the other method… and both
+// open up once the car is disconnected"*. So the two transports are OFFERED
+// together but SERVED one at a time, and the model treats them as two methods
+// rather than one radio:
+//
+//   offer state   both up, nobody connected   (heap ~21.7 kB — the window the
+//                 measured both-links floor describes, now only transient)
+//   Wi-Fi owner   a station joined the own AP, or a WS client is driving the
+//                 car — Bluetooth is stopped  (heap ~123 kB)
+//   BT owner      an SPP client is attached — the own AP is parked
+//                 (heap ~81 kB)
+//
+// Tie-break, deliberately and only one way: if BOTH are live in the same pass,
+// Wi-Fi keeps the link. It is the cheaper survivor (123 kB vs 81 kB left), it is
+// the link with a UI that can explain itself (the page), and it is the one whose
+// teardown is free (BluetoothSerial::end() does not touch the Wi-Fi driver).
+//
+// Parking is NOT the owner's transport OFF: no setting is persisted, `webUp`
+// stays true, and the park ends by itself `LINK_OWNER_HOLD_MS` after the last
+// client goes away. The hold exists because a phone drops its link for a second
+// all the time (screen off, Wi-Fi roaming) and each drop must not churn the
+// other radio. While anything is live the hold never starts, so a busy session
+// cannot flap.
+static bool btParked = false;    // Bluetooth stopped because Wi-Fi owns the link
+static bool wifiParked = false;  // own AP parked because Bluetooth owns the link
+static unsigned long linkIdleSinceMs = 0;
+
+static void arbitrateLinkOwnership() {
+  // Only meaningful while BOTH methods are enabled. One method on is the owner's
+  // own choice and the transport-enforcement chain below already holds it up.
+  if (!(webServerComm.wifiEnabled() && webServerComm.btEnabled())) {
+    if (btParked || wifiParked) {
+      btParked = false;
+      wifiParked = false;
+      webServerComm.setOtherLinkParked(false);
+      linkIdleSinceMs = 0;
+    }
+    return;
+  }
+
+  // Liveness is a DRIVER/STACK FACT, never a belief: a joined station, a live
+  // WS client, or an attached SPP client.
+  const bool wifiLive =
+      webServerComm.apStationCount() > 0 || webServerComm.hasWsClients();
+  const bool btLive = btUp && btComm.connected();
+  const unsigned long now = millis();
+
+  if (wifiLive || btLive) linkIdleSinceMs = 0;
+
+  if (wifiLive) {
+    if (btUp) {
+      btComm.stop();
+      btUp = false;
+    }
+    if (!btParked || wifiParked) {
+      btParked = true;
+      if (wifiParked) {
+        // The station path came back while BT owned the link (the owner joined a
+        // router, or the app reached the car over one): Wi-Fi takes over.
+        webServerComm.resumeAP();
+        wifiParked = false;
+      }
+      webServerComm.setOtherLinkParked(true);
+      Serial.printf("[LINK] Wi-Fi owns the link - Bluetooth parked until disconnect "
+                    "(free=%u)\n",
+                    static_cast<unsigned>(ESP.getFreeHeap()));
+    }
+    return;
+  }
+
+  if (btLive) {
+    if (!wifiParked) {
+      webServerComm.suspendAP();
+      wifiParked = true;
+      btParked = false;
+      webServerComm.setOtherLinkParked(true);
+      Serial.printf("[LINK] Bluetooth owns the link - own AP parked until "
+                    "disconnect (free=%u)\n",
+                    static_cast<unsigned>(ESP.getFreeHeap()));
+    }
+    return;
+  }
+
+  // Nothing is live. Both methods are already offered unless one is parked; a
+  // parked one re-opens only after the hold, so a one-second drop does not churn
+  // the sibling radio.
+  if (!btParked && !wifiParked) return;
+  if (linkIdleSinceMs == 0) {
+    linkIdleSinceMs = now;
+    return;
+  }
+  if (now - linkIdleSinceMs < LINK_OWNER_HOLD_MS) return;
+  if (wifiParked) {
+    webServerComm.resumeAP();
+    wifiParked = false;
+  }
+  if (btParked) {
+    // Cleared, not raised here: the transport-enforcement chain below owns every
+    // BT raise (it applies the idempotent ensureBtAdvertising() retry), and two
+    // owners of the same radio start is how a raise loop gets written.
+    btParked = false;
+  }
+  webServerComm.setOtherLinkParked(false);
+  linkIdleSinceMs = 0;
+  Serial.printf("[LINK] no live client - both methods open again (free=%u)\n",
+                static_cast<unsigned>(ESP.getFreeHeap()));
+}
+
 void loop() {
   // The loop NEVER bails out on low heap. An earlier "aggressive heap guard"
   // returned here below 16 kB - a threshold above the 13-18 kB this car actually
@@ -445,6 +556,19 @@ void loop() {
   bool wifiEn = webServerComm.wifiEnabled();
   bool btEn = webServerComm.btEnabled();
   if (!wifiEn && !btEn) wifiEn = true;  // clamp: never both off
+  // U-129: a park belongs to the both-methods posture. The moment the owner
+  // turns one method off, no arbitration can own the link any more and the
+  // parked sibling is that method's business again — the chains below raise it.
+  if (!(wifiEn && btEn) && (btParked || wifiParked)) {
+    btParked = false;
+    wifiParked = false;
+    webServerComm.setOtherLinkParked(false);
+    linkIdleSinceMs = 0;
+  }
+
+  // U-129: decide who OWNS the link before the enforcement chain, so a parked
+  // sibling is not immediately "started because it is down" by it.
+  arbitrateLinkOwnership();
 
   if (wifiEn && btEn) {
     // Both enabled: start whatever is down, idempotently. The own hotspot is
@@ -458,8 +582,8 @@ void loop() {
     bool shouldStartBt = false, shouldStartWeb = false;
     {
       TRANSPORT_POWER_ENTER_CRITICAL();
-      shouldStartBt = !btUp;
-      shouldStartWeb = !webUp;
+      shouldStartBt = !btUp && !btParked;
+      shouldStartWeb = !webUp && !wifiParked;
       if (shouldStartWeb) webUp = true;
       TRANSPORT_POWER_EXIT_CRITICAL();
     }

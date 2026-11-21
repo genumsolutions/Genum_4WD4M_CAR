@@ -2344,6 +2344,11 @@ void WebServerComm::stop() {
   TRANSPORT_POWER_ENTER_CRITICAL();
   connectingPending_ = false;
   apRunning_ = false;
+  // U-129: an owner OFF outranks a park. Both ownership flags belong to the
+  // arbitration that the OFF just retired, and leaving either set would keep
+  // linkCapCode() reporting a refusal for a link nobody is holding.
+  apSuspended_ = false;
+  otherLinkParked_ = false;
   apTxPowerLow_ = false;  // U-111: a later startOwnAP() re-arms it
   staConnectedAtMs_ = 0;
   startedAsAP = false;
@@ -2405,8 +2410,59 @@ bool WebServerComm::admitSecondLink() {
 int WebServerComm::linkCapCode() const {
   if (!(wifiEnabled_ && btEnabled_)) return 1;
   if (linkCapRefused_) return 0;
+  // U-129: under exclusive ownership a parked sibling is a DECIDED "no second
+  // link right now" — the honest answer even though the heap is healthy. The
+  // app already consumes this as the multi-connect gate (linkCapacity.test.ts),
+  // so it states the truth instead of offering a link the car will park again.
+  if (apSuspended_ || otherLinkParked_) return 0;
   return ESP.getFreeHeap() >= LINK_ADMISSION_FLOOR_BYTES ? 1 : 0;
 }
+
+// U-129: EXCLUSIVE LINK OWNERSHIP — park the own AP while Bluetooth serves.
+//
+// Not stop(): stop() is the OWNER'S Wi-Fi-OFF (it persists page_off_ and drops
+// the station side). This is a temporary park that only touches the beacon, and
+// resumeAP() puts the same beacon back. The HTTP server is stopped with it so a
+// parked AP cannot answer on a stale interface; resumeAP() re-begins it.
+void WebServerComm::suspendAP() {
+  if (apSuspended_) return;
+  apSuspended_ = true;
+  if (serverRunning) {
+    server.stop();
+    serverRunning = false;
+  }
+  ws.close();
+  ws.disconnect();
+  stopMdns();
+  WiFi.softAPdisconnect(true);
+  TRANSPORT_POWER_ENTER_CRITICAL();
+  apRunning_ = false;
+  apTxPowerLow_ = false;  // a later resume re-arms the boot-window cap
+  TRANSPORT_POWER_EXIT_CRITICAL();
+  queueClear();
+  Serial.printf("[LINK] own AP parked - Bluetooth owns the link (free=%u)\n",
+                static_cast<unsigned>(ESP.getFreeHeap()));
+}
+
+void WebServerComm::resumeAP() {
+  if (!apSuspended_) return;
+  apSuspended_ = false;
+  // Let the ONE existing bring-up path do the radio work: handle()'s FIN-40/D1
+  // retry owns startOwnAP(), its staBusy() guard and its backoff. Stamping the
+  // backoff into the past makes it fire on this very pass, with no second
+  // machine and no blocking softAP() from the command path.
+  lastApRetryMs_ = millis() - AP_RETRY_INTERVAL_MS;
+  if (!serverRunning) {
+    server.begin();
+    serverRunning = true;
+    ws.begin();
+  }
+  Serial.println("[LINK] own AP re-opened - both links offered again");
+}
+
+uint8_t WebServerComm::apStationCount() { return WiFi.softAPgetStationNum(); }
+
+bool WebServerComm::apIsUp() { return WiFi.softAPIP() != IPAddress(0, 0, 0, 0); }
 
 bool WebServerComm::isStaJoined() const { return WiFi.status() == WL_CONNECTED; }
 // U-70: the CURRENT network, as opposed to the stored target.
@@ -2720,7 +2776,10 @@ void WebServerComm::handle() {
     // very next pass re-created the hotspot ~2 s (AP_RETRY_INTERVAL_MS) after
     // `WIFICFG;WIFI;OFF` — the owner's "the phone still sees the hotspot AND its
     // webpage" (issue 7). Wi-Fi OFF is forced down and STAYS down.
-    if (wifiEnabled_ && !apRunning_ && apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {
+    // U-129: `!apSuspended_` is second only because the wifi-off-hides-ap gate
+    // pins the `wifiEnabled_ && !apRunning_` prefix; the park is just as final.
+    if (wifiEnabled_ && !apRunning_ && !apSuspended_ &&
+        apNow - lastApRetryMs_ >= AP_RETRY_INTERVAL_MS) {
       // U-76: never re-arm an AP bring-up while the STA is busy. `softAP()` and
       // `softAPConfig()` are both illegal then, and `softAP()` against a live
       // association can block long enough to trip the task watchdog - which is
@@ -3724,6 +3783,11 @@ snprintf(buf, bufLen,
        "\"wifi_enabled\":%s,"
        "\"bt_enabled\":%s,"
        "\"boot_autojoin\":%s,"
+       // U-129: which method currently OWNS the link ("both" = both offered,
+       // nobody connected; "bt"/"wifi" = the live method, the sibling parked).
+       // The app's remote screen shows the parked method as waiting for the
+       // disconnect rather than as broken or refused.
+       "\"link_owner\":\"%s\","
        "\"link_cap\":%d,"
        "\"page_on\":%d,"
        "\"event_log_count\":%lu"
@@ -3775,6 +3839,7 @@ snprintf(buf, bufLen,
       wifiEnabled_ ? "true" : "false",
       btEnabled_ ? "true" : "false",
       bootAutojoin_ ? "true" : "false",
+      apSuspended_ ? "bt" : (otherLinkParked_ ? "wifi" : "both"),
       linkCapCode(),
       // U-116: is the car's own webpage serving RIGHT NOW? The app's
       // webpage-view toggle reads this after (re)connect and shows the
