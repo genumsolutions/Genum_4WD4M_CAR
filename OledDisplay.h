@@ -49,6 +49,10 @@ public:
   // ModeManager calls tick() every loop; a default no-op keeps other display
   // classes source-compatible.
   virtual void tick() {}
+  // U-107c: when one connection is active and the other transport is parked,
+  // the OLED hides the connection-method rows entirely. Only when both transports
+  // are available (idle) do the BT/WiFi frames alternate. Default no-op.
+  virtual void setExclusiveMode(bool /*exclusive*/) {}
   // REMOVED (2026-10-10, owner: "the car's own hotspot name is displayed with
   // [1/2] ... please remove that and treat all router networks equally").
   // setNetworkCycling()/setSavedRouterCount()/cycleNetworkDisplay() drove a
@@ -70,6 +74,7 @@ public:
   void setModeContext(const char* modeToken, bool isStub, bool isWip, bool hasDriveDashboard) override;
   void setLinkContext(const char* method, const char* type, bool connected) override;
   void setTransportToggles(bool wifiEnabled, bool btEnabled) override;
+  void setExclusiveMode(bool exclusive) override;
   void tick() override;
   void sleep() override;
   void wake() override;
@@ -113,6 +118,9 @@ private:
   // U-107: the live U-105 toggles, pushed by ModeManager on change.
   bool wifiOn = true;
   bool btOn = true;
+  // U-107c: exclusive mode — one connection active, other transport parked.
+  // When true, hide connection-method rows entirely.
+  bool exclusiveMode = false;
 
   // U-107b: the last inputs to draw(), so tick() can repaint the rotating
   // frames on its own clock without ModeManager re-supplying them.

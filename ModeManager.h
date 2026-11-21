@@ -90,6 +90,7 @@ public:
   LinkInfo currentLink() const;
   void pushLinkInfo();
   void pushTransportToggles();   // U-107: the U-105 toggles drive the OLED rows
+  void pushExclusiveMode();      // U-107c: hide connection rows when one link active
   size_t getStatusText(char* buf, size_t bufLen) const;
   int getSpeed() const;
   Mode getMode() const;
@@ -194,6 +195,8 @@ private:
   // are updated only when they actually change (and repainted at once).
   bool lastWifiOn_ = true;
   bool lastBtOn_ = true;
+  // U-107c: last pushed exclusive mode, so pushExclusiveMode() only repaints on change.
+  bool lastExclusiveMode_ = false;
   // 96: the STA row is "pct,rssi,ip,<ssid>" (~59 bytes) and the AP row
   // "AP:<name>,<ip>" - at most ~54 bytes (32-char AP name + 15-char IP).
   // — v1.2.4 shows the car's CURRENT IP (not the broadcast), so no |BC= payload

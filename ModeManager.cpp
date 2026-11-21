@@ -182,6 +182,24 @@ void ModeManager::pushTransportToggles() {
   oled_->draw(statusText_, speed_, isConnectedNow(), getModeString(), extraInfo_);
 }
 
+// U-107c: push exclusive mode to OLED. When one connection is active and both
+// transports are enabled (the other is parked), hide connection-method rows.
+// Only when both are available (idle) do the BT/WiFi frames alternate.
+void ModeManager::pushExclusiveMode() {
+  WebServerComm* ws = WebServerComm::instance();
+  const bool w = ws ? ws->wifiEnabled() : true;
+  const bool b = ws ? ws->btEnabled() : true;
+  const bool anyConnected = isConnectedNow();
+  // Exclusive: a client is connected while both transports are ON (one parked).
+  const bool exclusive = anyConnected && w && b;
+  if (exclusive == lastExclusiveMode_) return;  // unchanged - no repaint
+  lastExclusiveMode_ = exclusive;
+  if (!oled_) return;
+  oled_->setExclusiveMode(exclusive);
+  // Repaint pronto so connection rows hide/show immediately.
+  oled_->draw(statusText_, speed_, isConnectedNow(), getModeString(), extraInfo_);
+}
+
 void ModeManager::queueReply(const char* text) {
   if (!text || !text[0]) return;
   strncpy(pendingReply_, text, sizeof(pendingReply_) - 1);
@@ -807,6 +825,8 @@ void ModeManager::run() {
   // U-107 (owner 2026-10-13): keep the OLED's last-two-rows rule in step with
   // the U-105 transport toggles (change-gated internally).
   pushTransportToggles();
+  // U-107c: hide connection-method rows when one link is active (exclusive mode).
+  pushExclusiveMode();
   // U-107b (owner 2026-10-14): drive the frame/name-vs-IP rotation on its own
   // clock. Without this the phases only advanced inside a content-changing
   // draw() — and an idle car never changes content, so the alternation froze on

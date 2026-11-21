@@ -112,6 +112,14 @@ void Oled_1_3::setTransportToggles(bool wifiEnabled, bool btEnabled) {
   linkDirty = true;
 }
 
+// U-107c: exclusive mode — one connection active, other transport parked.
+// When true, the OLED hides connection-method rows entirely.
+void Oled_1_3::setExclusiveMode(bool exclusive) {
+  if (exclusiveMode == exclusive) return;
+  exclusiveMode = exclusive;
+  linkDirty = true;
+}
+
 // REMOVED (2026-10-10): cycleNetworkDisplay() / setNetworkCycling() /
 // setSavedRouterCount() implemented the U-98 3-second rotation through saved
 // networks. Its only visible output was the "[n/m]" badge the owner asked to
@@ -381,30 +389,34 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   const char* ssidText = (netBuf[0] != '\0') ? netBuf : WIFI_AP_NAME;
   const char* ipText = (ipBuf[0] != '\0') ? ipBuf : WIFI_AP_IP;
 
-  if (rotatePhase) {
-    // Wi-Fi frame (owner format 2026-10-14): the network name on the top row,
-    // the car's own IP on the bottom. Both at once — no name⇄IP alternation.
-    snprintf(line3, sizeof(line3), "WiFi : %s", ssidText);
-    snprintf(line4, sizeof(line4), "IP : %s", ipText);
-  } else {
-    // Bluetooth frame (owner format 2026-10-14): the REAL advertised name
-    // (BT_SPP_NAME, single-sourced in Config.h — not a second hard-coded literal
-    // that can drift from the radio) plus the transport type.
-    snprintf(line3, sizeof(line3), "Bluetooth : %s", BT_SPP_NAME);
-    snprintf(line4, sizeof(line4), "Type : SPP");
-  }
-
-  // Always draw both lines (no blinking)
-  u8g2->setFont(fontBody);
-  const int linkTextWide = usableW;
-  for (int i = 0; i < 2; ++i) {
-    char* row = (i == 0) ? line3 : line4;
-    while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
-      row[strlen(row) - 1] = '\0';
+  // U-107c: when one connection is active (exclusive mode), hide connection-method
+  // rows entirely. Only render when both transports are available (idle).
+  if (!exclusiveMode) {
+    if (rotatePhase) {
+      // Wi-Fi frame (owner format 2026-10-14): the network name on the top row,
+      // the car's own IP on the bottom. Both at once — no name⇄IP alternation.
+      snprintf(line3, sizeof(line3), "WiFi : %s", ssidText);
+      snprintf(line4, sizeof(line4), "IP : %s", ipText);
+    } else {
+      // Bluetooth frame (owner format 2026-10-14): the REAL advertised name
+      // (BT_SPP_NAME, single-sourced in Config.h — not a second hard-coded literal
+      // that can drift from the radio) plus the transport type.
+      snprintf(line3, sizeof(line3), "Bluetooth : %s", BT_SPP_NAME);
+      snprintf(line4, sizeof(line4), "Type : SPP");
     }
+
+    // Always draw both lines (no blinking)
+    u8g2->setFont(fontBody);
+    const int linkTextWide = usableW;
+    for (int i = 0; i < 2; ++i) {
+      char* row = (i == 0) ? line3 : line4;
+      while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
+        row[strlen(row) - 1] = '\0';
+      }
+    }
+    u8g2->drawStr(leftX, lineBaseline[2], line3);
+    u8g2->drawStr(leftX, lineBaseline[3], line4);
   }
-  u8g2->drawStr(leftX, lineBaseline[2], line3);
-  u8g2->drawStr(leftX, lineBaseline[3], line4);
   }
   } while (u8g2->nextPage());
 }
