@@ -3,6 +3,44 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-11-23 round — U-127: the drive path's stop behaviour (flash **1.3.19** — DEVICE VERIFY PENDING)
+
+> Written 2026-11-23, source-traced against this repo's `main`. These rows cover
+> the behaviour the tree actually implements, so the bench stops hunting for a
+> motor soft-start or a project token that no firmware here sends. Nothing below
+> is device-verified (F-61).
+
+- [ ] **U-127-1 — ⭐ 2 s of silence stops the motors, and the car comes back.**
+      Drive forward, then send nothing. After `FAILSAFE_TIMEOUT_MS` (2000 ms) the
+      motors stop, the OLED reads `Failsafe Stop`, `/status` `crash_count` does not
+      move, and the next command drives again. Repeat over Bluetooth and over
+      Wi-Fi/WebSocket — both take the same path.
+- [ ] **U-127-2 — an explicit stop is instant on all three verbs.** Forward →
+      `S`, then forward → `SPD0`, then forward → `ESTOP`. Each cuts the motors
+      immediately (there is no ramp to wait out), and `SPD0` keeps the stored
+      speed so the next `F` resumes at the same target.
+- [ ] **U-127-3 — speed changes are applied, not ramped.** Raise and lower the
+      speed while moving: the OLED `Speed` target and the actual drive change
+      together, at the commanded value. This row exists so "the motors snap on"
+      is read as current behaviour rather than as a defect report.
+- [ ] **U-127-4 — drive over both transports, no double-apply.** Drive over
+      Bluetooth, then over Wi-Fi; one press must produce one movement, never a
+      line applied twice.
+
+## Not implemented — do NOT test these yet
+
+> Re-checked 2026-11-23 against `main`. Both were described in
+> `genumsolutions-app/docs/BENCH-2026-11-19.md`; neither exists here.
+
+- **Motor soft-start and reversal dead-time.** `L298NControl::drive()` writes the
+  direction pins and the full duty cycle in the same call — there is no ~250 ms
+  ramp and no zero-crossing pause, so the rail still takes the full current step
+  the brownout reports came from. A soft-start row stays blocked until that
+  firmware work lands.
+- **Project identity on the wire.** There is no `FW_PROJECT` in this firmware, so
+  `/status` carries no `"project"` field and STATE carries no `;PROJ=`. The app's
+  `projectId` therefore stays unknown and it falls back to name grouping.
+
 ## Unreleased boot-policy check (based on **1.3.19** — DEVICE VERIFY PENDING)
 
 > Source-level fix only: setup now honors the persisted transport toggles before
