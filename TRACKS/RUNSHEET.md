@@ -1,7 +1,7 @@
 # RUNSHEET — flash 1.3.19 + the U-125 dual-link heap-admission pass
 
 > One sheet for the owner's next bench session. Firmware **1.3.19** (UNFLASHED;
-> **1.3.11 IS on the car**) + app **3.2.8 / versionCode 61** (new signed APK).
+> **1.3.11 IS on the car**) + app **3.4.5 / versionCode 69** (current signed APK).
 > Tick the rows in the row sheets as you go, NEWEST ROUND FIRST — car `TRACKS/DEVICE-TESTS.md`:
 > (**U-125-1/2 — this flash's own fix — then** U-124-⑫ · U-121-E2 · U-121-E · Q1-1/Q1-2 · U-120-B · U-117-1..3 · U-119-1 · U-116-10..15,
 > U-115-1..3 · U-113-8..15) · app `mobile/TESTING.md` — **U-125-1..5** · U-124-1..9 · U-123-1..4 · U-122-1..4 · U-121-A1..C2 + R1-A..D · U-120-C1..E3 ·
@@ -73,12 +73,10 @@ Capture the first boot while you are at it (~15 s, resets the board):
 
 ## 2 · Install the signed app APK
 
-Install **`D:\GENUM-APP-BUILD\genum-solutions-3.2.8-v61-arm64.apk`** on the
-phone (or run `adb install -r` with that file). It is signed with the same
-release key as the previous build and must update app **3.2.7/60** in place.
-Confirm About reports **3.2.8**. This round is a native APK build, not an OTA
-upload; the live release manifest remains at its last published version until
-the APK is separately uploaded.
+Install the current signed release APK (app **3.4.5 / versionCode 69**, from
+`D:\GENUM-APP-BUILD\`) on the phone, or `adb install -r` it. It must update the
+installed build **in place** — do not uninstall first, or the saved device
+preferences go with it. Confirm About reports **3.4.5**.
 
 ## 3 · Bluetooth: forget and re-pair
 
@@ -98,7 +96,7 @@ once, re-join. Expect an `192.168.245.x` address, then open:
 
     http://192.168.245.1/status
 
-Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.17`, and the crash
+Check `ap` = `4WD4MCar_WiFi` (**never empty**), `fw` = `1.3.19`, and the crash
 fields (`crash_count`, `reset_reason`, the phase). Also check `tele_params` reads
 `freq=1600, vyse=0` (U-114) and that `wifi_enabled`/`bt_enabled`/`boot_autojoin`
 report your actual toggles, not `1600`/`0`. The page's mode dropdown and

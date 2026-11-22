@@ -4,6 +4,21 @@
 > this repo). Cross-project ledger: workspace `guide/GUIDE.md`. Master plan:
 > `guide/PLAN-2026-09-28-4WD4M-CAR-REFERENCE-DESIGN.md`.
 
+**Status (2026-11-23 — FW 1.3.19 written, UNFLASHED):** the tree on top of the
+1.3.18 record below carries two rounds. **1.3.19 (U-125):** `linkCapCode()` now
+folds the LIVE free heap into the second-link verdict, so a car with both
+transports started but under the 32,000 B admission floor reports `LINKCAP=0` /
+`"link_cap":0` instead of offering a link it cannot afford (bench capture left
+~21.7 kB with the Bluetooth stack up). **U-126 (source-only; `FW_VERSION`
+deliberately left at 1.3.19 so the first boot does not wipe saved routers):**
+`setup()` honours the persisted transport toggles before raising either radio, a
+Bluetooth-only boot no longer starts the AP/web stack or arms the boot auto-join,
+and a low-heap boot cannot bypass `admitSecondLink()`. Rows U-125-1/2 and
+U-126-1/2 are in `DEVICE-TESTS.md`, all unticked (F-61). Gates re-run 2026-11-23:
+`check-firmware-contract.mjs` **0 failures** · `check-webpage-js.mjs` **PASS**
+(syntax 9/9 and mutate 138/138 are the last values recorded in `CHANGELOG.md`,
+not re-run in this pass). **Nothing was flashed.**
+
 **Status (2026-10-25 — U-124 ⑫, FW 1.3.18 written, UNFLASHED):** the owner's
 *"webpage shows white screen in browser and the ip is not hidden anywhere … fix
 these when webpage is off"* — the car half is ONE line: `serveGhostPage()`
