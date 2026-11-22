@@ -434,10 +434,19 @@ static void arbitrateLinkOwnership() {
     return;
   }
 
-  // Liveness is a DRIVER/STACK FACT, never a belief: a joined station, a live
-  // WS client, or an attached SPP client.
-  const bool wifiLive =
-      webServerComm.apStationCount() > 0 || webServerComm.hasWsClients();
+  // Liveness is a DRIVER/STACK FACT, never a belief: a live WS client or an
+  // attached SPP client.
+  //
+  // S-04 (owner bench report 2026-11-23): a station that is merely ASSOCIATED to
+  // the own AP is no longer counted as a live Wi-Fi link. Android keeps the
+  // Wi-Fi association after the app is closed, so `apStationCount() > 0` stayed
+  // true with nobody driving, which held the U-129 park open against Bluetooth
+  // forever: BT was stopped, `setOtherLinkParked(true)` kept LINKCAP at 0, and
+  // the app then refused every reconnect until the car was power-cycled -
+  // exactly the "car busy, works after a power cycle" report. The car's own
+  // page talks over the port-81 WebSocket, so `hasWsClients()` is the true
+  // "a page is open" signal and the station count adds only false positives.
+  const bool wifiLive = webServerComm.hasWsClients();
   const bool btLive = btUp && btComm.connected();
   const unsigned long now = millis();
 
