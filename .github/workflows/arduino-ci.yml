@@ -113,11 +113,20 @@ jobs:
     # that action shells out to actions/setup-python, whose installer needs admin
     # registry access (it deletes keys under HKEY_LOCAL_MACHINE\...\Products) and
     # left a broken python.exe behind on this runner, so the sketch never
-    # compiled. The bench machine already has arduino-cli 1.6.0, esp32 4.0.0 and
-    # the WebSockets/U8g2 libraries installed, so the job compiles directly.
+    # compiled. The bench machine already has arduino-cli, the esp32 core and the
+    # sketch libraries installed, so the job compiles directly.
     # Trade-off: the action's build-deltas report is no longer published; the
     # flash/RAM figures are still printed by the compile below.
     runs-on: self-hosted
+    env:
+      # The ESP32 core CI builds against. The core-pin check in
+      # tools/check-firmware-contract.mjs reads this block and requires it to
+      # equal $coreV in tools/check-firmware-syntax.ps1; the compile step below
+      # also asserts the runner has exactly this core, so a drifted pin cannot
+      # go green.
+      CI_ESP32_PIN: |
+        - name: esp32:esp32
+          version: 4.0.0
     permissions:
       contents: read
     steps:
@@ -130,6 +139,12 @@ jobs:
           set -euo pipefail
           if [ ! -f "$ARDUINO_CLI" ]; then
             echo "arduino-cli not found at $ARDUINO_CLI" >&2
+            exit 1
+          fi
+          pinned=$(printf '%s\n' "$CI_ESP32_PIN" | sed -n 's/^ *version: *//p')
+          installed=$("$ARDUINO_CLI" core list | awk '$1 == "esp32:esp32" { print $2 }')
+          if [ "$installed" != "$pinned" ]; then
+            echo "core drift: workflow pins $pinned but the runner has [$installed]" >&2
             exit 1
           fi
           "$ARDUINO_CLI" compile \
