@@ -43,6 +43,14 @@ concurrency:
   group: arduino-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# page-js and firmware-contract run on a Windows self-hosted runner that has no
+# PowerShell 7, so `run:` steps were falling back to Windows PowerShell. The
+# compile job below overrides this with its own Linux steps (shell: bash is the
+# default there anyway).
+defaults:
+  run:
+    shell: bash
+
 jobs:
   page-js:
     # U-81: the setup page's HTML+JS lives in a C++ raw string, so the compiler
