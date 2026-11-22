@@ -44,7 +44,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;margin:0;overflow:hidden;background:#111;color:#eee;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,Helvetica,sans-serif;line-height:1.5}
     body{display:flex;justify-content:center}
-    .frame{max-width:480px;width:100%;height:100vh;height:100dvh;display:flex;flex-direction:column;padding:4px 10px 6px;overflow:hidden}
+    .frame{max-width:1100px;width:100%;height:100vh;height:100dvh;display:flex;flex-direction:column;padding:4px 10px 6px;overflow:hidden}
     h1{font-size:18px;margin:4px 0 2px;text-align:center;font-weight:700;letter-spacing:-0.02em}
     .top-selects{display:flex;gap:6px;align-items:stretch;margin:6px 0 2px}
     /* T-70: the COLLAPSED selects are the tap targets — tall + larger text. */
@@ -59,6 +59,18 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     .side-l{justify-content:flex-start;border-bottom:1px solid #333}
     .side-r{justify-content:flex-end}
     .controls{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0;padding:4px 0}
+    /* S-15 (owner 2026-11-23: *"add one more d-pad in its own d-pad … and the
+       website should mirror the function of two d-pad just like the 2wd1m mode of
+       the apps remote screen … also do same for the 4wd4m car too"*): TWO pads
+       side by side in the middle of the stage, matching the app's DualDpad. The
+       data columns on either side tighten to donate the space; nothing else
+       moves. */
+    .pads{display:flex;flex:1;min-height:0;width:100%;align-items:stretch;justify-content:center;gap:clamp(6px,2vw,18px)}
+    .pad{display:flex;flex-direction:column;flex:1;min-width:0;max-width:430px;align-items:stretch}
+    /* The 4WD4M twin is present but INERT, exactly like enabledZones(false) in
+       the app: one full cross on the left, a second pad drawn so the layout
+       matches the 2WD1M/deck shape, and no command can ever come from it. */
+    .pad.inert{opacity:.26;pointer-events:none;filter:grayscale(1)}
     .row{display:flex;justify-content:center;align-items:center;margin:4px 0}
     .speed-row{margin:6px 0 2px}
     .btn{width:clamp(80px,26vmin,132px);height:clamp(72px,24vmin,124px);margin:4px;padding:0;color:#fff;border:2px solid #666;border-radius:18px;font-size:20px;font-weight:bold;display:flex;align-items:center;justify-content:center;user-select:none;touch-action:none;background:linear-gradient(180deg,#2e2e2e,#1a1a1a);box-shadow:0 3px 0 #000,0 5px 12px rgba(0,0,0,.5);text-shadow:0 1px 2px rgba(0,0,0,.6)}
@@ -73,6 +85,14 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     .range-wrap .val{min-width:44px;text-align:center;font-size:16px;font-weight:bold;color:#fff;font-variant-numeric:tabular-nums}
     .range-wrap .lim{min-width:26px;text-align:center;font-size:12px;color:#aaa}
     .small{font-size:11px;color:#aaa;margin-top:2px;text-align:center}
+    /* S-14/S-15 orientation ruling (owner 2026-11-23: *"dont have potrait at all
+       only gave landscape only by default"*): there IS no portrait layout. A
+       portrait window gets this notice and nothing else, so the page can never
+       render its controls in an arrangement the owner did not approve. */
+    .rotate{display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:100vh;height:100dvh;padding:24px;text-align:center}
+    .rotate svg{width:72px;height:72px;opacity:.85}
+    .rotate b{font-size:17px}
+    .rotate span{font-size:12px;color:#aaa;max-width:34ch}
      /* ROUND-11 (T-69): LANDSCAPE — data to the sides, buttons max-size.
         The old max-height:440 shrink (T-68) is superseded: the whole page
         takes a 3-column stage so the readouts never sit under the controls.
@@ -90,11 +110,19 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         .controls{justify-content:center;align-items:center;padding:2px 0}
         .row{flex:1;width:100%;margin:2px 0;align-items:stretch}
         .speed-row{flex:0 0 auto;margin:4px 0 2px}
-        .btn{flex:1;max-width:150px;height:100%;margin:2px;border-radius:14px;font-size:14px;font-weight:700}
+        /* S-15: smaller max width per tile so two pads fit the middle band on a
+           phone in landscape; heights still come from the flex rows, so the
+           tiles grow with the window on a tablet or a desktop. */
+        .btn{flex:1;max-width:120px;height:100%;margin:2px;border-radius:14px;font-size:14px;font-weight:700}
         .range-wrap{margin:0}
         .range-wrap .val{min-width:38px;font-size:13px;font-weight:700}
         .range-wrap .lim{font-size:10px;color:#888}
         .small{font-size:9px;color:#888;margin-top:1px}
+      }
+@media (orientation:portrait){
+        /* The rotate notice is the whole portrait page. */
+        .frame{display:none}
+        .rotate{display:flex}
       }
   </style>
 
@@ -497,6 +525,18 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
   </script>
 </head>
 <body>
+  <!-- S-14/S-15: the ONLY portrait surface. Everything else is landscape-only
+       per the owner's ruling; there is no stacked fallback to keep in sync. -->
+  <div class='rotate'>
+    <svg viewBox='0 0 24 24' fill='none' stroke='#eee' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>
+      <rect x='7' y='2' width='10' height='20' rx='2'/>
+      <path d='M4 12a8 8 0 0 1 2-5.3'/>
+      <path d='M2.5 5.5 4 7l1.5-1.5'/>
+    </svg>
+    <b>Turn the phone to landscape</b>
+    <span>This control page only runs in landscape. Rotate the device and it
+      comes back on its own &#8212; nothing has to be reloaded.</span>
+  </div>
   <div class='frame'>
     <h1>4WD4M Car</h1>
     <div class='top-selects'>
@@ -560,13 +600,31 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         <span>Uptime: <b id='uptime'>--:--</b></span>
       </aside>
       <div class='controls'>
-        <div class='row'><div id='btn-forward' class='btn'>FWD</div></div>
-        <div class='row'>
-          <div id='btn-left' class='btn'>LFT</div>
-          <div id='btn-stop' class='btn stop'>STOP</div>
-          <div id='btn-right' class='btn'>RGT</div>
+        <!-- S-15: the app's DualDpad for 4WD4M is a full cross on the LEFT and a
+             second pad on the right that is drawn but inert (enabledZones(false)
+             → right: []). Mirrored here exactly: same zones, same C-stops-
+             everything semantics (the centre is STOP), and the right pad carries
+             no handler at all — it is markup + styling, never a control. -->
+        <div class='pads'>
+          <div class='pad'>
+            <div class='row'><div id='btn-forward' class='btn'>FWD</div></div>
+            <div class='row'>
+              <div id='btn-left' class='btn'>LFT</div>
+              <div id='btn-stop' class='btn stop'>STOP</div>
+              <div id='btn-right' class='btn'>RGT</div>
+            </div>
+            <div class='row'><div id='btn-back' class='btn'>BWD</div></div>
+          </div>
+          <div class='pad inert' aria-hidden='true'>
+            <div class='row'><div class='btn'>FWD</div></div>
+            <div class='row'>
+              <div class='btn'>LFT</div>
+              <div class='btn stop'>STOP</div>
+              <div class='btn'>RGT</div>
+            </div>
+            <div class='row'><div class='btn'>BWD</div></div>
+          </div>
         </div>
-        <div class='row'><div id='btn-back' class='btn'>BWD</div></div>
         <div class='row speed-row'>
           <div class='range-wrap'>
             <label class='lim'>100</label>
