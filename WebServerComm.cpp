@@ -3884,7 +3884,13 @@ snprintf(buf, bufLen,
       // says ON. The app's toggle then shows the truth (off) instead of an ON
       // it could never honour, and it returns to the stored choice by itself
       // once Wi-Fi comes back.
-      (pageOff_ || !wifiEnabled_) ? 0 : 1,
+      // S-12 (owner 2026-11-23): same reasoning for the BT park. suspendAP()
+      // stops the HTTP server and the WS, so a car whose link is owned by
+      // Bluetooth answers 0 - the page really is off, which is what the owner
+      // asked for and what the app must show instead of an ON it cannot reach.
+      // Read through the same accessor the STATE line uses so the two surfaces
+      // cannot disagree.
+      (pageServerIsOn() && wifiEnabled_) ? 1 : 0,
       // P6: how many events the car's bounded log holds — the app's cue to
       // fetch (P7 reads LOG;GET windows; 0 = nothing stored, say so honestly).
       static_cast<unsigned long>(carLogCount())

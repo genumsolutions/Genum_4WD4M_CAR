@@ -388,7 +388,18 @@ public:
   // unchanged (it lives with its members below); only the ACCESS moved — a
   // private accessor cannot answer a wire query. Same-commit app consumer:
   // pageToggle.test.ts (genumsolutions-app).
-  bool pageServerIsOn() const { return !pageOff_; }
+  // S-12 (owner bench report 2026-11-23: "when bluetooth is connected the
+  // webpage should be off by default"): the BT park is part of the serve
+  // truth. suspendAP() stops the HTTP server and the WS with the beacon, so
+  // while apSuspended_ is set NOTHING answers :80/:81 anywhere - and both
+  // published answers (STATE `;PAGE=` and /status `page_on`) read this one
+  // accessor, so they cannot disagree about a page that is not serving. The
+  // owner's setting is untouched: pageOff_ still holds their choice and the
+  // page comes back on its own when the BT client disconnects and resumeAP()
+  // re-begins the server. This is a report of the park, not a rewrite of it,
+  // so it needs no gate change - `page-always-on` pins the Wi-Fi-ON serve path,
+  // which the park never touches.
+  bool pageServerIsOn() const { return !pageOff_ && !apSuspended_; }
   // P4 (2026-10-17): link admission — may a SECOND transport be raised right
   // now? Called by the sketch's transport-power loop ONLY when one link is
   // already up (the FIRST link is never gated). Returns false and latches the
