@@ -389,9 +389,42 @@ void Oled_1_3::redrawNow(int speed, bool connected) {
   const char* ssidText = (netBuf[0] != '\0') ? netBuf : WIFI_AP_NAME;
   const char* ipText = (ipBuf[0] != '\0') ? ipBuf : WIFI_AP_IP;
 
-  // U-107c: when one connection is active (exclusive mode), hide connection-method
-  // rows entirely. Only render when both transports are available (idle).
-  if (!exclusiveMode) {
+  // S-01 (owner bench report 2026-11-23): while a controller is LINKED the last
+  // two rows show THAT link, statically — no rotation and no blank. The previous
+  // rule hid the rows the moment "exclusive" became true (a client connected
+  // with both transports enabled), which is the blank panel the owner reported.
+  // The choice is keyed on the live link (linkConnected + linkMethodBuf, pushed
+  // by setLinkContext) and NOT on both toggles being on, so it still holds when
+  // S-12 parks the page server on a Bluetooth connect.
+  const bool linkBt = (strcmp(linkMethodBuf, "Bluetooth") == 0);
+  const bool linkWifi = (strcmp(linkMethodBuf, "WiFi") == 0);
+  const bool linkBoth = (strcmp(linkMethodBuf, "Parallel") == 0);
+
+  if (linkConnected && (linkBt || linkWifi || linkBoth)) {
+    if (linkBt) {
+      snprintf(line3, sizeof(line3), "Bluetooth : %s", BT_SPP_NAME);
+      snprintf(line4, sizeof(line4), "Type : SPP");
+    } else if (linkWifi) {
+      snprintf(line3, sizeof(line3), "WiFi : %s", ssidText);
+      snprintf(line4, sizeof(line4), "IP : %s", ipText);
+    } else {
+      // Both links live at once: say so instead of picking one and hiding the
+      // other, and keep the address on the second row.
+      snprintf(line3, sizeof(line3), "BT + WiFi connected");
+      snprintf(line4, sizeof(line4), "IP : %s", ipText);
+    }
+
+    u8g2->setFont(fontBody);
+    const int linkTextWide = usableW;
+    for (int i = 0; i < 2; ++i) {
+      char* row = (i == 0) ? line3 : line4;
+      while (u8g2->getStrWidth(row) > linkTextWide && strlen(row) > 5) {
+        row[strlen(row) - 1] = '\0';
+      }
+    }
+    u8g2->drawStr(leftX, lineBaseline[2], line3);
+    u8g2->drawStr(leftX, lineBaseline[3], line4);
+  } else if (!exclusiveMode) {
     if (rotatePhase) {
       // Wi-Fi frame (owner format 2026-10-14): the network name on the top row,
       // the car's own IP on the bottom. Both at once — no name⇄IP alternation.
