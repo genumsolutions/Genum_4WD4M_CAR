@@ -43,10 +43,9 @@ concurrency:
   group: arduino-ci-${{ github.ref }}
   cancel-in-progress: true
 
-# page-js and firmware-contract run on a Windows self-hosted runner that has no
-# PowerShell 7, so `run:` steps were falling back to Windows PowerShell. The
-# compile job below overrides this with its own Linux steps (shell: bash is the
-# default there anyway).
+# Every job here runs on the Windows self-hosted runner, which has no
+# PowerShell 7, so `run:` steps were falling back to Windows PowerShell while
+# they are written as bash.
 defaults:
   run:
     shell: bash
@@ -99,7 +98,12 @@ jobs:
     # three pushes in a row went red in ~16 s with the sketch never compiled.
     # 24.04 ships that Python and still runs the ESP32 4.0.0 build; move back
     # to -latest only once the action's Python pin supports it.
-    runs-on: ubuntu-24.04
+    # 2026-11-22: moved off ubuntu-24.04 to the self-hosted runner. The
+    # GitHub-hosted minutes are exhausted, so this job failed with NO steps run
+    # at all (runner: none, conclusion: failure). compile-sketches is
+    # cross-platform; the first run on a cold runner downloads the ESP32 4.0.0
+    # core, so expect one slow run and cached runs after that.
+    runs-on: self-hosted
     # The deltas report reads the base branch's sketches-report artifact over the
     # GitHub API, which needs a token and `actions: read`. On a `push` to main the
     # action reads the previous report from the same ref and got away without one;
