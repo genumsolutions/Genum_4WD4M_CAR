@@ -1,5 +1,13 @@
 name: Arduino CI — Genum_4WD4M_CAR
 
+# Runner prerequisites (Windows self-hosted, the actions-runner* dirs on the
+# bench machine):
+#   - Git Bash on PATH. Every job pins `shell: bash` because the runner has no
+#     PowerShell 7 and otherwise hands bash-syntax steps to Windows PowerShell.
+#   - `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Windows defaults to
+#     Restricted, and arduino/compile-sketches runs actions/setup-python, whose
+#     downloaded setup.ps1 is blocked ("running scripts is disabled").
+
 # Compile-gate the 4WD4M car firmware. This job does NOT touch any device:
 # it proves the sketch still compiles for the exact fqbn the owner flashes
 # (`esp32:esp32:esp32:PartitionScheme=huge_app` — README: Huge APP **REQUIRED**,
