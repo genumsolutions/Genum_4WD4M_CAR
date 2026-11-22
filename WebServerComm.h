@@ -982,6 +982,11 @@ private:
 
   // ---- WiFi provisioning state ----
   bool hasStoredWifi_;
+  // S-02: true until the boot-time station join has either landed or run out of
+  // its quiet window. While true the OLED names the saved router instead of
+  // painting the car's own hotspot and then flipping. See updateExtraInfo().
+  bool bootJoinPending_ = false;
+  uint32_t bootJoinStartMs_ = 0;  // lazily stamped on the first updateExtraInfo()
   char storedSsid_[33];   // WiFi SSID max = 32 bytes + NUL
   char storedPass_[65];   // WiFi WPA2 password max = 64 bytes + NUL
   // T-48: saved-router registry (the car is the source of truth; passwords stay

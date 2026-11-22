@@ -58,6 +58,11 @@ WebServerComm::WebServerComm()
   for (size_t i = 0; i < CMD_QUEUE_LEN; ++i) cmdQueue[i][0] = '\0';
   pendingModeBuf[0] = '\0';
   hasStoredWifi_ = false;
+  // S-02: the boot join window opens at construction and closes on the first
+  // real join verdict - not on the first WIFICFG, or saving a router would
+  // re-open it while the car is already running.
+  bootJoinPending_ = true;
+  bootJoinStartMs_ = 0;
   storedSsid_[0] = '\0';
   storedPass_[0] = '\0';
   // U-108 Phase 7: the app-provided clock starts UNSYNCED — the first `TIME;`
@@ -3063,6 +3068,27 @@ void WebServerComm::stopMdns() {
 void WebServerComm::updateExtraInfo() {
   if (!modeManager) return;
   char extra[128];
+
+  // S-02 (owner bench report 2026-11-23): the boot join window.
+  //
+  // The owner sees the car's OWN hotspot on the panel for a second at every
+  // boot, then the saved router replaces it. That was never a stale read - the
+  // own AP really is up first (the page has to be reachable) and the station
+  // join takes a moment, so the apRunning_ branch below was painting
+  // "AP:<name>" in the gap because that is where the car was at that instant.
+  // An honest flash still tells the owner the wrong thing about where the car
+  // is going, so during the window the panel names the router the car is
+  // actually joining and says the address is not known yet. The own-hotspot row
+  // only appears if that join really does not land within the quiet window.
+  constexpr uint32_t BOOT_JOIN_QUIET_MS = 15000;
+  if (bootJoinStartMs_ == 0) bootJoinStartMs_ = millis();
+  if (bootJoinPending_ && (WiFi.status() == WL_CONNECTED ||
+                           (millis() - bootJoinStartMs_) > BOOT_JOIN_QUIET_MS)) {
+    // Resolved either way: the join landed, or it had its chance and the AP is
+    // the truth from here on.
+    bootJoinPending_ = false;
+  }
+
   if (WiFi.status() == WL_CONNECTED) {
     int rssi = WiFi.RSSI();
     int pct = map(constrain(rssi, -100, -50), -100, -50, 0, 100);
@@ -3075,6 +3101,13 @@ void WebServerComm::updateExtraInfo() {
     // directed broadcast stays on /status broadcast_ip + the page's Bcast row.
     snprintf(extra, sizeof(extra), "%d,%ddBm,%s,%s", pct, rssi, ipStr,
              WiFi.SSID().c_str());
+  } else if (apRunning_ && bootJoinPending_ && hasStoredWifi_) {
+    // S-02: still joining the saved router, so do not flash the own hotspot.
+    // The "AP:<name>,<ip>" shape is reused deliberately: it is the shape the
+    // OLED already parses into "WiFi : <name>" / "IP : <ip>", and extraInfo is
+    // OLED-internal - no app, page or /status field reads it - so the
+    // placeholder address cannot leak into anything the owner sees elsewhere.
+    snprintf(extra, sizeof(extra), "AP:%s,joining...", storedSsid_);
   } else if (apRunning_) {
     // Own-network session: show the broadcast ID + the softAP IP on the
     // OLED so the user knows which network to join (the IP contains a dot,
