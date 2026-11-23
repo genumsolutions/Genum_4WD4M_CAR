@@ -27,6 +27,40 @@
       Bluetooth, then over Wi-Fi; one press must produce one movement, never a
       line applied twice.
 
+## 2026-11-23 round 2 — U-131: the bench-report fixes (flash **1.3.19** — DEVICE VERIFY PENDING)
+
+> Written 2026-11-23 against this repo's `main` after the S-01/S-02/S-04/S-12/
+> S-14/S-15 fixes. Each row names the snag it proves. Nothing here is
+> device-verified (F-61); record the observed values beside the tick. This car has
+> no servo, so S-11 deliberately does not appear.
+
+- [ ] **U-131-1 — ⭐ a second link is admitted after the app closes (S-04).**
+      Open the car's page over Wi-Fi and drive once, then close the app fully
+      (do NOT power-cycle the car). Connect over Bluetooth within the 4 s
+      `LINK_OWNER_HOLD_MS`: the car accepts it, the OLED switches to the BT link,
+      and `LINKCAP` is not 0. Then close BT and reconnect over Wi-Fi. Both
+      directions must work on one boot.
+- [ ] **U-131-2 — the last two OLED rows follow the live link (S-01).**
+      Idle: rows 3–4 keep alternating Wi-Fi / Bluetooth. Connect BT only: row 3
+      reads `Bluetooth : 4WD4M Car`, row 4 `Type : SPP`, and it stops blinking.
+      Wi-Fi only: `WiFi : <ssid>` / `IP : <ip>`. Both: `BT + WiFi connected` /
+      `IP : <ip>`. Disconnect: the idle rotation returns.
+- [ ] **U-131-3 — boot names the saved router, not the own hotspot (S-02).**
+      With a router saved and autojoin on, power-cycle: during the join the OLED
+      shows `WiFi : <saved ssid>` / `IP : joining...`, and only shows the own
+      hotspot if the join actually fails (after ~15 s). It must not flash the own
+      hotspot first and then flip on a normal join.
+- [ ] **U-131-4 — the page reports off while Bluetooth owns the link (S-12).**
+      BT linked: the app's Webpage switch reads OFF and says Bluetooth owns the
+      link; `http://<car-ip>/` does not answer. Disconnect BT and the page comes
+      back by itself, with the owner's stored toggle respected.
+- [ ] **U-131-5 — the car's page is landscape-only with the app's two-pad split
+      (S-14/S-15).** Portrait: one rotate-to-landscape notice, no stacked
+      controls. Landscape: left pad is the full cross (FWD/LFT/STOP/RGT/BWD); the
+      right pad is drawn but inert — pressing it must send nothing and the car
+      must not move. Each left-pad press produces exactly one movement, and the
+      page still shows the car's own IP.
+
 ## Not implemented — do NOT test these yet
 
 > Re-checked 2026-11-23 against `main`. Both were described in
