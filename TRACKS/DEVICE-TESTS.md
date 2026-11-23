@@ -61,19 +61,25 @@
       must not move. Each left-pad press produces exactly one movement, and the
       page still shows the car's own IP.
 
+- [ ] **U-131-6 — motors ramp up, and reverse through a dead-time (U-132).**
+      Hold forward from rest: the wheels spin up over ~250 ms instead of snapping
+      to full duty (STATE `SPD=` still reads the commanded target at once). Full
+      forward → full reverse: a brief pause (~60 ms), then the opposite direction
+      ramps up — no instant pin flip and no jolt. `S` / `SPD0` / the 2 s failsafe
+      still cut power at once (that is U-127-2). Run ≥10 reversals and watch
+      `crash_count`: this row exists because the brownout reports came from
+      exactly that current step.
+- [ ] **U-131-7 — the car reports its project id (U-132).** `/status` carries
+      `"project":"4wd4mcar"` beside `"fw":"1.3.19"`, and every STATE line
+      carries `;PROJ=4wd4mcar`. With Wi-Fi OFF and Bluetooth linked the STATE line
+      must still carry it (no WS round-trip). In the app the car lands under the
+      4WD4M project card rather than under its free-text name.
+
 ## Not implemented — do NOT test these yet
 
-> Re-checked 2026-11-23 against `main`. Both were described in
-> `genumsolutions-app/docs/BENCH-2026-11-19.md`; neither exists here.
-
-- **Motor soft-start and reversal dead-time.** `L298NControl::drive()` writes the
-  direction pins and the full duty cycle in the same call — there is no ~250 ms
-  ramp and no zero-crossing pause, so the rail still takes the full current step
-  the brownout reports came from. A soft-start row stays blocked until that
-  firmware work lands.
-- **Project identity on the wire.** There is no `FW_PROJECT` in this firmware, so
-  `/status` carries no `"project"` field and STATE carries no `;PROJ=`. The app's
-  `projectId` therefore stays unknown and it falls back to name grouping.
+> Re-checked 2026-11-23: **nothing is outstanding.** The motor soft-start /
+> reversal dead-time and the project identity both shipped (U-132) and are the
+> two rows above (U-131-6, U-131-7).
 
 ## Unreleased boot-policy check (based on **1.3.19** — DEVICE VERIFY PENDING)
 

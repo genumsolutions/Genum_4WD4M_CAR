@@ -11,6 +11,25 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## UNRELEASED (2026-11-23) — U-132: the motors ramp, and the car says which project it is
+
+- **Soft-start and reversal dead-time.** `L298NControl::drive()` used to write the
+  direction pins and the full duty in the same instruction. An L298N across a
+  stalled motor takes the whole rail at that instant, which is the current step
+  the brownout reports came from. `drive()` now only registers the target and
+  `update()` — ticked from `ModeManager::run()`, never `delay()` — climbs to it
+  over `MOTOR_SOFTSTART_MS` (250 ms). A direction change drops to zero duty and
+  waits `MOTOR_REVERSAL_DEADTIME_MS` (60 ms) before the opposite pair is
+  energised. A stop is untouched: `STOP` still de-energises in the same pass,
+  because a stop that eases off is a runaway.
+- **Project identity on the wire.** `FW_PROJECT` joins `FW_NAME`/`FW_VERSION` in
+  `Config.h` and is emitted as `"project"` on `/status` and `;PROJ=` on every
+  STATE line. The app already parsed both (`carProtocol.ts`, `useControlHub.ts`);
+  until now the car never sent them, so every device fell back to name grouping.
+- **Version stays at 1.3.19** — same reason as the 2026-11-20 entry: changing the
+  value is what triggers the boot-time NVS reset path, and neither change needs
+  it. The bench rows are U-131-6/U-131-7 in `TRACKS/DEVICE-TESTS.md`.
+
 ## UNRELEASED (2026-11-20) — ESP32 core 4.0.0: the radio diet, and the guards that froze the car
 
 - **Why behaviour changed after an Arduino IDE update.** The bench machine now has

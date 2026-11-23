@@ -22,6 +22,13 @@
 // mid-sentence in the original.
 #define FW_VERSION "1.3.19"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
+// U-132 (2026-11-23): the canonical project id on the wire. The app groups
+// devices by this id, never by a name: `FW_NAME`/`BT_SPP_NAME` are free text and
+// have already been renamed once per fleet, while this value is the key that
+// survives a rename. Transport mirrors: /status `"project"` and STATE
+// `;PROJ=` — both already parsed by the app (`carProtocol.ts`). Lowercase, no
+// spaces; the app normalises to alphanumerics ("4wd4mcar" -> "4wd4m").
+#define FW_PROJECT "4wd4mcar"
 
 // ---- T66 (round-9) · U-114: the telemetry-parameter config surface ----
 // The car firmware and the TSH gate BOTH read this one line. Every scalar
@@ -119,6 +126,18 @@ constexpr SwitchType SWITCH_TYPE = SwitchType::MOMENTARY;
 constexpr uint32_t PWM_FREQ = 20000u;
 constexpr uint8_t PWM_RESOLUTION = 8u;
 constexpr uint32_t FAILSAFE_TIMEOUT_MS = 2000u;
+
+// ---- U-132: motor soft-start and reversal dead-time ----
+// An L298N takes the full battery rail through a stalled motor when the
+// direction pins and the full PWM duty land in the same instruction. That
+// current step is what the brownout reports came from, so drive() now ramps the
+// duty up over MOTOR_SOFTSTART_MS and, on a direction change, drops to zero and
+// waits MOTOR_REVERSAL_DEADTIME_MS before the opposite pair is energised. Both
+// are ticked from L298NControl::update() — ModeManager::run() calls it every
+// pass — never by delay(), so the command path and the watchdog stay
+// responsive. STOP never ramps: a stop that eases off is a runaway.
+constexpr uint32_t MOTOR_SOFTSTART_MS = 250u;
+constexpr uint32_t MOTOR_REVERSAL_DEADTIME_MS = 60u;
 
 // ===== P1b/T-7b · BT hard-restart watchdog (2WD1M car parity) =====
 // The BT stack is re-initialized (BluetoothComm::restart(), throttled to once

@@ -558,6 +558,11 @@ void ModeManager::sendStateOn(CommInterface& comm) {
   // Connections-Hub: plus the stable board id (`;ID=`), the fw:<id> profile
   // key source for WiFi-only cars (STATE:000000..FFFFFF hex).
   char wifiKeys[384] = "";
+  // U-132 (2026-11-23): the canonical project id rides every STATE line, so a
+  // Bluetooth-only consumer can group the device by project without ever seeing
+  // the WS JSON. Static literal from Config.h - no escaping needed, and nothing
+  // a phone sent is ever interpolated here.
+  snprintf(wifiKeys, sizeof(wifiKeys), ";PROJ=%s", FW_PROJECT);
   // v2: WiFi truth (SSID / AP id / reachable IP) rides EVERY STATE line in
   // EVERY mode — the web layer is always-on and no longer SERVER-scoped.
   // (instanceForWs may be null pre-setup(); guarded.)
@@ -796,6 +801,11 @@ void ModeManager::run() {
 
   // T-13: flush any pending debounced NVS persist (mode + speed) when due.
   flushModeSpeedPersistIfDue();
+
+  // U-132: advance the motor soft-start / reversal dead-time state machine.
+  // Non-blocking by construction (millis() comparisons only), so neither the
+  // command drain below nor the failsafe read is delayed by a ramp.
+  if (motor_) motor_->update();
 
   // Single command path (F-20b): both channels go through handleCommand().
   if (auxComm_ != nullptr && auxComm_->available()) {
