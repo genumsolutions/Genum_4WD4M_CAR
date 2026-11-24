@@ -20,7 +20,12 @@
 // which made Config.h unreadable and ungreppable. Nothing is lost: the history
 // was extracted verbatim, including two entries that were already truncated
 // mid-sentence in the original.
-#define FW_VERSION "1.3.19"  // see TRACKS/CHANGELOG.md
+// U-133 (2026-11-24): 1.3.19 -> 1.3.20. Owner asked for a version upgrade with
+// every build so a flash is identifiable from the app and /status. Note the U-98
+// ruling: the FIRST boot after this flash is a version change, so
+// wipeRoutersOnFreshFirmware() clears the saved routers and transport toggles by
+// design — re-add the router on the bench (RUNSHEET Step 5).
+#define FW_VERSION "1.3.20"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 // U-132 (2026-11-23): the canonical project id on the wire. The app groups
 // devices by this id, never by a name: `FW_NAME`/`BT_SPP_NAME` are free text and
@@ -138,6 +143,15 @@ constexpr uint32_t FAILSAFE_TIMEOUT_MS = 2000u;
 // responsive. STOP never ramps: a stop that eases off is a runaway.
 constexpr uint32_t MOTOR_SOFTSTART_MS = 250u;
 constexpr uint32_t MOTOR_REVERSAL_DEADTIME_MS = 60u;
+
+// ---- U-133: the SPD floor must move the car ----
+// MIN_SPEED used to map to duty 0 (the mapping subtracted the floor from both
+// ends), so the app's slowest speed was a stop and its default was ~45% of the
+// rail. The floor now delivers this percentage of full duty and the rest of the
+// range climbs linearly to 100% (L298NControl::mapSpeedToDuty). 25% is above the
+// free-running threshold of the geared motors on 6-12 V and still well under the
+// stall current the soft-start exists to limit.
+constexpr uint32_t MOTOR_MIN_DUTY_PERCENT = 25u;
 
 // ===== P1b/T-7b · BT hard-restart watchdog (2WD1M car parity) =====
 // The BT stack is re-initialized (BluetoothComm::restart(), throttled to once

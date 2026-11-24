@@ -1790,6 +1790,9 @@ void WebServerComm::rejoinNetwork() {
   //
   // This is F-24/F-60 applied properly: no single blocking operation on the
   // connection path may be able to take the car down.
+  // U-133: a commanded switch opens the OLED's switch window (updateExtraInfo()
+  // closes it when the join lands, it runs out, or Wi-Fi is turned off).
+  switchStartMs_ = hasStoredWifi_ ? millis() : 0;
   pendingRejoin_ = hasStoredWifi_;
   staRetryCount_ = 0;
   staGiveUpLogged_ = false;
@@ -3087,6 +3090,35 @@ void WebServerComm::updateExtraInfo() {
     // Resolved either way: the join landed, or it had its chance and the AP is
     // the truth from here on.
     bootJoinPending_ = false;
+  }
+
+  // U-133 (owner 2026-11-24: "show the network switch timing on the car OLED",
+  // no storyboard/format change). A router SWITCH now gets the same honesty the
+  // boot join above got in S-02. `rejoinNetwork()` stamps `switchStartMs_`; while
+  // that window is open and the car is not yet on the router it was told to use,
+  // the panel names that router AND how long it has been trying. Without it the
+  // OLED kept showing the OLD network for the whole switch, so a slow switch and
+  // a switch that never happened looked identical — which is precisely the
+  // owner's "it shows the new router but doesn't switch" report (U-88/U-70).
+  // The shape is the existing "AP:<name>,<text>" row (the same one the boot
+  // window uses), so the OLED's parse, the page and the app are untouched.
+  // Bounded, and it clears itself the moment the join lands, so the normal rows
+  // are the truth again right after.
+  constexpr uint32_t SWITCH_QUIET_MS = 20000;
+  if (switchStartMs_ != 0) {
+    const uint32_t switchElapsed = millis() - switchStartMs_;
+    char joinedNow[33] = "";
+    joinedSsid(joinedNow, sizeof(joinedNow));
+    if (switchElapsed >= SWITCH_QUIET_MS || !hasStoredWifi_ ||
+        storedSsid_[0] == '\0' || strcmp(joinedNow, storedSsid_) == 0) {
+      switchStartMs_ = 0;  // landed, or out of chances: normal rows from here
+    } else {
+      char switching[72];
+      snprintf(switching, sizeof(switching), "AP:%s,switching %lus",
+               storedSsid_, static_cast<unsigned long>(switchElapsed / 1000u));
+      modeManager->setExtraInfo(switching);
+      return;
+    }
   }
 
   if (WiFi.status() == WL_CONNECTED) {

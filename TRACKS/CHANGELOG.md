@@ -11,6 +11,35 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## 1.3.20 (2026-11-24) — U-133: the motors reach their demand, and a switch shows its clock
+
+- **The SPD floor was a stop, and the ramp ate the rest of the demand.** Two
+  separate cuts in `L298NControl`, both of which read to the owner as "the motors
+  are too slow":
+  - `mapSpeedToDuty()` subtracted `MIN_SPEED` from both ends, so `SPD 100` — the
+    app's slowest selectable speed — mapped to duty **0** (a stop), and the app's
+    default `SPD 170` landed at only ~45% of the rail. The floor now delivers
+    `MOTOR_MIN_DUTY_PERCENT` (25%) and the range climbs linearly to 255 = 100%,
+    so 170 lands near 60%.
+  - Every hold-resend of the SAME drive line restarted the 250 ms soft-start
+    window. At the 30 ms resend cadence that is an exponential approach: each
+    resend closed ~12% of the remaining gap, so a held stick never arrived.
+    `drive()` and `setSpeed()` now leave an in-flight ramp alone when the demand
+    has not changed; retargeting still happens on a CHANGED demand.
+- **A router switch now shows its timing on the OLED.** `rejoinNetwork()` stamps
+  `switchStartMs_`; while that 20 s window is open and the car is not yet on the
+  router it was told to use, `updateExtraInfo()` paints the existing
+  `AP:<target>,switching <n>s` row. Before this the panel kept showing the OLD
+  network for the whole switch, so a slow switch and one that never happened
+  looked identical. The row shape is the one the S-02 boot window already uses —
+  no storyboard, page or app format changed.
+- **Version bump 1.3.19 -> 1.3.20.** U-98 ruling applies: the first boot after
+  this flash is a version change, so `wipeRoutersOnFreshFirmware()` clears the
+  saved routers and transport toggles by design — re-add the router on the bench.
+- **Verification:** `xtensa-esp32-elf-g++ -fsyntax-only` clean on
+  `L298NControl.cpp` and `WebServerComm.cpp`; `check-firmware-contract.mjs`
+  0 failures. Nothing was flashed, so none of this is device-verified yet (F-61).
+
 ## UNRELEASED (2026-11-23) — U-132: the motors ramp, and the car says which project it is
 
 - **Soft-start and reversal dead-time.** `L298NControl::drive()` used to write the

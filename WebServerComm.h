@@ -998,6 +998,13 @@ private:
   // painting the car's own hotspot and then flipping. See updateExtraInfo().
   bool bootJoinPending_ = false;
   uint32_t bootJoinStartMs_ = 0;  // lazily stamped on the first updateExtraInfo()
+  // U-133 (owner 2026-11-24: "show the network switch timing on the car OLED"):
+  // a router SWITCH (not just the boot join) now gets the same honest window.
+  // Stamped by updateExtraInfo() the first time it sees hasStoredWifi_ and a
+  // joined SSID that does not match storedSsid_; cleared when the join lands, the
+  // window runs out, or Wi-Fi is stopped. Reuses the boot row's existing shape,
+  // so nothing downstream (page, app, storyboard) changes.
+  uint32_t switchStartMs_ = 0;
   char storedSsid_[33];   // WiFi SSID max = 32 bytes + NUL
   char storedPass_[65];   // WiFi WPA2 password max = 64 bytes + NUL
   // T-48: saved-router registry (the car is the source of truth; passwords stay

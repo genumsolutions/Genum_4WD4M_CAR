@@ -31,7 +31,18 @@ uint32_t L298NControl::mapSpeedToDuty(uint16_t speed) const {
   uint32_t s = speed;
   if (s < MIN_SPEED) s = MIN_SPEED;
   if (s > MAX_SPEED) s = MAX_SPEED;
-  return ((s - MIN_SPEED) * maxDuty) / (MAX_SPEED - MIN_SPEED);
+  // U-133 (owner 2026-11-24: "motors are too slow"): the old form mapped the
+  // SPD floor to duty 0 — `(MIN_SPEED - MIN_SPEED) * maxDuty / ...` is literally
+  // zero — so the app's slowest selectable speed stopped the car instead of
+  // moving it, and its default SPD 170 landed at only ~45% duty. Neither is a
+  // ramp/brownout problem: the whole scale was compressed into the upper half.
+  // The floor now delivers MOTOR_MIN_DUTY_PERCENT of the rail (enough to turn a
+  // rolling car without the stall current U-132 exists to limit) and the rest of
+  // the SPD range spreads linearly up to full duty, so SPD 170 lands near 60%
+  // and 255 still means 100%.
+  const uint32_t floorDuty = (maxDuty * MOTOR_MIN_DUTY_PERCENT) / 100u;
+  return floorDuty +
+         (((s - MIN_SPEED) * (maxDuty - floorDuty)) / (MAX_SPEED - MIN_SPEED));
 }
 
 bool L298NControl::begin() {
@@ -142,6 +153,16 @@ void L298NControl::drive(Action action, uint16_t speed) {
 
   const uint32_t duty = mapSpeedToDuty(speed);
 
+  // U-133 (owner 2026-11-24: "motors too slow"): a REPEATED identical command
+  // must not restart the ramp. The app and the page both hold-resend the drive
+  // line every ~30 ms, and `update()` below re-targets from `lastDuty_` with a
+  // fresh `rampStartMs_` on every one of those. Against a 250 ms window that is
+  // an exponential approach — each 30 ms hold only closes ~12% of the remaining
+  // gap — so a held stick never reaches its duty and the car crawls. Retargeting
+  // exists for a CHANGED demand; the same demand has nothing to re-target, so
+  // letting the in-flight ramp finish is both faster and gentler on the rail.
+  if (!pending_ && action == applied_ && ramping_ && duty == targetDuty_) return;
+
   // Already turning that way: retarget the ramp from where the duty is now, so
   // a speed change climbs or eases instead of stepping the rail.
   if (!pending_ && action == applied_) {
@@ -222,6 +243,9 @@ void L298NControl::setSpeed(uint16_t speed) {
   // U-132: mid-reversal or stopped there is nothing turning to re-target; the
   // pending/next drive() carries the new magnitude.
   if (applied_ == Action::STOP || pending_) return;
+  // U-133: same reasoning as drive() — an unchanged demand leaves the in-flight
+  // ramp alone instead of restarting its window every hold-resend.
+  if (ramping_ && mapSpeedToDuty(speed) == targetDuty_) return;
   rampFromDuty_ = lastDuty_;
   targetDuty_ = mapSpeedToDuty(speed);
   rampStartMs_ = millis();
