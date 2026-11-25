@@ -1,5 +1,13 @@
 # TODO — Genum_4WD4M_CAR
 
+## 2026-11-26 device round — OPEN
+
+First on-car test of 4.0.0. The cross-repo queue is `../todo/2026-11-26-device-test.md`:
+T3 (disconnect state/OLED), T4 (boot to last router), T9 (state survives power cycle),
+T10 (reset also clears the DB), T6 (motor lag/jitter), T7 (page D-pad position — code done,
+unflashed), T5 (port every fix to the 2WD1M tree). T4 will trip the `boot-hop-off` gates on
+purpose; update the gate literals with the new requirement instead of deleting the rule.
+
 ## Phase 0 — repo baseline + rename (2026-09-28) — DONE
 - [x] **P0-1** fresh copy from donor 1.8.4 (`d0bf8c0`) via `git archive` — no `.git/`, no
       `secrets.h`, no `build/`, donor TRACKS not carried
