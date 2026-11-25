@@ -1,59 +1,13 @@
 name: Arduino CI — Genum_4WD4M_CAR
 
-# Runner prerequisites (Windows self-hosted, the actions-runner* dirs on the
-# bench machine):
-#   - Git Bash on PATH. Every job pins `shell: bash` because the runner has no
-#     PowerShell 7 and otherwise hands bash-syntax steps to Windows PowerShell.
-#   - `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Windows defaults to
-#     Restricted, and arduino/compile-sketches runs actions/setup-python, whose
-#     downloaded setup.ps1 is blocked ("running scripts is disabled").
-
-# Compile-gate the 4WD4M car firmware. This job does NOT touch any device:
-# it proves the sketch still compiles for the exact fqbn the owner flashes
-# (`esp32:esp32:esp32:PartitionScheme=huge_app` — README: Huge APP **REQUIRED**,
-# Arduino core 4.0.0) and reports the flash/SRAM deltas so the round-13 matrix
-# rows (R-20/R-20b, T-71a) that currently read "compile figures PENDING" get
-# real numbers.
+# CI runs on hosted Ubuntu 24.04. The pin is deliberate: ubuntu-latest rolled
+# to 26.04, where arduino/compile-sketches@v1 fails in actions/setup-python
+# ("The version '3.12.4' ... was not found") before the sketch is compiled.
+# 24.04 ships that Python and still builds the ESP32 4.0.0 core.
 #
-# Pass = compile succeeds + flash within Huge APP budget. Fail = sketch no
-# longer builds → push/PR blocked until fixed.
-#
-# NOTE: `Config.h` pulls `secrets.h` behind `__has_include("secrets.h")` — a
-# per-device gitignored file. arduino-ci makes the sketch compile with NO
-# secrets provisioned (the `#else` branch fills placeholders), so no credential
-# is ever needed in the repo or this workflow.
+# Every job pins `shell: bash` so the steps behave the same if these jobs ever
+# run on a Windows machine.
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - '**/*.ino'
-      - '**/*.h'
-      - '**/*.cpp'
-      - '**/*.c'
-      - '**/*.json'
-      - '**/*.md'
-      - 'tools/**'
-      - '.github/workflows/arduino-ci.yml'
-      - 'secrets.h.example'
-  pull_request:
-    paths:
-      - '**/*.ino'
-      - '**/*.h'
-      - '**/*.cpp'
-      - '**/*.c'
-      - '**/*.json'
-      - 'tools/**'
-      - '.github/workflows/arduino-ci.yml'
-  workflow_dispatch:
-
-concurrency:
-  group: arduino-ci-${{ github.ref }}
-  cancel-in-progress: true
-
-# Every job here runs on the Windows self-hosted runner, which has no
-# PowerShell 7, so `run:` steps were falling back to Windows PowerShell while
-# they are written as bash.
 defaults:
   run:
     shell: bash
@@ -65,7 +19,7 @@ jobs:
     # reply handler against the firmware's real strings, asserting that a
     # refusal is never rendered as a success. Kept separate from `compile` so a
     # page bug and a build break are reported as different failures.
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -87,7 +41,7 @@ jobs:
     # Separate from `compile` so "the transport is half-wired" and "the build
     # broke" are different failures, and so the failure text is about the
     # contract rather than a compiler message about a translation unit.
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -107,17 +61,11 @@ jobs:
     # 24.04 ships that Python and still runs the ESP32 4.0.0 build; move back
     # to -latest only once the action's Python pin supports it.
     #
-    # 2026-11-22: moved to the self-hosted Windows runner, because the GitHub-
-    # hosted minutes are exhausted and this job failed with NO steps run at all
-    # (runner: none). The compile itself no longer uses arduino/compile-sketches:
-    # that action shells out to actions/setup-python, whose installer needs admin
-    # registry access (it deletes keys under HKEY_LOCAL_MACHINE\...\Products) and
-    # left a broken python.exe behind on this runner, so the sketch never
-    # compiled. The bench machine already has arduino-cli, the esp32 core and the
-    # sketch libraries installed, so the job compiles directly.
-    # Trade-off: the action's build-deltas report is no longer published; the
-    # flash/RAM figures are still printed by the compile below.
-    runs-on: self-hosted
+    # 2026-11-25: back on hosted Ubuntu (24.04, pinned above). The bench
+    # machine's Windows arduino-cli is no longer required, so the compile gate
+    # works without a self-hosted runner. The ESP32 core is pinned to the same
+    # 4.0.0 the owner flashes, and the fqbn keeps Huge APP.
+    runs-on: ubuntu-24.04
     env:
       # The ESP32 core CI builds against. The core-pin check in
       # tools/check-firmware-contract.mjs reads this block and requires it to
@@ -133,22 +81,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Compile sketch
-        env:
-          ARDUINO_CLI: E:/Project/bin/arduino-cli.exe
-        run: |
-          set -euo pipefail
-          if [ ! -f "$ARDUINO_CLI" ]; then
-            echo "arduino-cli not found at $ARDUINO_CLI" >&2
-            exit 1
-          fi
-          pinned=$(printf '%s\n' "$CI_ESP32_PIN" | sed -n 's/^ *version: *//p')
-          installed=$("$ARDUINO_CLI" core list | awk '$1 == "esp32:esp32" { print $2 }')
-          if [ "$installed" != "$pinned" ]; then
-            echo "core drift: workflow pins $pinned but the runner has [$installed]" >&2
-            exit 1
-          fi
-          "$ARDUINO_CLI" compile \
-            --fqbn esp32:esp32:esp32:PartitionScheme=huge_app \
-            --build-path build/ci-out \
-            --warnings default \
-            .
+        uses: arduino/compile-sketches@v1
+        with:
+          fqbn: esp32:esp32:esp32:PartitionScheme=huge_app
+          sketch-paths: |
+            - .
+          platforms: |
+            - name: esp32:esp32
+              version: 4.0.0
+          libraries: |
+            - name: U8g2
+            - name: WebSockets
+          enable-deltas-report: true
