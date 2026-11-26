@@ -714,13 +714,15 @@ if (!btToggle.ok) {
   );
   bad++;
 }
-// Q1 (owner 2026-10-22): the boot auto-join is the OPPOSITE default - the
-// car must NOT hop to a router at power-up; only the app's smart-link joins.
-if (!/getBool\(\s*"boot_autojoin"\s*,\s*false\s*\)/.test(fw)) {
+// T4 (2026-11-26 device round): the boot auto-join default INVERTED. The car
+// must return to its last switched router at power-up; Q1's blocking join is
+// gone (probe-first scan + handle() step machine + own-AP fallback), so being
+// ON is safe. Companion of the contract rule `boot-hop-off`, same claim.
+if (!/getBool\(\s*"boot_autojoin"\s*,\s*true\s*\)/.test(fw)) {
   console.error(
-    "FAIL: the boot auto-join toggle does not default to OFF in loadStoredWifi() " +
-      "(Q1, owner 2026-10-22: the firmware must not boot-hop - only the " +
-        "app's smart-link joins a router)",
+    "FAIL: the boot auto-join toggle does not default to ON in loadStoredWifi() " +
+      "(T4, 2026-11-26: the car must return to its last switched router at " +
+        "power-up - the join is non-blocking and falls back to the own AP)",
   );
   bad++;
 }

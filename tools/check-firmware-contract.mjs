@@ -1439,23 +1439,30 @@ if (!wifiBr || !btBr || !ajBr) {
   pass("settings-round-trip", "each toggle persists to NVS before it is acked, answers with the state it holds, is reported on both the STATE line and the /status JSON, and the last-transport-off clamp stands");
 }
 
-// Q1: boot auto-join remains opt-in. A power-up with no explicit opt-in must
-// stay on the own hotspot; the app's remembered-router switch sends
-// WIFICFG;AUTOJOIN;ON to opt in. Three source facts carry that: the NVS READ
-// defaults false, armBootAutoJoin() honours the flag, and FACTORY;RESET returns
-// a virgin board to that default. check-webpage-js.mjs
-// pins the load default independently with its own FAIL text (companion gate,
-// same claim, two harnesses — mutants M127-M129 prove this one).
-if (!/getBool\s*\(\s*"boot_autojoin"\s*,\s*false\s*\)/.test(wscPlain)) {
-  fail("boot-hop-off", "loadStoredWifi() no longer defaults boot_autojoin to OFF - a fresh car would boot-hop without the app's remembered-router switch opting in");
+// T4 (2026-11-26 device round) — the requirement INVERTED here. Q1 stopped the
+// power-up hop because a BLOCKING join could stall boot; the join is
+// non-blocking now (probe-first scan, the handle() step machine, a 15 s quiet
+// window, own-AP fallback), so the car is expected back on the last-SWITCHED
+// router at power-up. Three source facts carry that: the NVS READ defaults
+// true, armBootAutoJoin() still honours the flag (so WIFICFG;AUTOJOIN;OFF
+// remains a working switch), and FACTORY;RESET returns a virgin board to that
+// default — which still cannot hop anywhere, because the wipe clears the
+// stored router. check-webpage-js.mjs pins the load default independently with
+// its own FAIL text (companion gate, same claim, two harnesses — mutants
+// M127-M129 prove this one).
+//
+// The rule id stays `boot-hop-off` so M127-M129 keep pointing at it; the name
+// is now historical (it asserts the boot hop is ON by default, non-blocking).
+if (!/getBool\s*\(\s*"boot_autojoin"\s*,\s*true\s*\)/.test(wscPlain)) {
+  fail("boot-hop-off", "loadStoredWifi() no longer defaults boot_autojoin to ON - the car would stay on its own AP at power-up instead of returning to the last switched router (T4)");
 } else if (!bootArmBody) {
   fail("boot-hop-off", "could not locate WebServerComm::armBootAutoJoin() - check this rule still matches the code");
 } else if (!/if\s*\(\s*!bootAutojoin_\s*\)/.test(bootArmBody)) {
-  fail("boot-hop-off", "armBootAutoJoin() no longer honours bootAutojoin_ - WIFICFG;AUTOJOIN;OFF becomes a switch that reads one way and does nothing, and the stopped default has no effect");
-} else if (!/bootAutojoin_ = false;/.test(wscPlain)) {
-  fail("boot-hop-off", "FACTORY;RESET no longer restores the virgin-board default (boot auto-join OFF) - a fresh start would hop to a router again");
+  fail("boot-hop-off", "armBootAutoJoin() no longer honours bootAutojoin_ - WIFICFG;AUTOJOIN;OFF becomes a switch that reads one way and does nothing, and the ON default has no effect");
+} else if (!/bootAutojoin_ = true;/.test(wscPlain)) {
+  fail("boot-hop-off", "FACTORY;RESET no longer restores the virgin-board default (boot auto-join ON) - a wiped car would keep the old hop setting instead of the default (T4)");
 } else {
-  pass("boot-hop-off", "boot auto-join defaults OFF and is honoured (load default + arm guard + factory default): the app or console must opt in with WIFICFG;AUTOJOIN;ON");
+  pass("boot-hop-off", "boot auto-join defaults ON and is honoured (load default + arm guard + factory default): the car returns to its last switched router, non-blocking, and a wiped car stays on its own AP because the router was wiped too");
 }
 
 // ---- core pin agreement -------------------------------------------------

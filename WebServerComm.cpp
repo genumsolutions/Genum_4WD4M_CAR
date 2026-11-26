@@ -372,8 +372,10 @@ bool WebServerComm::handleFactoryCommand(const char* cmd) {
     }
     wifiEnabled_ = DEFAULT_WIFI_ENABLED;
     btEnabled_ = DEFAULT_BT_ENABLED;
-    // Q1 (2026-10-22): a fresh start does NOT hop to a router.
-    bootAutojoin_ = false;
+    // T4 (2026-11-26): the virgin-board default follows the new ON default.
+    // A wipe still cannot hop anywhere: FACTORY;RESET clears `storedSsid_`
+    // below, so armBootAutoJoin() finds no router and stays on the own AP.
+    bootAutojoin_ = true;
     configEpoch_ = 0;
     crashLogResetCounters();
     Serial.println("[FACTORY] botcfg namespace cleared - fresh start");
@@ -511,7 +513,12 @@ void WebServerComm::loadStoredWifi() {
   // choice on a new firmware version, so a re-flash boots AP-only.
   wifiEnabled_ = prefs.getBool("t_wifi", DEFAULT_WIFI_ENABLED);
   btEnabled_ = prefs.getBool("t_bt", DEFAULT_BT_ENABLED);
-  bootAutojoin_ = prefs.getBool("boot_autojoin", false);
+  // T4 (2026-11-26 device round): boot auto-join now defaults ON. Q1 stopped
+  // the power-up hop because a BLOCKING join could stall boot; the join is
+  // non-blocking now (probe-first scan, the handle() step machine, a 15 s
+  // quiet window, own-AP fallback), so the safe default is back to the owner's
+  // rule: the car returns to the last-SWITCHED router by itself.
+  bootAutojoin_ = prefs.getBool("boot_autojoin", true);
   // U-116 (owner 2026-10-19: the app's webpage toggle "is not turning off
   // the car's own webpage"): the PAGE verb and setPageOff() PERSIST
   // `page_off` (and stop() re-persists it), but nothing ever READ it back
@@ -3139,7 +3146,10 @@ void WebServerComm::updateExtraInfo() {
     // OLED already parses into "WiFi : <name>" / "IP : <ip>", and extraInfo is
     // OLED-internal - no app, page or /status field reads it - so the
     // placeholder address cannot leak into anything the owner sees elsewhere.
-    snprintf(extra, sizeof(extra), "AP:%s,joining...", storedSsid_);
+    // T4: named router AND how long the join has been trying, so a slow join
+    // and a join that never happens no longer look identical on the panel.
+    snprintf(extra, sizeof(extra), "AP:%s,joining %lus", storedSsid_,
+             static_cast<unsigned long>((millis() - bootJoinStartMs_) / 1000u));
   } else if (apRunning_) {
     // Own-network session: show the broadcast ID + the softAP IP on the
     // OLED so the user knows which network to join (the IP contains a dot,

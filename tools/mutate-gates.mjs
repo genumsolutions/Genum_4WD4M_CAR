@@ -861,23 +861,24 @@ const mutants = [
     repl: '       "\\"event_log_count\\":%lu"',
     why: "the /status JSON no longer carries page_on - the web transport cannot read the page-server state, so an app on Wi-Fi holds a stale panel" },
 
-  // Q1 (owner 2026-10-22): the firmware boot-hop is STOPPED by default. Three
-  // source facts carry the claim (load default, arm guard, factory default) —
-  // each gets a mutant so the contract rule `boot-hop-off` cannot go decorative.
+  // T4 (2026-11-26 device round): the firmware boot-hop is ON by default (Q1's
+  // blocking join is gone). Three source facts carry the claim (load default,
+  // arm guard, factory default) — each gets a mutant so the contract rule
+  // `boot-hop-off` cannot go decorative.
   { id: "M127", rule: "boot-hop-off", file: WSC,
-    find: '  bootAutojoin_ = prefs.getBool("boot_autojoin", false);',
-    repl: '  bootAutojoin_ = prefs.getBool("boot_autojoin", true);',
-    why: "the boot auto-join load default flips back ON - a power-up hops to the last-used router again, undoing Q1 (the owner's stopped boot-hop)" },
+    find: '  bootAutojoin_ = prefs.getBool("boot_autojoin", true);',
+    repl: '  bootAutojoin_ = prefs.getBool("boot_autojoin", false);',
+    why: "the boot auto-join load default flips back OFF - the car stays on its own AP at power-up instead of returning to the last switched router (T4)" },
 
   { id: "M128", rule: "boot-hop-off", file: WSC,
     find: '  if (!bootAutojoin_) {\n    FW_LOG_VERBOSE("[WIFICFG] boot auto-join disabled - staying on own hotspot\\n");\n    return;\n  }',
     repl: '  if (false) {\n    FW_LOG_VERBOSE("[WIFICFG] boot auto-join disabled - staying on own hotspot\\n");\n    return;\n  }',
-    why: "armBootAutoJoin() stops honouring the flag - WIFICFG;AUTOJOIN;OFF reads OFF and still hops, and the stopped default changes nothing (a lying switch)" },
+    why: "armBootAutoJoin() stops honouring the flag - WIFICFG;AUTOJOIN;OFF reads OFF and still hops, and the ON default changes nothing (a lying switch)" },
 
   { id: "M129", rule: "boot-hop-off", file: WSC,
-    find: '    // Q1 (2026-10-22): a fresh start does NOT hop to a router.\n    bootAutojoin_ = false;',
-    repl: '    // Q1 (2026-10-22): a fresh start does NOT hop to a router.\n    bootAutojoin_ = true;',
-    why: "FACTORY;RESET returns a board that HOPS - a fresh start is supposed to be the virgin default (boot auto-join OFF), so the wipe's clean state is wrong again" },
+    find: '    // T4 (2026-11-26): the virgin-board default follows the new ON default.\n    // A wipe still cannot hop anywhere: FACTORY;RESET clears `storedSsid_`\n    // below, so armBootAutoJoin() finds no router and stays on the own AP.\n    bootAutojoin_ = true;',
+    repl: '    // T4 (2026-11-26): the virgin-board default follows the new ON default.\n    // A wipe still cannot hop anywhere: FACTORY;RESET clears `storedSsid_`\n    // below, so armBootAutoJoin() finds no router and stays on the own AP.\n    bootAutojoin_ = false;',
+    why: "FACTORY;RESET leaves a wiped board on a NON-default setting - a fresh start is supposed to match the virgin default (boot auto-join ON), so the wipe's clean state is wrong again (T4)" },
 
   // U-120 B (owner 2026-10-22, "when i turn off it automatically toggles to
   // on"): the APP's page verb WIFICFG;WIFI;PAGE;… starts with ";WIFI" and the
