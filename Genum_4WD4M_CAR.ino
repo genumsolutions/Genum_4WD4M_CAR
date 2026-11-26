@@ -260,6 +260,15 @@ void setup() {
     // REPLY=… (bounded ≤191 bytes, three events per GET window).
     const bool isLogCmd = webServerComm.handleLogCommand(cmd);
     if (!isRouterCmd && !isWifiCmd && !isFactoryCmd && !isLogCmd) return false;
+    // T10/T3 (2026-11-26 device round): a successful FACTORY;RESET has wiped
+    // NVS. The running session's RAM copies (mode, speed) and the OLED must
+    // land on the same defaults in THIS tick, or the panel keeps the pre-reset
+    // state and the app's next sync reads it straight back. Keyed on the reply,
+    // so a FACTORY? query or a syntax error can never trigger a wipe's side
+    // effects.
+    if (isFactoryCmd && webServerComm.lastWifiReply() == "FACTORY;CLEARED") {
+      modeManager.factoryResetState();
+    }
     if (webServerComm.lastWifiReply().length() > 0) {
       modeManager.queueReply(webServerComm.lastWifiReply().c_str());
       // T-35/T-63: fan the reply out over EVERY connected transport (STATE
