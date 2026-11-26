@@ -258,6 +258,7 @@ void L298NControl::setSpeed(uint16_t speed) {
     if (dutyDelta < (fullDuty / 20)) return;  // <5% change: let ramp complete
   }
   rampFromDuty_ = lastDuty_;
+}
   targetDuty_ = newDuty;
   rampStartMs_ = millis();
   ramping_ = true;
