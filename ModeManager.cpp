@@ -520,7 +520,12 @@ void ModeManager::sendState() {
   // v2: fan out to EVERY transport in EVERY mode — comm_ is the always-on
   // web transport (WS/HTTP) and auxComm_ is Bluetooth. (Donor mirrored BT
   // only inside SERVER mode; v2 has no mode-gated transport at all.)
+  // U-138: always send STATE so the app/OLED knows connection status change.
+  // Even when disconnected, the app must know the car went offline.
   if (comm_ && comm_->connected()) {
+    sendStateOn(*comm_);
+  } else if (comm_) {
+    // Car was connected, now disconnected - send state so app knows
     sendStateOn(*comm_);
   }
   if (auxComm_ && auxComm_ != comm_ && auxComm_->connected()) {
