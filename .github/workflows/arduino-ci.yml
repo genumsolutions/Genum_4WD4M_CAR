@@ -120,7 +120,12 @@ jobs:
           sketch-paths: |
             - .
           platforms: |
+            # Core 4.x is NOT in Arduino's default package index (it stops at
+            # 2.x/3.x), so a bare `version: 4.0.0` fails the install with
+            # "Platform 'esp32:esp32@4.0.0' not found" before anything compiles.
+            # The Espressif index is where 4.0.0 actually lives.
             - name: esp32:esp32
+              source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
               version: 4.0.0
           libraries: |
             - name: U8g2
