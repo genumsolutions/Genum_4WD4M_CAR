@@ -40,7 +40,17 @@ public:
   unsigned long getLastActivityMs() const { return lastActivityMs; }
 
 private:
+  // U-142: SPP liveness. `txSinceAttach_` arms the timeout only after this
+  // attachment has successfully pushed at least one byte, so a fresh client is
+  // never judged against a timestamp left over from a previous session.
+  // `sppWedged()` is the whole rule: attached, has written before, and has
+  // accepted nothing for BT_SPP_TX_STALL_MS. See Config.h for why TX progress
+  // and not hasClient() is the honest liveness signal.
+  bool sppWedged() const;
+
   BluetoothSerial SerialBT;
   bool started_ = false;
   unsigned long lastActivityMs = 0;
+  bool txSinceAttach_ = false;
+  unsigned long lastTxOkMs_ = 0;
 };

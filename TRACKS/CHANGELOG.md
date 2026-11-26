@@ -11,6 +11,28 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## 1.3.22 (2026-11-27) — U-142: a stalled SPP socket is noticed and recovered
+
+- **"It connects the first cycle, or once, and then doesn't respond."** A wedged
+  SPP socket leaves `SerialBT.hasClient()` reporting *attached* after the phone is
+  gone. Every consumer reads `connected()` as live liveness, so the own hotspot
+  stayed parked, `LINKCAP` stayed 0 (the app then refused the other link) and the
+  `BT_HARD_RESTART_MS` watchdog could never fire — it needs the false edge that the
+  latch never gives. The only way out was a power cycle.
+- **The liveness proof is TX progress, not `hasClient()`.** `ModeManager` broadcasts
+  `STATE` every `STATE_INTERVAL_MS` (1.5 s), and `BluetoothSerial::write()` returns
+  0 when the SPP channel is really closed even though `hasClient()` still says
+  attached. So `connected()` now reports down when the socket has accepted **zero
+  bytes for `BT_SPP_TX_STALL_MS` (30 s)** — 20 consecutive missed STATE frames. A
+  healthy idle car keeps writing on that tick, so this cannot fire on an
+  idle-but-live link.
+- **Recovery is automatic.** Reporting down releases the AP park after
+  `LINK_OWNER_HOLD_MS` (the own hotspot comes back in roughly half a minute), and
+  the existing watchdog then re-inits BT. `restart()` and `begin()` clear the
+  verdict, so the next client is measured from scratch.
+- **Version 1.3.22.** Per the U-133 ruling the flash is identifiable from the app
+  and `/status`.
+
 ## 1.3.20 (2026-11-24) — U-133: the motors reach their demand, and a switch shows its clock
 
 - **The SPD floor was a stop, and the ramp ate the rest of the demand.** Two
