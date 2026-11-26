@@ -246,10 +246,21 @@ void L298NControl::setSpeed(uint16_t speed) {
   // U-133: same reasoning as drive() — an unchanged demand leaves the in-flight
   // ramp alone instead of restarting its window every hold-resend.
   if (ramping_ && mapSpeedToDuty(speed) == targetDuty_) return;
+  // U-141: smooth speed changes — only start a new ramp if the requested
+  // speed differs significantly from the current applied duty (deadband ~5%)
+  // to prevent jitter from tiny fluctuations in the app's speed value.
+  uint32_t newDuty = mapSpeedToDuty(speed);
+  if (ramping_) {
+    // Use the old maxDuty from mapSpeedToDuty's scope; approximate with
+    // full-scale duty = (1 << PWM_RESOLUTION) - 1. Compute 5% of that.
+    uint32_t fullDuty = (1u << PWM_RESOLUTION) - 1u;
+    uint32_t dutyDelta = labs(newDuty - targetDuty_);
+    if (dutyDelta < (fullDuty / 20)) return;  // <5% change: let ramp complete
+  }
   rampFromDuty_ = lastDuty_;
-  targetDuty_ = mapSpeedToDuty(speed);
+  targetDuty_ = newDuty;
   rampStartMs_ = millis();
   ramping_ = true;
-}
+
 
 #endif
