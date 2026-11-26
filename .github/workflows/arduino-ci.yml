@@ -8,6 +8,39 @@ name: Arduino CI — Genum_4WD4M_CAR
 # Every job pins `shell: bash` so the steps behave the same if these jobs ever
 # run on a Windows machine.
 
+# RESTORED 2026-11-26: the `on:` and `concurrency:` blocks were dropped by
+# 21207e0 ("ci: run the Arduino checks on hosted Ubuntu 24.04"). Without a
+# trigger GitHub creates a run with ZERO jobs and marks it failed, so every
+# push since then has been red with no compiler output at all. Keep them above
+# `defaults:`.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.ino'
+      - '**/*.h'
+      - '**/*.cpp'
+      - '**/*.c'
+      - '**/*.json'
+      - '**/*.md'
+      - 'tools/**'
+      - '.github/workflows/arduino-ci.yml'
+      - 'secrets.h.example'
+  pull_request:
+    paths:
+      - '**/*.ino'
+      - '**/*.h'
+      - '**/*.cpp'
+      - '**/*.c'
+      - '**/*.json'
+      - 'tools/**'
+      - '.github/workflows/arduino-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: arduino-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     shell: bash
