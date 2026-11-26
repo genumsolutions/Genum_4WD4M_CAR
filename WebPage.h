@@ -81,7 +81,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
     .btn.stop{background:linear-gradient(180deg,#8a1a1a,#5a0d0d);border-color:#ff5a5a}
     .btn.stop.pressed{background:#500;border-color:#ff9090}
     .range-wrap{display:flex;align-items:center;gap:8px;width:100%;margin:4px 0 2px}
-    .range-wrap input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:10px;border-radius:5px;border:1px solid #444;background:#333}
+    .range-wrap input[type=range]{flex:1;min-width:0;-webkit-appearance:none;appearance:none;height:10px;border-radius:5px;border:1px solid #444;background:#333}
     .range-wrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:34px;height:34px;border-radius:50%;background:#3b82f6;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5)}
     .range-wrap input[type=range]::-moz-range-thumb{width:32px;height:32px;border-radius:50%;background:#3b82f6;border:2px solid #fff}
     .range-wrap input[type=range]::-moz-range-track{height:10px;border-radius:5px;background:#333}
@@ -108,8 +108,11 @@ static const char PAGE_HTML[] PROGMEM = R"rawliteral(
         select{height:38px;font-size:13px;padding:0 8px;font-weight:600}
         .stage{flex-direction:row;align-items:stretch;gap:8px;min-height:0;overflow:hidden}
         .side{flex:0 0 clamp(84px,24vw,170px);flex-direction:column;flex-wrap:nowrap;justify-content:center;gap:5px;font-size:11px;color:#aab;border-bottom:none;padding:0;min-width:0;font-weight:500}
-        .side span{display:flex;justify-content:space-between;gap:4px}
-        .side b{color:#fff;font-weight:600}
+        /* U-142: a long SSID / IP / REPLY= used to grow past this column instead
+           of ellipsising, because a flex item defaults to min-width:auto. Clip
+           and ellipsise so every value stays inside the pane. */
+        .side span{display:flex;justify-content:space-between;gap:4px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+        .side b{color:#fff;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
         .controls{justify-content:center;align-items:center;padding:2px 0}
         .row{flex:1;width:100%;margin:2px 0;align-items:stretch}
         .speed-row{flex:0 0 auto;margin:4px 0 2px}
