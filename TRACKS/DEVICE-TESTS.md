@@ -3,6 +3,36 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
+## 2026-11-27 round — U-142: a stalled SPP socket is noticed and recovered (flash **1.3.22** — DEVICE VERIFY PENDING)
+
+> Written 2026-11-27 from the owner's bench report *"it connects the first cycle
+> or one time and then doesn't respond properly"*. Source-traced against this
+> repo's `main`; nothing below is device-verified (F-61). A healthy link now has
+> to prove itself by ACCEPTING BYTES, not by `hasClient()` alone.
+
+- [ ] **U-142-1 — ⭐ the first connect responds, and so does the second.** Connect
+      over Bluetooth, drive, disconnect, then connect again and drive. The reported
+      fault was a first connection that worked followed by a dead session.
+- [ ] **U-142-2 — ⭐ a dead socket is noticed, and the own hotspot returns WITHOUT
+      a power cycle.** Connect over Bluetooth, then walk the phone out of range (or
+      force-stop the app) so the socket dies without a clean SPP close. Within
+      ~35 s the serial should print `[LINK] no live client - both methods open
+      again`, the car's own hotspot becomes joinable, and `/status` reads
+      `"link_owner":"both"` and `"link_cap":1`.
+- [ ] **U-142-3 — the link comes back after the recovery.** Without re-flashing or
+      power-cycling, reconnect over Bluetooth and drive again.
+- [ ] **U-142-4 — ⚠ an IDLE live link must NOT be declared stalled.** Connect over
+      Bluetooth and leave everything alone for 90 s (no driving, no commands, phone
+      awake). The link must stay up: no `[LINK] … open again`, no `[BT-WD] Hard
+      restart`. This is the guard that the 30 s window never fires on an
+      idle-but-healthy link — if this row fails, the window is too short.
+- [ ] **U-142-5 — the car names the live owner and the capacity.** With Bluetooth
+      connected `/status` reads `"link_owner":"bt"` and `"link_cap":0` (the other
+      method is paused, not broken). After U-142-2 it reads `"both"` / `1`.
+- [ ] **U-142-6 — the flash is identifiable.** `/status` `"fw"` reads `1.3.22` (and
+      the OLED header agrees). If it reads anything else the flash did not take and
+      U-142-1..5 are not testing this build.
+
 ## 2026-11-23 round — U-127: the drive path's stop behaviour (flash **1.3.19** — DEVICE VERIFY PENDING)
 
 > Written 2026-11-23, source-traced against this repo's `main`. These rows cover
