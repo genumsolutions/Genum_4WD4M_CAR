@@ -245,7 +245,6 @@ void L298NControl::setSpeed(uint16_t speed) {
   if (applied_ == Action::STOP || pending_) return;
   // U-133: same reasoning as drive() — an unchanged demand leaves the in-flight
   // ramp alone instead of restarting its window every hold-resend.
-  if (ramping_ && mapSpeedToDuty(speed) == targetDuty_) return;
   // U-141: smooth speed changes — only start a new ramp if the requested
   // speed differs significantly from the current applied duty (deadband ~5%)
   // to prevent jitter from tiny fluctuations in the app's speed value.
