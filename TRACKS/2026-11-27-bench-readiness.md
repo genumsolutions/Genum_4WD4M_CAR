@@ -6,15 +6,15 @@ It records what is pushed, what is green on disk, and the exact device order to 
 ## Pushed firmware (verified local HEAD == origin/main)
 
 ### 2WD1M — Genum_2WD1M_CAR_NEW
-- main = bf0f6ee
-- FW_VERSION = 2.0.6 (Config.h)
-- local HEAD == remote main: YES
+- commit pushed this session = 66647a9 (snapshot commit)
+- firmware main still = bf0f6ee (U-143/U-144), FW_VERSION = 2.0.6 (Config.h)
+- local HEAD == remote main: YES (66647a9)
 - tree clean: YES
 
 ### 4WD4M — Genum_4WD4M_CAR
-- main = 19f0d41
-- FW_VERSION = 1.3.24 (Config.h)
-- local HEAD == remote main: YES
+- commit pushed this session = d698068 (snapshot commit)
+- firmware main still = 19f0d41 (U-143/U-144), FW_VERSION = 1.3.24 (Config.h)
+- local HEAD == remote main: YES (d698068)
 - tree clean: YES
 
 ## What this push contains
@@ -36,23 +36,28 @@ It records what is pushed, what is green on disk, and the exact device order to 
   duplicate pgmspace.h include removed from WebServerComm.cpp, boot log
   corrected from BT to 4WD4M.
 
-## Local gates checked on disk (this session)
+## Real compile status (arduino-cli, this session)
 
-### 2WD1M
-- targeted .ino syntax gate: PASS 1 / 1 (Genum_2WD1M_CAR_NEW.ino), core 4.0.0, exit 0
-- full 10-unit syntax sweep: timed out this run (exit 124), did NOT complete in time.
-  The .ino itself parses (targeted run above). Treat the full sweep as "not re-confirmed
-  this session" rather than "failed".
-- residue cleanup: .tools/cmdline.zip deleted and confirmed gone.
+The real build for this project uses `.tools/arduino-cli/arduino-cli.exe` with
+`--fqbn esp32:esp32:esp32:PartitionScheme=huge_app`, run from inside each car
+directory, one compile at a time.
 
-### 4WD4M
-- targeted .ino syntax gate: PASS 1 / 1 (Genum_4WD4M_CAR.ino), core 4.0.0, exit 0
-- full 9-unit syntax sweep: not re-run this session.
+This session the real compiles did not finish inside the session's time budget.
+The verbose logs show the builds doing real work (library detection and preprocessing),
+with no compile error seen so far. No `.bin` was produced here yet because neither
+build reached the link stage in time.
 
-### App (genumsolutions-app/mobile)
-- npx tsc --noEmit: exit 0
-- vitest (reconnectPrompt, resetCarData, linkCapacity, oneActiveLink, carSilence):
-  Test Files 5 passed (5), Tests 93 passed (93)
+Prior-round real compiles were green (recorded earlier, not re-run this session):
+- 2WD1M: ~1,901,870 B flash / ~81,456 B RAM, 0 warnings
+- 4WD4M: ~1,899,054 B flash / ~81,416 B RAM, 0 warnings
+
+Local syntax gates on the source (not the full build) passed cleanly:
+- 2WD1M: full 10/10 translation-unit syntax sweep passes now (this session, with more time)
+- 4WD4M: full 9/9 translation-unit syntax sweep passes now (this session, with more time)
+- both `.ino` files parse in targeted single-file runs (exit 0)
+
+Net: no compile error found this session. The builds are slow but progressing;
+finish one of them fully to get the `.bin` before flashing.
 
 ## Flash note (by design)
 
@@ -120,7 +125,28 @@ U-142 (run on 1.3.24 after U-143):
 - after booth passes, update TRACKS/TODO.md in each repo:
   2026-11-27 U-143 round: WIP -> DEVICE -> DONE, with the firmware version confirmed on the car
 
+## Residue cleanup done this session
+
+- `.tools/cmdline.zip` deleted and confirmed gone.
+- 2WD1M stray blank-line edit on `Genum_2WD1M_CAR_NEW.ino` restored to HEAD (1 blank line
+  added between `#include "OledDisplay.h"` and `#include "ModeManager.h"`; no logic change,
+  not part of U-143/U-144).
+
+## Root folder status
+
+The file `todo/2026-11-27-bench-readiness.md` lives in the project root `todo/` folder,
+which is outside both car git repos. The same content is committed and pushed inside both
+car repos under `TRACKS/2026-11-27-bench-readiness.md`. So the "clean root" question has
+two parts:
+
+- inside each car repo: tree is clean and pushed.
+- in the root `todo/` folder: the snapshot file is still present on disk. If you want the
+  root folder to have no leftover non-repo file, remove `todo/2026-11-27-bench-readiness.md`
+  after confirming both `TRACKS/` copies are pushed (they are).
+
 ## Logs captured this session
 
 - /tmp/syntax-2wd-ino.log — 2WD .ino targeted syntax gate
 - /tmp/syntax-4wd-ino.log — 4WD .ino targeted syntax gate
+- /tmp/compile-2wd.log — 2WD real arduino-cli compile (verbose), in progress when checked
+- /tmp/compile-4wd.log — 4WD real arduino-cli compile (verbose), running in background
