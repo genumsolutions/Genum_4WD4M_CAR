@@ -30,7 +30,10 @@
 // ruling: the FIRST boot after this flash is a version change, so
 // wipeRoutersOnFreshFirmware() clears the saved routers and transport toggles by
 // design — re-add the router on the bench (RUNSHEET Step 5).
-#define FW_VERSION "1.3.22"  // see TRACKS/CHANGELOG.md
+// U-143 (2026-11-27): 1.3.22 -> 1.3.23. Reset now returns the webpage setting to
+// its default, and the boot OLED no longer names a saved router when the
+// remembered-router switch is OFF.
+#define FW_VERSION "1.3.23"  // see TRACKS/CHANGELOG.md
 #define FW_VENDOR  "GENUM SOLUTIONS PVT. LTD."
 // U-132 (2026-11-23): the canonical project id on the wire. The app groups
 // devices by this id, never by a name: `FW_NAME`/`BT_SPP_NAME` are free text and

@@ -376,6 +376,13 @@ bool WebServerComm::handleFactoryCommand(const char* cmd) {
     // A wipe still cannot hop anywhere: FACTORY;RESET clears `storedSsid_`
     // below, so armBootAutoJoin() finds no router and stays on the own AP.
     bootAutojoin_ = true;
+    // U-143 (owner: "reset all the values, state and data and setting values
+    // to the default ones"). `pageOff_` is a SETTING and its default is ON, but
+    // the wipe only removed the NVS key: the live flag kept an OFF from before
+    // the reset, so the page stayed muted until the next power cycle. Reset the
+    // RAM copy with the other settings so the panel, the page and the stored
+    // choice all land on the same defaults in the same tick.
+    pageOff_ = false;
     configEpoch_ = 0;
     crashLogResetCounters();
     Serial.println("[FACTORY] botcfg namespace cleared - fresh start");
@@ -3092,10 +3099,14 @@ void WebServerComm::updateExtraInfo() {
   // only appears if that join really does not land within the quiet window.
   constexpr uint32_t BOOT_JOIN_QUIET_MS = 15000;
   if (bootJoinStartMs_ == 0) bootJoinStartMs_ = millis();
-  if (bootJoinPending_ && (WiFi.status() == WL_CONNECTED ||
+  // U-143: the join window only exists when boot auto-join is ON. With the
+  // owner's "remember last router" switch OFF the car deliberately stays on its
+  // own hotspot, so naming the saved router here would show a join that is not
+  // happening (the owner's rule is conditional on that switch being on).
+  if (bootJoinPending_ && (WiFi.status() == WL_CONNECTED || !bootAutojoin_ ||
                            (millis() - bootJoinStartMs_) > BOOT_JOIN_QUIET_MS)) {
-    // Resolved either way: the join landed, or it had its chance and the AP is
-    // the truth from here on.
+    // Resolved either way: the join landed, it was never going to be attempted,
+    // or it had its chance and the AP is the truth from here on.
     bootJoinPending_ = false;
   }
 
@@ -3140,7 +3151,7 @@ void WebServerComm::updateExtraInfo() {
     // directed broadcast stays on /status broadcast_ip + the page's Bcast row.
     snprintf(extra, sizeof(extra), "%d,%ddBm,%s,%s", pct, rssi, ipStr,
              WiFi.SSID().c_str());
-  } else if (apRunning_ && bootJoinPending_ && hasStoredWifi_) {
+  } else if (apRunning_ && bootJoinPending_ && hasStoredWifi_ && bootAutojoin_) {
     // S-02: still joining the saved router, so do not flash the own hotspot.
     // The "AP:<name>,<ip>" shape is reused deliberately: it is the shape the
     // OLED already parses into "WiFi : <name>" / "IP : <ip>", and extraInfo is

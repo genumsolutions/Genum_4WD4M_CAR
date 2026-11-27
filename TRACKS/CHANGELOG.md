@@ -11,6 +11,20 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## 1.3.23 (2026-11-27) — U-143: reset restores the webpage setting; boot row respects AUTOJOIN
+
+- **`FACTORY;RESET` left the live webpage setting where it was.** The wipe removed
+  the NVS key, but the RAM copy (`pageOff_`) kept a pre-reset OFF, so a car whose
+  page had been muted stayed muted until the next power cycle — while the reset's
+  promise is "every setting back to its default" (the page default is ON). The RAM
+  restore now sets `pageOff_ = false` with the other settings, in the same tick.
+- **The boot OLED named a saved router even with "remember last router" OFF.**
+  `updateExtraInfo()` showed `AP:<saved ssid>,joining <n>s` for the 15 s quiet
+  window whenever a router was stored, without consulting `bootAutojoin_` — a join
+  the car was deliberately not attempting. The window now closes immediately when
+  auto-join is OFF, and the placeholder branch requires it, so the panel shows the
+  own hotspot (the truth) and only names the last router when it is really joining.
+
 ## 1.3.22 (2026-11-27) — U-142: a stalled SPP socket is noticed and recovered
 
 - **"It connects the first cycle, or once, and then doesn't respond."** A wedged
