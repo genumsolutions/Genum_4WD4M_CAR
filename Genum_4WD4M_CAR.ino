@@ -1,7 +1,7 @@
 // =====================================================================
 // Genum_4WD4M_CAR — multimode 4WD4M car firmware (ESP32 + L298N)
 // File: Genum_4WD4M_CAR.ino — entry point: boot, boot splash, watchdog,
-//       mode-switch wiring (BT ↔ SERVER)
+//       drive-mode wiring + transport enforcement (always-on web + SPP)
 // Property of GENUM SOLUTIONS PVT. LTD.
 //
 // =====================================================================

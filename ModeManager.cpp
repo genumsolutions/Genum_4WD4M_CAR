@@ -987,7 +987,7 @@ void ModeManager::applyBootState() {
       FW_LOG("[BOOT] Restored speed=%u\n", (unsigned)speed_);
     }
   } else {
-    FW_LOG("[BOOT] No boot state found; keeping defaults (BT / MIN_SPEED).\n");
+    FW_LOG("[BOOT] No boot state found; keeping defaults (4WD4M / MIN_SPEED).\n");
   }
 
   if (motor_) motor_->drive(Action::STOP, 0);

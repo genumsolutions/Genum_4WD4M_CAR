@@ -114,15 +114,21 @@ edits stay inside what those rules already pin.
 
 ## Result (after the change)
 
-Both findings fixed identically in both trees, firmware bumped
-2WD1M `2.0.4 → 2.0.5`, 4WD4M `1.3.22 → 1.3.23`, with a CHANGELOG entry each.
+Both findings fixed identically in both trees, with a CHANGELOG entry each.
+A follow-up residue pass (U-144) removed stale header/comment text, the dead
+`KEY_TRIM`/`KEY_STEER_LIMIT` literals in the 2WD tree, a duplicate `<pgmspace.h>`
+in the 4WD tree, and a boot log that named the wrong default mode. No behaviour
+changed in U-144.
+
+Final versions: 2WD1M **2.0.6**, 4WD4M **1.3.24**.
 
 | gate | 2WD1M new | 4WD4M |
 | --- | --- | --- |
 | `check-firmware-contract.mjs` | 0 failures | 0 failures |
 | `check-webpage-js.mjs` | all PASS | all PASS |
 | `check-firmware-syntax.ps1` | 10/10 TUs | 9/9 TUs |
+| real compile (core 4.0.0, huge_app) | 1,901,870 B / 81,456 B RAM, 0 warnings | 1,899,054 B / 81,416 B RAM, 0 warnings |
 
 Not done, and cannot be done from here: flashing either car and running the
-on-device acceptance rows. Gates prove source shape only (F-61). Status in both
-`TRACKS/TODO.md` files is `WIP`, never `DONE`.
+on-device acceptance rows. Gates and compiles prove source shape only (F-61).
+Status in both `TRACKS/TODO.md` files is `WIP`, never `DONE`.

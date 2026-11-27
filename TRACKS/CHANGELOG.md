@@ -11,6 +11,19 @@ one-line dump was not. `Config.h:10` remains the source of truth for the value.
 > car was still on an older build. See `TRACKS/SESSION-2026-10-22-U120.md` for
 > the current resume point.
 
+## 1.3.24 (2026-11-27) — U-144: residue cleanup, no behaviour change
+
+- Removed the stale `BT ↔ SERVER` line from the sketch header, the retired
+  `ESP_CLI` note from the page header, the auto-join-OFF claim in the first-boot
+  wipe comment (the default has been ON since T4; a re-flash still starts AP-only
+  because the router credentials are wiped too), and a duplicate `<pgmspace.h>`
+  include that `WebPage.h` already provides.
+- The boot log's "keeping defaults" line named `BT`; this car's default mode is
+  `4WD4M`, and the line now says so.
+- Verified build (core 4.0.0, `esp32:esp32:esp32:PartitionScheme=huge_app`):
+  **1,899,054 B (60%) flash / 81,416 B (24%) RAM**, zero warnings with
+  `--warnings all`.
+
 ## 1.3.23 (2026-11-27) — U-143: reset restores the webpage setting; boot row respects AUTOJOIN
 
 - **`FACTORY;RESET` left the live webpage setting where it was.** The wipe removed

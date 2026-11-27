@@ -3,7 +3,7 @@
 > Owner-at-the-bench sheets. Test order per standing rule: physical remote first — EXCEPT this
 > car, until O-3 (remote pairing update for `4WD4M Car`) lands → app-first for round 1.
 
-## 2026-11-27 round — U-143: reset restores the webpage setting; boot row respects AUTOJOIN (flash **1.3.23** — DEVICE VERIFY PENDING)
+## 2026-11-27 round — U-143: reset restores the webpage setting; boot row respects AUTOJOIN (flash **1.3.24** — DEVICE VERIFY PENDING)
 
 > Written 2026-11-27 from the owner's rule *"reset everything to the default ones"*
 > and *"show the last saved router only if remember-last-router is on"*. Source-traced
@@ -22,7 +22,7 @@
       again: this time it must name the saved router while joining, then settle on
       the joined SSID. A healthy router is required for the second half.
 
-## 2026-11-27 round — U-142: a stalled SPP socket is noticed and recovered (written for **1.3.22**; run on **1.3.23** — DEVICE VERIFY PENDING)
+## 2026-11-27 round — U-142: a stalled SPP socket is noticed and recovered (written for **1.3.22**; run on **1.3.24** — DEVICE VERIFY PENDING)
 
 > Written 2026-11-27 from the owner's bench report *"it connects the first cycle
 > or one time and then doesn't respond properly"*. Source-traced against this
@@ -48,7 +48,7 @@
 - [ ] **U-142-5 — the car names the live owner and the capacity.** With Bluetooth
       connected `/status` reads `"link_owner":"bt"` and `"link_cap":0` (the other
       method is paused, not broken). After U-142-2 it reads `"both"` / `1`.
-- [ ] **U-142-6 — the flash is identifiable.** `/status` `"fw"` reads `1.3.23` (and
+- [ ] **U-142-6 — the flash is identifiable.** `/status` `"fw"` reads `1.3.24` (and
       the OLED header agrees). If it reads anything else the flash did not take and
       U-142-1..5 are not testing this build.
 

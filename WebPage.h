@@ -12,8 +12,7 @@
 // strip shows Status / Mode / Conn (RSSI/uptime/heap dropped per owner);
 // the ONLY speed readout sits beside the big slider (the duplicate id="speed"
 // meant the WS update hit the first element — the slider span never moved).
-// T-42: ESP_CLI stays "work in progress" on the page. T-43: title matches the
-// folder-derived project name.
+// T-43: title matches the project name.
 // ROUND-6: added Uptime / Heap / SSID back to the info strip (JSON already
 // carried uptime_ms, free_heap, ssid); saved-router <select> now diff-rebuilds
 // (no flicker while the list or the page is focused); slider keeps its 100..255
